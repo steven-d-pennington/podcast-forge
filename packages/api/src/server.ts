@@ -1,7 +1,7 @@
-import Fastify from 'fastify';
+import { buildApp } from './app.js';
 
-const app = Fastify({ logger: true });
+const app = buildApp({ logger: true });
+const port = Number(process.env.PORT || 3450);
+const host = process.env.HOST || '0.0.0.0';
 
-app.get('/health', async () => ({ ok: true, service: 'podcast-forge-api' }));
-
-app.listen({ port: Number(process.env.PORT || 3450), host: '0.0.0.0' });
+await app.listen({ port, host });

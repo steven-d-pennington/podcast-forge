@@ -25,3 +25,31 @@ Planning/scaffold phase. See:
 ## Working title
 
 Podcast Forge. Alternatives: CastForge, Episode Foundry, SignalCast Studio.
+
+## Config validation
+
+The API package can validate Podcast Forge JSON configs against
+[`schemas/podcast-forge.config.schema.json`](schemas/podcast-forge.config.schema.json).
+
+Run the config checks:
+
+```sh
+npm run test:config --workspace @podcast-forge/api
+npm run check
+```
+
+Start the API:
+
+```sh
+npm run dev --workspace @podcast-forge/api
+```
+
+Available config endpoints:
+
+- `GET /health` returns API health.
+- `GET /config/example` returns the bundled Synthetic Lens example config.
+- `POST /config/validate` accepts a JSON config body and returns `{ "ok": true }`
+  or `{ "ok": false, "errors": [...] }`.
+- `GET /config?path=./config/examples/the-synthetic-lens.json` loads and
+  validates a config file path. Leading `~/` is expanded, and relative paths
+  resolve from the API process working directory.

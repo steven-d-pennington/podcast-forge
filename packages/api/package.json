@@ -1,1 +1,20 @@
-{"name":"@podcast-forge/api","version":"0.0.0","type":"module","scripts":{"dev":"tsx src/server.ts","check":"tsc --noEmit"},"dependencies":{"fastify":"latest","zod":"latest"},"devDependencies":{"tsx":"latest","typescript":"latest"}}
+{
+  "name": "@podcast-forge/api",
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --import tsx src/server.ts",
+    "test:config": "node --import tsx --test src/*.test.ts src/**/*.test.ts",
+    "check": "tsc --noEmit && npm run test:config"
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "fastify": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "tsx": "latest",
+    "typescript": "latest"
+  }
+}
