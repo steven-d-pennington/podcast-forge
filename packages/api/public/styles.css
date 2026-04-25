@@ -209,6 +209,26 @@ textarea {
   grid-column: 1 / -1;
 }
 
+.script-generate {
+  align-items: end;
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: minmax(220px, 1fr) minmax(160px, 220px) auto;
+  margin-bottom: 1rem;
+}
+
+.script-workspace {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+}
+
+.script-editor {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
 .query-card {
   border: 1px solid #d8dde5;
   border-radius: 8px;
@@ -243,6 +263,8 @@ textarea {
   .grid,
   .grid.two,
   .manual-form,
+  .script-generate,
+  .script-workspace,
   .new-query,
   .query-card .query-grid {
     grid-template-columns: 1fr;

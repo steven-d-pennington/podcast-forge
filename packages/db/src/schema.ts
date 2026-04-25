@@ -208,6 +208,40 @@ export const researchPackets = pgTable('research_packets', {
   showStatusIdx: index('research_packets_show_status_idx').on(table.showId, table.status)
 }));
 
+export const scripts = pgTable('scripts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  showId: uuid('show_id').notNull().references(() => shows.id, { onDelete: 'cascade' }),
+  researchPacketId: uuid('research_packet_id').notNull().references(() => researchPackets.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  format: text('format').notNull(),
+  status: text('status').notNull().default('draft'),
+  approvedRevisionId: uuid('approved_revision_id'),
+  approvedAt: timestamp('approved_at', { withTimezone: true }),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+  ...timestamps
+}, (table) => ({
+  packetIdx: index('scripts_research_packet_idx').on(table.researchPacketId),
+  showStatusIdx: index('scripts_show_status_idx').on(table.showId, table.status)
+}));
+
+export const scriptRevisions = pgTable('script_revisions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  scriptId: uuid('script_id').notNull().references(() => scripts.id, { onDelete: 'cascade' }),
+  version: integer('version').notNull(),
+  title: text('title').notNull(),
+  body: text('body').notNull(),
+  format: text('format').notNull(),
+  speakers: jsonb('speakers').$type<string[]>().notNull().default([]),
+  author: text('author').notNull().default('local-user'),
+  changeSummary: text('change_summary'),
+  modelProfile: jsonb('model_profile').$type<Record<string, unknown>>().notNull().default({}),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({
+  scriptVersionIdx: uniqueIndex('script_revisions_script_version_idx').on(table.scriptId, table.version),
+  scriptIdx: index('script_revisions_script_idx').on(table.scriptId)
+}));
+
 export const episodes = pgTable('episodes', {
   id: uuid('id').primaryKey().defaultRandom(),
   showId: uuid('show_id').notNull().references(() => shows.id, { onDelete: 'cascade' }),

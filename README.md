@@ -201,3 +201,46 @@ Research endpoints:
 - `POST /story-candidates/:id/research-packet`
 - `GET /research-packets/:id`
 - `POST /research-packets/:id/override-warning`
+
+## Script generation workflow
+
+Research packets can produce deterministic editable script drafts. The
+`script.generate` job resolves the show-specific `script_writer` model profile
+and records that routing in the job input/output and initial script revision,
+but it does not call an external LLM yet. Drafts are generated from packet
+claims, citations, warnings, the show format, and the configured show cast.
+
+Generate a script from a research packet:
+
+```sh
+curl -X POST http://localhost:3450/research-packets/:id/script \
+  -H 'content-type: application/json' \
+  -d '{"format":"feature-analysis","actor":"editor@example.com"}'
+```
+
+Human edits are saved as new immutable revisions instead of silently
+overwriting the previous body. Speaker labels such as `DAVID:` must match a
+configured cast member for the show.
+
+```sh
+curl -X POST http://localhost:3450/scripts/:id/revisions \
+  -H 'content-type: application/json' \
+  -d '{"body":"DAVID: Revised opening.","actor":"editor@example.com"}'
+
+curl -X POST http://localhost:3450/scripts/:id/revisions/:revisionId/approve-for-audio \
+  -H 'content-type: application/json' \
+  -d '{"actor":"producer@example.com","reason":"Ready for audio preview."}'
+```
+
+Script endpoints:
+
+- `POST /research-packets/:id/script`
+- `GET /scripts?showSlug=the-synthetic-lens`
+- `GET /scripts/:id`
+- `GET /scripts/:id/revisions`
+- `POST /scripts/:id/revisions`
+- `POST /scripts/:id/revisions/:revisionId/approve-for-audio`
+
+The local UI at `http://localhost:3450/ui` includes a script review panel where
+editors can paste a research packet ID, generate a draft, edit the latest
+revision, and approve it for audio.

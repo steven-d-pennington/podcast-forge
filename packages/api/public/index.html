@@ -130,6 +130,43 @@
           </form>
           <div id="queryList" class="query-list"></div>
         </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Scripts</h2>
+              <p id="scriptMeta"></p>
+            </div>
+          </div>
+          <form id="scriptGenerateForm" class="script-generate">
+            <label class="field">
+              <span>Research packet ID</span>
+              <input id="scriptResearchPacketId" type="text" required>
+            </label>
+            <label class="field">
+              <span>Format</span>
+              <input id="scriptFormat" type="text" placeholder="feature-analysis">
+            </label>
+            <button type="submit">Generate Script</button>
+          </form>
+          <div class="script-workspace">
+            <div id="scriptList" class="list"></div>
+            <form id="scriptEditForm" class="script-editor" hidden>
+              <label class="field">
+                <span>Title</span>
+                <input id="scriptTitle" type="text" required>
+              </label>
+              <label class="field">
+                <span>Body</span>
+                <textarea id="scriptBody" rows="16" required></textarea>
+              </label>
+              <div class="actions">
+                <button id="approveScript" class="secondary" type="button">Approve for Audio</button>
+                <button type="submit">Save New Revision</button>
+              </div>
+            </form>
+          </div>
+        </section>
       </section>
     </main>
 

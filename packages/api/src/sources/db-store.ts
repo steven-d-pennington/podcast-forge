@@ -5,6 +5,8 @@ import {
   jobs,
   modelProfiles,
   researchPackets,
+  scriptRevisions,
+  scripts,
   shows,
   sourceDocuments,
   sourceProfiles,
@@ -33,6 +35,15 @@ import type {
   ResearchWarning,
   SourceDocumentRecord,
 } from '../research/store.js';
+import type {
+  ApproveScriptRevisionInput,
+  CreateScriptRevisionInput,
+  CreateScriptWithRevisionInput,
+  ListScriptsFilter,
+  ScriptRecord,
+  ScriptRevisionRecord,
+  ScriptStore,
+} from '../scripts/store.js';
 import { isModelRole } from '../models/roles.js';
 import type {
   CreateModelProfileInput,
@@ -85,6 +96,20 @@ function asResearchWarnings(value: unknown): ResearchWarning[] {
   }) : [];
 }
 
+function asCast(value: unknown): Array<{ name: string; role?: string; voice: string }> {
+  return Array.isArray(value) ? value.filter((item): item is { name: string; role?: string; voice: string } => {
+    return Boolean(
+      item
+      && typeof item === 'object'
+      && !Array.isArray(item)
+      && 'name' in item
+      && typeof item.name === 'string'
+      && 'voice' in item
+      && typeof item.voice === 'string',
+    );
+  }) : [];
+}
+
 function toJsonRecords<T extends object>(values: T[]): Array<Record<string, unknown>> {
   return values.map((value) => value as unknown as Record<string, unknown>);
 }
@@ -95,6 +120,10 @@ function mapShow(row: typeof shows.$inferSelect): ShowRecord {
     slug: row.slug,
     title: row.title,
     description: row.description,
+    format: row.format,
+    defaultRuntimeMinutes: row.defaultRuntimeMinutes,
+    cast: asCast(row.cast),
+    settings: asJsonObject(row.settings),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -222,6 +251,39 @@ function mapResearchPacket(row: typeof researchPackets.$inferSelect): ResearchPa
   };
 }
 
+function mapScript(row: typeof scripts.$inferSelect): ScriptRecord {
+  return {
+    id: row.id,
+    showId: row.showId,
+    researchPacketId: row.researchPacketId,
+    title: row.title,
+    format: row.format,
+    status: row.status,
+    approvedRevisionId: row.approvedRevisionId,
+    approvedAt: row.approvedAt,
+    metadata: asJsonObject(row.metadata),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function mapScriptRevision(row: typeof scriptRevisions.$inferSelect): ScriptRevisionRecord {
+  return {
+    id: row.id,
+    scriptId: row.scriptId,
+    version: row.version,
+    title: row.title,
+    body: row.body,
+    format: row.format,
+    speakers: asStringArray(row.speakers),
+    author: row.author,
+    changeSummary: row.changeSummary,
+    modelProfile: asJsonObject(row.modelProfile),
+    metadata: asJsonObject(row.metadata),
+    createdAt: row.createdAt,
+  };
+}
+
 function mapModelProfile(row: typeof modelProfiles.$inferSelect): ModelProfileRecord {
   if (!isModelRole(row.role)) {
     throw new Error(`Unknown model profile role in database: ${row.role}`);
@@ -266,7 +328,7 @@ function queryConfig(input: CreateSourceQueryInput | UpdateSourceQueryInput, cur
   return config;
 }
 
-export function createDbSourceStore(connectionString = process.env.DATABASE_URL): SourceStore & SearchJobStore & ResearchStore & ModelProfileStore {
+export function createDbSourceStore(connectionString = process.env.DATABASE_URL): SourceStore & SearchJobStore & ResearchStore & ModelProfileStore & ScriptStore {
   const { db, pool } = createDb(connectionString);
 
   return {
@@ -645,6 +707,150 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
         .returning();
 
       return row ? mapResearchPacket(row) : undefined;
+    },
+
+    async createScriptWithRevision(input: CreateScriptWithRevisionInput) {
+      return db.transaction(async (tx) => {
+        const [scriptRow] = await tx.insert(scripts).values({
+          showId: input.showId,
+          researchPacketId: input.researchPacketId,
+          title: input.title,
+          format: input.format,
+          status: 'draft',
+          metadata: input.metadata,
+        }).returning();
+        const [revisionRow] = await tx.insert(scriptRevisions).values({
+          scriptId: scriptRow.id,
+          version: 1,
+          title: input.revision.title,
+          body: input.revision.body,
+          format: input.revision.format,
+          speakers: input.revision.speakers,
+          author: input.revision.author,
+          changeSummary: input.revision.changeSummary,
+          modelProfile: input.revision.modelProfile,
+          metadata: input.revision.metadata,
+        }).returning();
+
+        return {
+          script: mapScript(scriptRow),
+          revision: mapScriptRevision(revisionRow),
+        };
+      });
+    },
+
+    async listScripts(filter: ListScriptsFilter = {}) {
+      let showId = filter.showId;
+
+      if (!showId && filter.showSlug) {
+        const [show] = await db.select().from(shows).where(eq(shows.slug, filter.showSlug)).limit(1);
+
+        if (!show) {
+          return [];
+        }
+
+        showId = show.id;
+      }
+
+      const showWhere = showId ? eq(scripts.showId, showId) : undefined;
+      const packetWhere = filter.researchPacketId ? eq(scripts.researchPacketId, filter.researchPacketId) : undefined;
+      const where = showWhere && packetWhere ? and(showWhere, packetWhere) : showWhere ?? packetWhere;
+      const rows = where
+        ? await db.select().from(scripts).where(where).orderBy(desc(scripts.updatedAt)).limit(filter.limit ?? 50)
+        : await db.select().from(scripts).orderBy(desc(scripts.updatedAt)).limit(filter.limit ?? 50);
+
+      return rows.map(mapScript);
+    },
+
+    async getScript(id: string) {
+      const [row] = await db.select().from(scripts).where(eq(scripts.id, id)).limit(1);
+      return row ? mapScript(row) : undefined;
+    },
+
+    async listScriptRevisions(scriptId: string) {
+      const rows = await db.select()
+        .from(scriptRevisions)
+        .where(eq(scriptRevisions.scriptId, scriptId))
+        .orderBy(desc(scriptRevisions.version));
+
+      return rows.map(mapScriptRevision);
+    },
+
+    async getScriptRevision(id: string) {
+      const [row] = await db.select().from(scriptRevisions).where(eq(scriptRevisions.id, id)).limit(1);
+      return row ? mapScriptRevision(row) : undefined;
+    },
+
+    async createScriptRevision(scriptId: string, input: CreateScriptRevisionInput) {
+      const current = await this.getScript(scriptId);
+
+      if (!current) {
+        return undefined;
+      }
+
+      const revisions = await this.listScriptRevisions(scriptId);
+      const version = Math.max(0, ...revisions.map((revision) => revision.version)) + 1;
+      const [revisionRow] = await db.insert(scriptRevisions).values({
+        scriptId,
+        version,
+        title: input.title,
+        body: input.body,
+        format: input.format,
+        speakers: input.speakers,
+        author: input.author,
+        changeSummary: input.changeSummary,
+        modelProfile: input.modelProfile,
+        metadata: input.metadata,
+      }).returning();
+      const [scriptRow] = await db.update(scripts)
+        .set({
+          title: input.title,
+          format: input.format,
+          status: 'draft',
+          approvedRevisionId: null,
+          approvedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(scripts.id, scriptId))
+        .returning();
+
+      return {
+        script: mapScript(scriptRow),
+        revision: mapScriptRevision(revisionRow),
+      };
+    },
+
+    async approveScriptRevision(scriptId: string, revisionId: string, input: ApproveScriptRevisionInput) {
+      const revision = await this.getScriptRevision(revisionId);
+
+      if (!revision || revision.scriptId !== scriptId) {
+        return undefined;
+      }
+
+      const approvedAt = new Date();
+      await db.insert(approvalEvents).values({
+        researchPacketId: null,
+        action: 'approve',
+        gate: 'script-audio',
+        actor: input.actor,
+        reason: input.reason,
+        metadata: {
+          scriptId,
+          revisionId,
+          version: revision.version,
+        },
+      });
+      const [row] = await db.update(scripts)
+        .set({
+          status: 'approved-for-audio',
+          approvedRevisionId: revisionId,
+          approvedAt,
+          updatedAt: approvedAt,
+        })
+        .where(eq(scripts.id, scriptId))
+        .returning();
+
+      return row ? mapScript(row) : undefined;
     },
 
     async close() {

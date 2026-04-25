@@ -2,6 +2,10 @@ const state = {
   shows: [],
   profiles: [],
   queries: [],
+  scripts: [],
+  selectedScriptId: '',
+  selectedScript: null,
+  selectedRevision: null,
   selectedShowSlug: '',
   selectedProfileId: '',
 };
@@ -34,6 +38,15 @@ const els = {
   newQueryForm: document.querySelector('#newQueryForm'),
   newQueryText: document.querySelector('#newQueryText'),
   queryList: document.querySelector('#queryList'),
+  scriptMeta: document.querySelector('#scriptMeta'),
+  scriptGenerateForm: document.querySelector('#scriptGenerateForm'),
+  scriptResearchPacketId: document.querySelector('#scriptResearchPacketId'),
+  scriptFormat: document.querySelector('#scriptFormat'),
+  scriptList: document.querySelector('#scriptList'),
+  scriptEditForm: document.querySelector('#scriptEditForm'),
+  scriptTitle: document.querySelector('#scriptTitle'),
+  scriptBody: document.querySelector('#scriptBody'),
+  approveScript: document.querySelector('#approveScript'),
 };
 
 function setStatus(message) {
@@ -208,11 +221,46 @@ function renderQueries() {
   }
 }
 
+function renderScripts() {
+  els.scriptList.innerHTML = '';
+  els.scriptMeta.textContent = `${state.scripts.length} script${state.scripts.length === 1 ? '' : 's'} for this show`;
+
+  if (state.scripts.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No scripts generated yet.';
+    els.scriptList.append(empty);
+  }
+
+  for (const script of state.scripts) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `profile-button${script.id === state.selectedScriptId ? ' active' : ''}`;
+    button.innerHTML = `<strong></strong><span></span>`;
+    button.querySelector('strong').textContent = script.title;
+    button.querySelector('span').textContent = `${script.format} | ${script.status} | updated ${new Date(script.updatedAt).toLocaleString()}`;
+    button.addEventListener('click', async () => {
+      await loadScript(script.id);
+      render();
+    });
+    els.scriptList.append(button);
+  }
+
+  els.scriptEditForm.hidden = !state.selectedScript || !state.selectedRevision;
+
+  if (state.selectedScript && state.selectedRevision) {
+    els.scriptTitle.value = state.selectedRevision.title;
+    els.scriptBody.value = state.selectedRevision.body;
+    els.approveScript.disabled = state.selectedScript.approvedRevisionId === state.selectedRevision.id;
+  }
+}
+
 function render() {
   renderShows();
   renderProfiles();
   renderProfileForm();
   renderQueries();
+  renderScripts();
 }
 
 async function loadShows() {
@@ -246,6 +294,37 @@ async function loadQueries() {
   state.queries = body.sourceQueries;
 }
 
+async function loadScripts() {
+  if (!state.selectedShowSlug) {
+    state.scripts = [];
+    state.selectedScriptId = '';
+    state.selectedScript = null;
+    state.selectedRevision = null;
+    return;
+  }
+
+  const body = await api(`/scripts?showSlug=${encodeURIComponent(state.selectedShowSlug)}`);
+  state.scripts = body.scripts;
+
+  if (!state.scripts.some((script) => script.id === state.selectedScriptId)) {
+    state.selectedScriptId = state.scripts[0]?.id || '';
+  }
+
+  if (state.selectedScriptId) {
+    await loadScript(state.selectedScriptId);
+  } else {
+    state.selectedScript = null;
+    state.selectedRevision = null;
+  }
+}
+
+async function loadScript(id) {
+  const body = await api(`/scripts/${id}`);
+  state.selectedScriptId = id;
+  state.selectedScript = body.script;
+  state.selectedRevision = body.latestRevision || null;
+}
+
 async function loadAll() {
   try {
     els.refresh.disabled = true;
@@ -253,6 +332,7 @@ async function loadAll() {
     await loadShows();
     await loadProfiles();
     await loadQueries();
+    await loadScripts();
     render();
     setStatus('Source profiles loaded.');
   } catch (error) {
@@ -396,17 +476,87 @@ async function deleteQuery(id) {
   setStatus('Query deleted.');
 }
 
+async function generateScript(event) {
+  event.preventDefault();
+  const researchPacketId = els.scriptResearchPacketId.value.trim();
+
+  if (!researchPacketId) {
+    return;
+  }
+
+  const body = await api(`/research-packets/${researchPacketId}/script`, {
+    method: 'POST',
+    body: JSON.stringify({
+      format: els.scriptFormat.value.trim() || undefined,
+      actor: 'local-user',
+    }),
+  });
+  state.scripts = [body.script, ...state.scripts.filter((script) => script.id !== body.script.id)];
+  state.selectedScriptId = body.script.id;
+  state.selectedScript = body.script;
+  state.selectedRevision = body.revision;
+  els.scriptResearchPacketId.value = '';
+  render();
+  setStatus(`Generated script revision ${body.revision.version}.`);
+}
+
+async function saveScriptRevision(event) {
+  event.preventDefault();
+
+  if (!state.selectedScript) {
+    return;
+  }
+
+  const body = await api(`/scripts/${state.selectedScript.id}/revisions`, {
+    method: 'POST',
+    body: JSON.stringify({
+      title: els.scriptTitle.value.trim(),
+      body: els.scriptBody.value.trim(),
+      actor: 'local-user',
+      changeSummary: 'Edited in local UI.',
+    }),
+  });
+  state.scripts = [body.script, ...state.scripts.filter((script) => script.id !== body.script.id)];
+  state.selectedScript = body.script;
+  state.selectedRevision = body.revision;
+  render();
+  setStatus(`Saved script revision ${body.revision.version}.`);
+}
+
+async function approveSelectedScript() {
+  if (!state.selectedScript || !state.selectedRevision) {
+    return;
+  }
+
+  const body = await api(`/scripts/${state.selectedScript.id}/revisions/${state.selectedRevision.id}/approve-for-audio`, {
+    method: 'POST',
+    body: JSON.stringify({
+      actor: 'local-user',
+      reason: 'Approved in local UI.',
+    }),
+  });
+  state.scripts = state.scripts.map((script) => script.id === body.script.id ? body.script : script);
+  state.selectedScript = body.script;
+  render();
+  setStatus('Script approved for audio.');
+}
+
 els.refresh.addEventListener('click', loadAll);
 els.showSelect.addEventListener('change', async () => {
   state.selectedShowSlug = els.showSelect.value;
   state.selectedProfileId = '';
+  state.selectedScriptId = '';
   await loadProfiles();
   await loadQueries();
+  await loadScripts();
   render();
 });
 els.profileForm.addEventListener('submit', saveProfile);
 els.ingestProfile.addEventListener('click', ingestSelectedProfile);
 els.manualForm.addEventListener('submit', submitManualUrl);
 els.newQueryForm.addEventListener('submit', createQuery);
+els.scriptGenerateForm.addEventListener('submit', generateScript);
+els.scriptEditForm.addEventListener('submit', saveScriptRevision);
+els.approveScript.addEventListener('click', approveSelectedScript);
 
 await loadAll();

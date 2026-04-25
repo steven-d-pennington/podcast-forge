@@ -5,6 +5,10 @@ export interface ShowRecord {
   slug: string;
   title: string;
   description: string | null;
+  format: string | null;
+  defaultRuntimeMinutes: number | null;
+  cast: Array<{ name: string; role?: string; voice: string }>;
+  settings: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
 }

@@ -19,6 +19,15 @@ import type {
   ResearchStore,
   SourceDocumentRecord,
 } from '../research/store.js';
+import type {
+  ApproveScriptRevisionInput,
+  CreateScriptRevisionInput,
+  CreateScriptWithRevisionInput,
+  ListScriptsFilter,
+  ScriptRecord,
+  ScriptRevisionRecord,
+  ScriptStore,
+} from '../scripts/store.js';
 import type { BraveFetch } from '../search/brave.js';
 import type { RssFetch } from '../search/rss.js';
 import type {
@@ -42,12 +51,20 @@ import type {
   UpdateSourceQueryInput,
 } from './store.js';
 
-class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, ModelProfileStore {
+class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, ModelProfileStore, ScriptStore {
   shows: ShowRecord[] = [{
     id: '11111111-1111-4111-8111-111111111111',
     slug: 'the-synthetic-lens',
     title: 'The Synthetic Lens',
     description: 'AI news',
+    format: 'feature-analysis',
+    defaultRuntimeMinutes: 8,
+    cast: [
+      { name: 'DAVID', role: 'host', voice: 'Orus' },
+      { name: 'MARCUS', role: 'analyst', voice: 'Charon' },
+      { name: 'INGRID', role: 'correspondent', voice: 'Leda' },
+    ],
+    settings: {},
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
   }];
@@ -78,6 +95,8 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
   candidates: StoryCandidateRecord[] = [];
   sourceDocuments: SourceDocumentRecord[] = [];
   researchPackets: ResearchPacketRecord[] = [];
+  scripts: ScriptRecord[] = [];
+  scriptRevisions: ScriptRevisionRecord[] = [];
   modelProfiles: ModelProfileRecord[] = [
     this.modelProfileRecord('candidate_scorer', 'google-vertex', 'gemini-2.5-flash'),
     this.modelProfileRecord('source_summarizer', 'google-vertex', 'gemini-2.5-flash'),
@@ -370,6 +389,107 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
     return packet;
   }
 
+  async createScriptWithRevision(input: CreateScriptWithRevisionInput) {
+    const script: ScriptRecord = {
+      id: `script-${this.scripts.length + 1}`,
+      showId: input.showId,
+      researchPacketId: input.researchPacketId,
+      title: input.title,
+      format: input.format,
+      status: 'draft',
+      approvedRevisionId: null,
+      approvedAt: null,
+      metadata: input.metadata,
+      createdAt: new Date('2026-01-04T00:00:00Z'),
+      updatedAt: new Date('2026-01-04T00:00:00Z'),
+    };
+    const revision: ScriptRevisionRecord = {
+      id: `script-revision-${this.scriptRevisions.length + 1}`,
+      scriptId: script.id,
+      version: 1,
+      ...input.revision,
+      createdAt: new Date('2026-01-04T00:00:00Z'),
+    };
+    this.scripts.push(script);
+    this.scriptRevisions.push(revision);
+    return { script, revision };
+  }
+
+  async listScripts(filter: ListScriptsFilter = {}) {
+    const show = filter.showSlug ? this.shows.find((candidate) => candidate.slug === filter.showSlug) : undefined;
+    const showId = filter.showId ?? show?.id;
+
+    return this.scripts
+      .filter((script) => (!showId || script.showId === showId)
+        && (!filter.researchPacketId || script.researchPacketId === filter.researchPacketId))
+      .slice(0, filter.limit ?? 50);
+  }
+
+  async getScript(id: string) {
+    return this.scripts.find((script) => script.id === id);
+  }
+
+  async listScriptRevisions(scriptId: string) {
+    return this.scriptRevisions
+      .filter((revision) => revision.scriptId === scriptId)
+      .sort((left, right) => right.version - left.version);
+  }
+
+  async getScriptRevision(id: string) {
+    return this.scriptRevisions.find((revision) => revision.id === id);
+  }
+
+  async createScriptRevision(scriptId: string, input: CreateScriptRevisionInput) {
+    const script = await this.getScript(scriptId);
+
+    if (!script) {
+      return undefined;
+    }
+
+    const version = Math.max(0, ...this.scriptRevisions
+      .filter((revision) => revision.scriptId === scriptId)
+      .map((revision) => revision.version)) + 1;
+    const revision: ScriptRevisionRecord = {
+      id: `script-revision-${this.scriptRevisions.length + 1}`,
+      scriptId,
+      version,
+      ...input,
+      createdAt: new Date('2026-01-05T00:00:00Z'),
+    };
+    this.scriptRevisions.push(revision);
+    Object.assign(script, {
+      title: input.title,
+      format: input.format,
+      status: 'draft',
+      approvedRevisionId: null,
+      approvedAt: null,
+      updatedAt: new Date('2026-01-05T00:00:00Z'),
+    });
+    return { script, revision };
+  }
+
+  async approveScriptRevision(scriptId: string, revisionId: string, input: ApproveScriptRevisionInput) {
+    const script = await this.getScript(scriptId);
+    const revision = await this.getScriptRevision(revisionId);
+
+    if (!script || !revision || revision.scriptId !== scriptId) {
+      return undefined;
+    }
+
+    Object.assign(script, {
+      status: 'approved-for-audio',
+      approvedRevisionId: revisionId,
+      approvedAt: new Date('2026-01-06T00:00:00Z'),
+      metadata: {
+        ...script.metadata,
+        approvalActor: input.actor,
+        approvalReason: input.reason,
+      },
+      updatedAt: new Date('2026-01-06T00:00:00Z'),
+    });
+    return script;
+  }
+
   private queryRecord(id: string, query: string, enabled: boolean): SourceQueryRecord {
     return {
       id,
@@ -522,6 +642,8 @@ describe('source profile routes', () => {
     store.candidates = [];
     store.sourceDocuments = [];
     store.researchPackets = [];
+    store.scripts = [];
+    store.scriptRevisions = [];
     store.modelProfiles = new FakeSourceStore().modelProfiles;
     requestedUrls = [];
     requestedRssUrls = [];
@@ -861,6 +983,143 @@ describe('source profile routes', () => {
 
     assert.equal(packetResponse.statusCode, 201);
     assert.ok(warnings.some((warning) => warning.code === 'INSUFFICIENT_INDEPENDENT_SOURCES'));
+  });
+
+  it('generates a TSL feature-analysis script from a research packet', async () => {
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/story-candidates/manual',
+      payload: {
+        showSlug: 'the-synthetic-lens',
+        url: 'https://manual.example.com/news/script-story',
+        title: 'Script Story',
+        summary: 'A selected script story needs a feature analysis.',
+      },
+    });
+    const candidate = createResponse.json().candidate as StoryCandidateRecord;
+    const packetResponse = await app.inject({
+      method: 'POST',
+      url: `/story-candidates/${candidate.id}/research-packet`,
+      payload: {
+        extraUrls: ['https://independent.example.net/script-story'],
+      },
+    });
+    const packet = packetResponse.json().researchPacket as ResearchPacketRecord;
+
+    const scriptResponse = await app.inject({
+      method: 'POST',
+      url: `/research-packets/${packet.id}/script`,
+      payload: {
+        actor: 'editor@example.com',
+      },
+    });
+    const body = scriptResponse.json();
+
+    assert.equal(scriptResponse.statusCode, 201);
+    assert.equal(body.job.type, 'script.generate');
+    assert.equal(body.job.status, 'succeeded');
+    assert.equal(body.job.input.modelProfile.role, 'script_writer');
+    assert.equal(body.script.format, 'feature-analysis');
+    assert.equal(body.script.researchPacketId, packet.id);
+    assert.equal(body.revision.version, 1);
+    assert.deepEqual(body.revision.speakers, ['DAVID', 'INGRID', 'MARCUS']);
+    assert.match(body.revision.body, /DAVID: This is The Synthetic Lens/);
+    assert.match(body.revision.body, /MARCUS: What remains uncertain/);
+
+    const listResponse = await app.inject({
+      method: 'GET',
+      url: `/scripts?showSlug=the-synthetic-lens&researchPacketId=${packet.id}`,
+    });
+
+    assert.equal(listResponse.statusCode, 200);
+    assert.equal(listResponse.json().scripts.length, 1);
+  });
+
+  it('rejects human script edits with speaker labels outside the show cast', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Speaker Validation Story',
+      status: 'approved',
+      sourceDocumentIds: [],
+      claims: [{ id: 'claim-1', text: 'A sourced claim exists.', sourceDocumentIds: [], citationUrls: ['https://example.com'] }],
+      citations: [],
+      warnings: [],
+      content: { summary: 'A packet summary.' },
+    });
+    const scriptResponse = await app.inject({
+      method: 'POST',
+      url: `/research-packets/${packet.id}/script`,
+    });
+    const script = scriptResponse.json().script as ScriptRecord;
+
+    const editResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${script.id}/revisions`,
+      payload: {
+        body: 'BOGUS: This speaker is not in the show cast.',
+        actor: 'editor@example.com',
+      },
+    });
+    const body = editResponse.json();
+
+    assert.equal(editResponse.statusCode, 400);
+    assert.equal(body.code, 'INVALID_SCRIPT_SPEAKER');
+    assert.match(body.error, /BOGUS/);
+    assert.equal(store.scriptRevisions.length, 1);
+  });
+
+  it('creates a new revision for human edits and approves that revision for audio', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Revision Story',
+      status: 'approved',
+      sourceDocumentIds: [],
+      claims: [{ id: 'claim-1', text: 'A revision claim exists.', sourceDocumentIds: [], citationUrls: ['https://example.com/revision'] }],
+      citations: [],
+      warnings: [],
+      content: { summary: 'A packet summary for revision testing.' },
+    });
+    const scriptResponse = await app.inject({
+      method: 'POST',
+      url: `/research-packets/${packet.id}/script`,
+    });
+    const initial = scriptResponse.json();
+
+    const editResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions`,
+      payload: {
+        title: 'Edited Revision Story Script',
+        body: 'DAVID: A human editor rewrote this opening.\nMARCUS: The analysis remains tied to sourced claims.',
+        actor: 'editor@example.com',
+        changeSummary: 'Tightened the opening.',
+      },
+    });
+    const edited = editResponse.json();
+
+    assert.equal(editResponse.statusCode, 201);
+    assert.equal(edited.revision.version, 2);
+    assert.equal(edited.revision.author, 'editor@example.com');
+    assert.equal(edited.script.title, 'Edited Revision Story Script');
+    assert.notEqual(edited.revision.id, initial.revision.id);
+    assert.match(store.scriptRevisions[0].body, /This is The Synthetic Lens/);
+
+    const approveResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${edited.script.id}/revisions/${edited.revision.id}/approve-for-audio`,
+      payload: {
+        actor: 'producer@example.com',
+        reason: 'Ready for deterministic audio preview.',
+      },
+    });
+    const approved = approveResponse.json().script as ScriptRecord;
+
+    assert.equal(approveResponse.statusCode, 200);
+    assert.equal(approved.status, 'approved-for-audio');
+    assert.equal(approved.approvedRevisionId, edited.revision.id);
+    assert.ok(approved.approvedAt);
   });
 
   it('returns validation errors for invalid payloads', async () => {
