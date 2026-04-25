@@ -3,6 +3,7 @@ import { after, beforeEach, describe, it } from 'node:test';
 
 import { buildApp } from '../app.js';
 import type { BraveFetch } from '../search/brave.js';
+import type { RssFetch } from '../search/rss.js';
 import type {
   CandidateDedupeKey,
   CreateJobInput,
@@ -242,6 +243,7 @@ class FakeSourceStore implements SourceStore, SearchJobStore {
 
 let store = new FakeSourceStore();
 let requestedUrls: string[] = [];
+let requestedRssUrls: string[] = [];
 const braveFetch: BraveFetch = async (url) => {
   requestedUrls.push(url);
   return {
@@ -274,10 +276,37 @@ const braveFetch: BraveFetch = async (url) => {
     },
   };
 };
+const rssFetch: RssFetch = async (url) => {
+  requestedRssUrls.push(url);
+  return {
+    ok: true,
+    status: 200,
+    async text() {
+      return `<?xml version="1.0"?>
+        <rss version="2.0">
+          <channel>
+            <title>Example Feed</title>
+            <item>
+              <title>RSS model story</title>
+              <link>https://feeds.example.com/model-story?utm_source=rss#comments</link>
+              <description>Feed summary</description>
+              <pubDate>Fri, 02 Jan 2026 12:00:00 GMT</pubDate>
+            </item>
+            <item>
+              <title>OpenAI ships model</title>
+              <link>https://feeds.example.com/duplicate-title</link>
+              <description>Duplicate title across providers</description>
+            </item>
+          </channel>
+        </rss>`;
+    },
+  };
+};
 const app = buildApp({
   sourceStore: store,
   braveApiKey: 'test-brave-key',
   fetchImpl: braveFetch,
+  rssFetchImpl: rssFetch,
   sleep: async () => {},
 });
 
@@ -289,6 +318,7 @@ describe('source profile routes', () => {
     store.jobs = [];
     store.candidates = [];
     requestedUrls = [];
+    requestedRssUrls = [];
   });
 
   after(async () => {
@@ -441,6 +471,97 @@ describe('source profile routes', () => {
     });
     assert.equal(candidatesResponse.statusCode, 200);
     assert.equal(candidatesResponse.json().storyCandidates.length, 1);
+  });
+
+  it('ingests RSS source profiles and dedupes against existing candidates', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/source-profiles/22222222-2222-4222-8222-222222222222/search',
+    });
+
+    store.profiles.push({
+      id: '55555555-5555-4555-8555-555555555555',
+      showId: '11111111-1111-4111-8111-111111111111',
+      slug: 'ai-news-rss',
+      name: 'AI News RSS',
+      type: 'rss',
+      enabled: true,
+      weight: 1,
+      freshness: null,
+      includeDomains: [],
+      excludeDomains: [],
+      rateLimit: {},
+      config: {},
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+    });
+    store.queries.push({
+      id: '66666666-6666-4666-8666-666666666666',
+      sourceProfileId: '55555555-5555-4555-8555-555555555555',
+      query: 'https://feeds.example.com/rss.xml',
+      enabled: true,
+      weight: 1,
+      region: null,
+      language: null,
+      freshness: null,
+      includeDomains: [],
+      excludeDomains: [],
+      config: {},
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+    });
+
+    const ingestResponse = await app.inject({
+      method: 'POST',
+      url: '/source-profiles/55555555-5555-4555-8555-555555555555/ingest',
+    });
+    const ingestBody = ingestResponse.json();
+
+    assert.equal(ingestResponse.statusCode, 200);
+    assert.equal(ingestBody.job.type, 'source.ingest');
+    assert.equal(ingestBody.job.status, 'succeeded');
+    assert.equal(ingestBody.inserted, 1);
+    assert.equal(ingestBody.skipped, 1);
+    assert.equal(ingestBody.candidates[0].sourceProfileId, '55555555-5555-4555-8555-555555555555');
+    assert.equal(ingestBody.candidates[0].sourceQueryId, '66666666-6666-4666-8666-666666666666');
+    assert.equal(ingestBody.candidates[0].canonicalUrl, 'https://feeds.example.com/model-story');
+    assert.deepEqual(requestedRssUrls, ['https://feeds.example.com/rss.xml']);
+  });
+
+  it('submits manual URLs as candidates and dedupes canonical URLs', async () => {
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/story-candidates/manual',
+      payload: {
+        showSlug: 'the-synthetic-lens',
+        url: 'https://manual.example.com/news/agent-roundup?utm_campaign=test#top',
+        summary: 'Manual lead',
+      },
+    });
+    const createBody = createResponse.json();
+
+    assert.equal(createResponse.statusCode, 201);
+    assert.equal(createBody.inserted, true);
+    assert.equal(createBody.candidate.title, 'Agent Roundup');
+    assert.equal(createBody.candidate.canonicalUrl, 'https://manual.example.com/news/agent-roundup');
+    assert.equal(createBody.candidate.metadata.provider, 'manual');
+    assert.equal(createBody.candidate.sourceProfileId, null);
+
+    const duplicateResponse = await app.inject({
+      method: 'POST',
+      url: '/story-candidates/manual',
+      payload: {
+        showSlug: 'the-synthetic-lens',
+        url: 'https://manual.example.com/news/agent-roundup#comments',
+        title: 'Different title',
+      },
+    });
+    const duplicateBody = duplicateResponse.json();
+
+    assert.equal(duplicateResponse.statusCode, 200);
+    assert.equal(duplicateBody.inserted, false);
+    assert.equal(duplicateBody.reason, 'duplicate-url');
+    assert.equal(store.candidates.length, 1);
   });
 
   it('returns validation errors for invalid payloads', async () => {

@@ -199,6 +199,16 @@ textarea {
   margin-bottom: 1rem;
 }
 
+.manual-form {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: minmax(180px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr);
+}
+
+.manual-form .wide {
+  grid-column: 1 / -1;
+}
+
 .query-card {
   border: 1px solid #d8dde5;
   border-radius: 8px;
@@ -232,6 +242,7 @@ textarea {
   .layout,
   .grid,
   .grid.two,
+  .manual-form,
   .new-query,
   .query-card .query-grid {
     grid-template-columns: 1fr;

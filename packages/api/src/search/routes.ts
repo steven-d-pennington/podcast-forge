@@ -1,7 +1,10 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
+import { z, ZodError } from 'zod';
 
 import type { BraveFetch } from './brave.js';
-import { runSourceSearch } from './job.js';
+import { runSourceIngest, runSourceSearch } from './job.js';
+import { submitManualCandidate } from './manual.js';
+import { resolveRssFeedRefs, type RssFetch } from './rss.js';
 import type { SearchJobStore } from './store.js';
 import type { SourceStore } from '../sources/store.js';
 
@@ -19,10 +22,32 @@ export interface SearchRoutesOptions {
   getStore(): SourceStore & Partial<SearchJobStore>;
   braveApiKey?: string;
   fetchImpl?: BraveFetch;
+  rssFetchImpl?: RssFetch;
   sleep?: (ms: number) => Promise<void>;
 }
 
+const manualCandidateSchema = z.object({
+  showId: z.string().uuid().optional(),
+  showSlug: z.string().trim().min(1).optional(),
+  url: z.string().trim().url(),
+  title: z.string().trim().min(1).optional(),
+  summary: z.string().trim().min(1).optional(),
+  sourceName: z.string().trim().min(1).optional(),
+}).refine((value) => value.showId || value.showSlug, {
+  message: 'Provide showId or showSlug.',
+  path: ['showSlug'],
+});
+
 function sendError(reply: FastifyReply, error: unknown) {
+  if (error instanceof ZodError) {
+    return reply.code(400).send({
+      ok: false,
+      code: 'VALIDATION_ERROR',
+      error: 'Request validation failed.',
+      errors: error.issues,
+    });
+  }
+
   if (error instanceof ApiError) {
     return reply.code(error.statusCode).send({
       ok: false,
@@ -32,10 +57,13 @@ function sendError(reply: FastifyReply, error: unknown) {
   }
 
   if (error && typeof error === 'object' && 'job' in error) {
+    const job = error.job as { type?: string };
+    const isIngest = job.type === 'source.ingest';
+
     return reply.code(502).send({
       ok: false,
-      code: 'SOURCE_SEARCH_FAILED',
-      error: error instanceof Error ? error.message : 'Source search failed.',
+      code: isIngest ? 'SOURCE_INGEST_FAILED' : 'SOURCE_SEARCH_FAILED',
+      error: error instanceof Error ? error.message : isIngest ? 'Source ingest failed.' : 'Source search failed.',
       job: error.job,
     });
   }
@@ -64,7 +92,13 @@ function requireSearchStore(store: SourceStore & Partial<SearchJobStore>): Sourc
 
 async function resolveShowId(store: SourceStore, showId?: string, showSlug?: string): Promise<string> {
   if (showId) {
-    return showId;
+    const show = (await store.listShows()).find((candidate) => candidate.id === showId);
+
+    if (!show) {
+      throw new ApiError(404, 'SHOW_NOT_FOUND', `Show not found: ${showId}`);
+    }
+
+    return show.id;
   }
 
   if (!showSlug) {
@@ -131,6 +165,48 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
     }
   });
 
+  app.post<{ Params: { id: string } }>('/source-profiles/:id/ingest', async (request, reply) => {
+    try {
+      const store = requireSearchStore(options.getStore());
+      const profile = await store.getSourceProfile(request.params.id);
+
+      if (!profile) {
+        throw new ApiError(404, 'SOURCE_PROFILE_NOT_FOUND', `Source profile not found: ${request.params.id}`);
+      }
+
+      if (profile.type !== 'rss') {
+        throw new ApiError(400, 'UNSUPPORTED_SOURCE_TYPE', `source.ingest supports rss profiles, not ${profile.type}.`);
+      }
+
+      if (!profile.enabled) {
+        throw new ApiError(400, 'SOURCE_PROFILE_DISABLED', `Source profile is disabled: ${profile.slug}`);
+      }
+
+      const queries = await store.listSourceQueries(profile.id, { enabledOnly: true });
+
+      if (resolveRssFeedRefs(profile, queries).length === 0) {
+        throw new ApiError(400, 'NO_RSS_FEEDS', `RSS profile has no enabled feed URLs: ${profile.slug}`);
+      }
+
+      const result = await runSourceIngest({
+        profile,
+        queries,
+        store,
+        fetchImpl: options.rssFetchImpl,
+      });
+
+      return {
+        ok: true,
+        job: result.job,
+        inserted: result.inserted,
+        skipped: result.skipped,
+        candidates: result.candidates,
+      };
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
   app.get<{ Params: { id: string } }>('/jobs/:id', async (request, reply) => {
     try {
       const store = requireSearchStore(options.getStore());
@@ -155,6 +231,37 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
       const candidates = await store.listStoryCandidates({ showId, limit });
 
       return { ok: true, storyCandidates: candidates };
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post('/story-candidates/manual', async (request, reply) => {
+    try {
+      const store = requireSearchStore(options.getStore());
+      const body = manualCandidateSchema.parse(request.body);
+      const showId = await resolveShowId(store, body.showId, body.showSlug);
+      let result;
+
+      try {
+        result = await submitManualCandidate(store, {
+          showId,
+          url: body.url,
+          title: body.title,
+          summary: body.summary,
+          sourceName: body.sourceName,
+        });
+      } catch (error) {
+        throw new ApiError(400, 'INVALID_MANUAL_URL', error instanceof Error ? error.message : 'Manual candidate URL is invalid.');
+      }
+
+      return reply.code(result.inserted ? 201 : 200).send({
+        ok: true,
+        inserted: result.inserted,
+        skipped: result.skipped,
+        reason: result.reason,
+        candidate: result.candidate,
+      });
     } catch (error) {
       return sendError(reply, error);
     }

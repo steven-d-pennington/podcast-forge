@@ -82,9 +82,40 @@
           </div>
 
           <div class="actions">
+            <button id="ingestProfile" class="secondary" type="button" hidden>Ingest RSS</button>
             <button type="submit">Save Profile</button>
           </div>
         </form>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Manual URL</h2>
+              <p id="manualResult"></p>
+            </div>
+          </div>
+          <form id="manualForm" class="manual-form">
+            <label class="field">
+              <span>URL</span>
+              <input id="manualUrl" type="url" required>
+            </label>
+            <label class="field">
+              <span>Title</span>
+              <input id="manualTitle" type="text">
+            </label>
+            <label class="field">
+              <span>Source</span>
+              <input id="manualSourceName" type="text">
+            </label>
+            <label class="field wide">
+              <span>Summary</span>
+              <textarea id="manualSummary" rows="2"></textarea>
+            </label>
+            <div class="actions wide">
+              <button type="submit">Submit URL</button>
+            </div>
+          </form>
+        </section>
 
         <section id="queriesPanel" class="panel" hidden>
           <div class="panel-heading">

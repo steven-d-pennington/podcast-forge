@@ -1,4 +1,6 @@
-import { normalizeTitle, searchBraveNews, type BraveCandidate, type BraveFetch } from './brave.js';
+import { searchBraveNews, type BraveCandidate, type BraveFetch } from './brave.js';
+import { normalizeTitle, type SourceCandidate } from './candidate.js';
+import { fetchRssCandidates, type RssFetch } from './rss.js';
 import type { JobRecord, SearchJobStore, StoryCandidateRecord } from './store.js';
 import type { SourceProfileRecord, SourceQueryRecord, SourceStore } from '../sources/store.js';
 
@@ -16,6 +18,13 @@ interface RunSourceSearchOptions {
   store: SourceStore & SearchJobStore;
   fetchImpl?: BraveFetch;
   sleep?: (ms: number) => Promise<void>;
+}
+
+interface RunSourceIngestOptions {
+  profile: SourceProfileRecord;
+  queries: SourceQueryRecord[];
+  store: SourceStore & SearchJobStore;
+  fetchImpl?: RssFetch;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -38,6 +47,11 @@ function asPositiveNumber(value: unknown): number | undefined {
 }
 
 function queryIdFromCandidate(candidate: BraveCandidate): string | null {
+  const query = asObject(candidate.metadata.query);
+  return typeof query.id === 'string' ? query.id : null;
+}
+
+function sourceQueryIdFromCandidate(candidate: SourceCandidate): string | null {
   const query = asObject(candidate.metadata.query);
   return typeof query.id === 'string' ? query.id : null;
 }
@@ -181,6 +195,110 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Source search failed.';
+    logs.push(log('error', message));
+    job = await options.store.updateJob(job.id, {
+      status: 'failed',
+      progress: job.progress,
+      logs,
+      error: message,
+      finishedAt: new Date(),
+    }) ?? job;
+    throw Object.assign(new Error(message), { job });
+  }
+}
+
+export async function runSourceIngest(options: RunSourceIngestOptions): Promise<SourceSearchResult> {
+  const logs: Array<Record<string, unknown>> = [
+    log('info', 'Starting source.ingest job.', {
+      sourceProfileId: options.profile.id,
+      queryCount: options.queries.length,
+    }),
+  ];
+  let job = await options.store.createJob({
+    showId: options.profile.showId,
+    type: 'source.ingest',
+    status: 'running',
+    progress: 0,
+    attempts: 1,
+    input: {
+      sourceProfileId: options.profile.id,
+      sourceProfileSlug: options.profile.slug,
+      sourceType: options.profile.type,
+      queryIds: options.queries.map((query) => query.id),
+    },
+    logs,
+    startedAt: new Date(),
+  });
+
+  try {
+    const existing = await options.store.listStoryCandidateDedupeKeys(options.profile.showId);
+    const seenUrls = new Set(existing.map((item) => item.canonicalUrl).filter((url): url is string => Boolean(url)));
+    const seenTitles = new Set(existing.map((item) => normalizeTitle(item.title)).filter(Boolean));
+    const insertedCandidates: StoryCandidateRecord[] = [];
+    let skipped = 0;
+
+    logs.push(log('info', 'Fetching RSS feeds.', { sourceProfileId: options.profile.id }));
+    const candidates = await fetchRssCandidates({
+      profile: options.profile,
+      queries: options.queries,
+      fetchImpl: options.fetchImpl,
+    });
+    logs.push(log('info', 'RSS feeds returned candidates.', { candidateCount: candidates.length }));
+
+    for (const candidate of candidates) {
+      const normalizedTitle = normalizeTitle(candidate.title);
+
+      if (seenUrls.has(candidate.canonicalUrl) || seenTitles.has(normalizedTitle)) {
+        skipped += 1;
+        logs.push(log('info', 'Skipped duplicate candidate.', {
+          sourceQueryId: sourceQueryIdFromCandidate(candidate),
+          canonicalUrl: candidate.canonicalUrl,
+          normalizedTitle,
+        }));
+        continue;
+      }
+
+      seenUrls.add(candidate.canonicalUrl);
+      seenTitles.add(normalizedTitle);
+
+      const inserted = await options.store.insertStoryCandidate({
+        ...candidate,
+        showId: options.profile.showId,
+        sourceProfileId: options.profile.id,
+        sourceQueryId: sourceQueryIdFromCandidate(candidate),
+      });
+
+      if (inserted) {
+        insertedCandidates.push(inserted);
+      } else {
+        skipped += 1;
+      }
+    }
+
+    logs.push(log('info', 'Completed source.ingest job.', {
+      inserted: insertedCandidates.length,
+      skipped,
+    }));
+    job = await options.store.updateJob(job.id, {
+      status: 'succeeded',
+      progress: 100,
+      logs,
+      output: {
+        inserted: insertedCandidates.length,
+        skipped,
+        candidateIds: insertedCandidates.map((candidate) => candidate.id),
+      },
+      finishedAt: new Date(),
+    }) ?? job;
+
+    return {
+      job,
+      inserted: insertedCandidates.length,
+      skipped,
+      candidates: insertedCandidates,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Source ingest failed.';
     logs.push(log('error', message));
     job = await options.store.updateJob(job.id, {
       status: 'failed',

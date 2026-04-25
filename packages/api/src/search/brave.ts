@@ -1,4 +1,5 @@
 import type { SourceProfileRecord, SourceQueryRecord } from '../sources/store.js';
+import { canonicalizeUrl, cleanText, normalizeTitle, type SourceCandidate } from './candidate.js';
 
 export interface BraveResponse {
   ok: boolean;
@@ -12,16 +13,7 @@ export type BraveFetch = (
   init: { headers: Record<string, string>; signal?: AbortSignal },
 ) => Promise<BraveResponse>;
 
-export interface BraveCandidate {
-  title: string;
-  url: string;
-  canonicalUrl: string;
-  sourceName: string | null;
-  summary: string | null;
-  publishedAt: Date | null;
-  rawPayload: Record<string, unknown>;
-  metadata: Record<string, unknown>;
-}
+export type BraveCandidate = SourceCandidate;
 
 interface BraveSearchOptions {
   apiKey: string;
@@ -60,48 +52,7 @@ function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-function stripHtml(value: string): string {
-  return value.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
-}
-
-function decodeBasicEntities(value: string): string {
-  return value
-    .replaceAll('&amp;', '&')
-    .replaceAll('&quot;', '"')
-    .replaceAll('&#39;', "'")
-    .replaceAll('&lt;', '<')
-    .replaceAll('&gt;', '>');
-}
-
-export function canonicalizeUrl(value: string): string {
-  try {
-    const url = new URL(value);
-    url.hash = '';
-    url.hostname = url.hostname.toLowerCase();
-
-    for (const key of [...url.searchParams.keys()]) {
-      if (/^(utm_|fbclid$|gclid$|mc_cid$|mc_eid$)/i.test(key)) {
-        url.searchParams.delete(key);
-      }
-    }
-
-    if (url.pathname !== '/') {
-      url.pathname = url.pathname.replace(/\/+$/, '');
-    }
-
-    return url.toString();
-  } catch {
-    return value.trim();
-  }
-}
-
-export function normalizeTitle(value: string): string {
-  return decodeBasicEntities(stripHtml(value))
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim()
-    .replace(/\s+/g, ' ');
-}
+export { canonicalizeUrl, normalizeTitle };
 
 function parsePublishedAt(item: JsonObject): Date | null {
   const candidates = [item.page_age, item.age, item.published, item.published_time, item.date];
@@ -162,11 +113,11 @@ function mapResult(item: JsonObject, query: SourceQueryRecord, profile: SourcePr
   }
 
   return {
-    title: decodeBasicEntities(stripHtml(title)),
+    title: cleanText(title),
     url,
     canonicalUrl: canonicalizeUrl(url),
     sourceName: sourceNameFor(item),
-    summary: asString(item.description) ? decodeBasicEntities(stripHtml(String(item.description))) : null,
+    summary: asString(item.description) ? cleanText(String(item.description)) : null,
     publishedAt: parsePublishedAt(item),
     rawPayload: item,
     metadata: {

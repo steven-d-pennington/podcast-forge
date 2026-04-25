@@ -14,6 +14,7 @@ import { registerSourceRoutes } from './sources/routes.js';
 import type { SourceStore } from './sources/store.js';
 import { registerSearchRoutes } from './search/routes.js';
 import type { BraveFetch } from './search/brave.js';
+import type { RssFetch } from './search/rss.js';
 import type { SearchJobStore } from './search/store.js';
 
 interface ConfigQuery {
@@ -24,6 +25,7 @@ interface BuildAppOptions extends FastifyServerOptions {
   sourceStore?: SourceStore & Partial<SearchJobStore>;
   braveApiKey?: string;
   fetchImpl?: BraveFetch;
+  rssFetchImpl?: RssFetch;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -50,7 +52,7 @@ async function readPublicFile(fileName: string) {
 }
 
 export function buildApp(options: BuildAppOptions = {}) {
-  const { sourceStore, braveApiKey, fetchImpl, sleep, ...fastifyOptions } = options;
+  const { sourceStore, braveApiKey, fetchImpl, rssFetchImpl, sleep, ...fastifyOptions } = options;
   const app = Fastify(fastifyOptions);
   let resolvedSourceStore: SourceStore & Partial<SearchJobStore> | undefined = sourceStore;
 
@@ -129,6 +131,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     },
     braveApiKey,
     fetchImpl,
+    rssFetchImpl,
     sleep,
   });
 

@@ -1,4 +1,4 @@
-import type { BraveCandidate } from './brave.js';
+import type { SourceCandidate } from './candidate.js';
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
@@ -72,9 +72,9 @@ export interface UpdateJobInput {
   finishedAt?: Date | null;
 }
 
-export interface CreateStoryCandidateInput extends BraveCandidate {
+export interface CreateStoryCandidateInput extends SourceCandidate {
   showId: string;
-  sourceProfileId: string;
+  sourceProfileId: string | null;
   sourceQueryId: string | null;
 }
 

@@ -22,6 +22,13 @@ const els = {
   profileFreshness: document.querySelector('#profileFreshness'),
   profileIncludeDomains: document.querySelector('#profileIncludeDomains'),
   profileExcludeDomains: document.querySelector('#profileExcludeDomains'),
+  ingestProfile: document.querySelector('#ingestProfile'),
+  manualForm: document.querySelector('#manualForm'),
+  manualUrl: document.querySelector('#manualUrl'),
+  manualTitle: document.querySelector('#manualTitle'),
+  manualSourceName: document.querySelector('#manualSourceName'),
+  manualSummary: document.querySelector('#manualSummary'),
+  manualResult: document.querySelector('#manualResult'),
   queriesPanel: document.querySelector('#queriesPanel'),
   queryCount: document.querySelector('#queryCount'),
   newQueryForm: document.querySelector('#newQueryForm'),
@@ -116,6 +123,7 @@ function renderProfileForm() {
   els.queriesPanel.hidden = !profile;
 
   if (!profile) {
+    els.ingestProfile.hidden = true;
     return;
   }
 
@@ -129,6 +137,7 @@ function renderProfileForm() {
   els.profileFreshness.value = profile.freshness || '';
   els.profileIncludeDomains.value = listToLines(profile.includeDomains);
   els.profileExcludeDomains.value = listToLines(profile.excludeDomains);
+  els.ingestProfile.hidden = profile.type !== 'rss';
 }
 
 function renderQueries() {
@@ -282,6 +291,61 @@ async function saveProfile(event) {
   setStatus('Profile saved.');
 }
 
+async function ingestSelectedProfile() {
+  const profile = selectedProfile();
+
+  if (!profile || profile.type !== 'rss') {
+    return;
+  }
+
+  els.ingestProfile.disabled = true;
+  setStatus('Ingesting RSS feeds...');
+
+  try {
+    const body = await api(`/source-profiles/${profile.id}/ingest`, { method: 'POST' });
+    setStatus(`RSS ingest complete: ${body.inserted} inserted, ${body.skipped} skipped.`);
+  } catch (error) {
+    setStatus(error.message);
+  } finally {
+    els.ingestProfile.disabled = false;
+  }
+}
+
+async function submitManualUrl(event) {
+  event.preventDefault();
+
+  if (!state.selectedShowSlug) {
+    return;
+  }
+
+  const payload = {
+    showSlug: state.selectedShowSlug,
+    url: els.manualUrl.value.trim(),
+    title: els.manualTitle.value.trim() || undefined,
+    summary: els.manualSummary.value.trim() || undefined,
+    sourceName: els.manualSourceName.value.trim() || undefined,
+  };
+
+  try {
+    const body = await api('/story-candidates/manual', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+
+    if (body.inserted) {
+      els.manualForm.reset();
+      els.manualResult.textContent = `Created candidate: ${body.candidate.title}`;
+      setStatus('Manual URL submitted.');
+    } else {
+      els.manualResult.textContent = `Skipped: ${body.reason}`;
+      setStatus('Manual URL matched an existing candidate.');
+    }
+  } catch (error) {
+    els.manualResult.textContent = error.message;
+    setStatus(error.message);
+  }
+}
+
 async function saveQuery(id, form) {
   const payload = {
     enabled: form.elements.enabled.checked,
@@ -341,6 +405,8 @@ els.showSelect.addEventListener('change', async () => {
   render();
 });
 els.profileForm.addEventListener('submit', saveProfile);
+els.ingestProfile.addEventListener('click', ingestSelectedProfile);
+els.manualForm.addEventListener('submit', submitManualUrl);
 els.newQueryForm.addEventListener('submit', createQuery);
 
 await loadAll();

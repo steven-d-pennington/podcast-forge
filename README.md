@@ -111,5 +111,33 @@ profile/query records where present.
 Search/job endpoints:
 
 - `POST /source-profiles/:id/search`
+- `POST /source-profiles/:id/ingest`
+- `POST /story-candidates/manual`
 - `GET /jobs/:id`
 - `GET /story-candidates?showSlug=the-synthetic-lens`
+
+## RSS and manual source ingest
+
+RSS source profiles use enabled `source_queries.query` values as feed URLs.
+Profiles may also set `config.feedUrl` or `config.feedUrls` for feed URLs
+that should always be ingested. Run RSS ingest synchronously for V1:
+
+```sh
+curl -X POST http://localhost:3450/source-profiles/:rss_profile_id/ingest
+```
+
+The endpoint writes deduped RSS/Atom items into `story_candidates` and creates
+a `source.ingest` job. Dedupe is shared with Brave and manual candidates using
+canonical URL and normalized title checks.
+
+Manual URLs can be submitted without a source profile:
+
+```sh
+curl -X POST http://localhost:3450/story-candidates/manual \
+  -H 'content-type: application/json' \
+  -d '{"showSlug":"the-synthetic-lens","url":"https://example.com/story","title":"Example Story"}'
+```
+
+The local UI at `http://localhost:3450/ui` includes a manual URL form. For RSS,
+create or edit a profile with type `rss`, add enabled query rows containing feed
+URLs, then use the `Ingest RSS` action shown for RSS profiles.
