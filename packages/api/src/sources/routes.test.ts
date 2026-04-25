@@ -2,6 +2,15 @@ import assert from 'node:assert/strict';
 import { after, beforeEach, describe, it } from 'node:test';
 
 import { buildApp } from '../app.js';
+import type { ResearchFetch } from '../research/fetch.js';
+import type {
+  CreateResearchPacketInput,
+  CreateSourceDocumentInput,
+  OverrideResearchWarningInput,
+  ResearchPacketRecord,
+  ResearchStore,
+  SourceDocumentRecord,
+} from '../research/store.js';
 import type { BraveFetch } from '../search/brave.js';
 import type { RssFetch } from '../search/rss.js';
 import type {
@@ -25,7 +34,7 @@ import type {
   UpdateSourceQueryInput,
 } from './store.js';
 
-class FakeSourceStore implements SourceStore, SearchJobStore {
+class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore {
   shows: ShowRecord[] = [{
     id: '11111111-1111-4111-8111-111111111111',
     slug: 'the-synthetic-lens',
@@ -59,6 +68,8 @@ class FakeSourceStore implements SourceStore, SearchJobStore {
 
   jobs: JobRecord[] = [];
   candidates: StoryCandidateRecord[] = [];
+  sourceDocuments: SourceDocumentRecord[] = [];
+  researchPackets: ResearchPacketRecord[] = [];
 
   async listShows() {
     return this.shows;
@@ -222,6 +233,88 @@ class FakeSourceStore implements SourceStore, SearchJobStore {
       .slice(0, filter.limit ?? 50);
   }
 
+  async getStoryCandidate(id: string) {
+    return this.candidates.find((candidate) => candidate.id === id);
+  }
+
+  async createSourceDocument(input: CreateSourceDocumentInput) {
+    const document: SourceDocumentRecord = {
+      id: `source-document-${this.sourceDocuments.length + 1}`,
+      storyCandidateId: input.storyCandidateId,
+      url: input.url,
+      canonicalUrl: input.canonicalUrl,
+      title: input.title,
+      fetchedAt: input.fetchedAt,
+      fetchStatus: input.fetchStatus,
+      httpStatus: input.httpStatus,
+      contentType: input.contentType,
+      textContent: input.textContent,
+      metadata: input.metadata,
+      createdAt: new Date('2026-01-03T00:00:00Z'),
+      updatedAt: new Date('2026-01-03T00:00:00Z'),
+    };
+    this.sourceDocuments.push(document);
+    return document;
+  }
+
+  async createResearchPacket(input: CreateResearchPacketInput) {
+    const packet: ResearchPacketRecord = {
+      id: `research-packet-${this.researchPackets.length + 1}`,
+      showId: input.showId,
+      episodeCandidateId: input.episodeCandidateId,
+      title: input.title,
+      status: input.status,
+      sourceDocumentIds: input.sourceDocumentIds,
+      claims: input.claims,
+      citations: input.citations,
+      warnings: input.warnings,
+      content: input.content,
+      approvedAt: null,
+      createdAt: new Date('2026-01-03T00:00:00Z'),
+      updatedAt: new Date('2026-01-03T00:00:00Z'),
+    };
+    this.researchPackets.push(packet);
+    return packet;
+  }
+
+  async getResearchPacket(id: string) {
+    return this.researchPackets.find((packet) => packet.id === id);
+  }
+
+  async overrideResearchWarning(id: string, input: OverrideResearchWarningInput) {
+    const packet = await this.getResearchPacket(id);
+
+    if (!packet) {
+      return undefined;
+    }
+
+    let matched = false;
+    packet.warnings = packet.warnings.map((warning) => {
+      const isMatch = input.warningId ? warning.id === input.warningId : warning.code === input.warningCode;
+
+      if (!isMatch) {
+        return warning;
+      }
+
+      matched = true;
+      return {
+        ...warning,
+        override: {
+          actor: input.actor,
+          reason: input.reason,
+          overriddenAt: '2026-01-03T00:00:00.000Z',
+        },
+      };
+    });
+
+    if (!matched) {
+      return undefined;
+    }
+
+    packet.updatedAt = new Date('2026-01-03T00:00:00Z');
+    return packet;
+  }
+
   private queryRecord(id: string, query: string, enabled: boolean): SourceQueryRecord {
     return {
       id,
@@ -244,6 +337,7 @@ class FakeSourceStore implements SourceStore, SearchJobStore {
 let store = new FakeSourceStore();
 let requestedUrls: string[] = [];
 let requestedRssUrls: string[] = [];
+let requestedResearchUrls: string[] = [];
 const braveFetch: BraveFetch = async (url) => {
   requestedUrls.push(url);
   return {
@@ -302,11 +396,47 @@ const rssFetch: RssFetch = async (url) => {
     },
   };
 };
+const researchFetch: ResearchFetch = async (url) => {
+  requestedResearchUrls.push(url);
+
+  if (url.includes('unavailable')) {
+    return {
+      ok: false,
+      status: 503,
+      headers: { get: () => 'text/html' },
+      async text() {
+        return '';
+      },
+    };
+  }
+
+  const host = new URL(url).hostname;
+
+  return {
+    ok: true,
+    status: 200,
+    headers: { get: () => 'text/html; charset=utf-8' },
+    async text() {
+      return `<!doctype html>
+        <html>
+          <head><title>${host} research source</title></head>
+          <body>
+            <article>
+              <h1>${host} confirms the story</h1>
+              <p>${host} reports that the selected story is material for AI product strategy and developer workflows.</p>
+              <p>The source adds enough context for deterministic research packet generation with citations and source snapshots.</p>
+            </article>
+          </body>
+        </html>`;
+    },
+  };
+};
 const app = buildApp({
   sourceStore: store,
   braveApiKey: 'test-brave-key',
   fetchImpl: braveFetch,
   rssFetchImpl: rssFetch,
+  researchFetchImpl: researchFetch,
   sleep: async () => {},
 });
 
@@ -317,8 +447,11 @@ describe('source profile routes', () => {
     store.queries = new FakeSourceStore().queries;
     store.jobs = [];
     store.candidates = [];
+    store.sourceDocuments = [];
+    store.researchPackets = [];
     requestedUrls = [];
     requestedRssUrls = [];
+    requestedResearchUrls = [];
   });
 
   after(async () => {
@@ -562,6 +695,90 @@ describe('source profile routes', () => {
     assert.equal(duplicateBody.inserted, false);
     assert.equal(duplicateBody.reason, 'duplicate-url');
     assert.equal(store.candidates.length, 1);
+  });
+
+  it('builds research packets with source snapshots, cited claims, warnings, and overrides', async () => {
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/story-candidates/manual',
+      payload: {
+        showSlug: 'the-synthetic-lens',
+        url: 'https://manual.example.com/news/research-story',
+        title: 'Research Story',
+        summary: 'A selected research story needs evidence.',
+      },
+    });
+    const candidate = createResponse.json().candidate as StoryCandidateRecord;
+
+    const packetResponse = await app.inject({
+      method: 'POST',
+      url: `/story-candidates/${candidate.id}/research-packet`,
+      payload: {
+        extraUrls: [
+          'https://independent.example.net/story',
+          'https://unavailable.example.org/story',
+        ],
+      },
+    });
+    const packetBody = packetResponse.json();
+
+    assert.equal(packetResponse.statusCode, 201);
+    assert.deepEqual(requestedResearchUrls, [
+      'https://manual.example.com/news/research-story',
+      'https://independent.example.net/story',
+      'https://unavailable.example.org/story',
+    ]);
+    assert.equal(packetBody.sourceDocuments.length, 3);
+    assert.equal(packetBody.sourceDocuments.filter((document: SourceDocumentRecord) => document.fetchStatus === 'fetched').length, 2);
+    assert.equal(packetBody.researchPacket.content.storyCandidateId, candidate.id);
+    assert.equal(packetBody.researchPacket.citations.length, 3);
+    assert.ok(packetBody.researchPacket.claims.length >= 2);
+    assert.ok(packetBody.researchPacket.claims.every((claim: { citationUrls: string[] }) => claim.citationUrls.length > 0));
+    assert.ok(packetBody.researchPacket.warnings.some((warning: { code: string }) => warning.code === 'SOURCE_FETCH_FAILED'));
+
+    const packetId = packetBody.researchPacket.id;
+    const getResponse = await app.inject({ method: 'GET', url: `/research-packets/${packetId}` });
+
+    assert.equal(getResponse.statusCode, 200);
+    assert.equal(getResponse.json().researchPacket.id, packetId);
+
+    const warningId = packetBody.researchPacket.warnings[0].id;
+    const overrideResponse = await app.inject({
+      method: 'POST',
+      url: `/research-packets/${packetId}/override-warning`,
+      payload: {
+        warningId,
+        actor: 'editor@example.com',
+        reason: 'The inaccessible source is not necessary because two independent sources were fetched.',
+      },
+    });
+    const overriddenWarning = overrideResponse.json().researchPacket.warnings.find((warning: { id: string }) => warning.id === warningId);
+
+    assert.equal(overrideResponse.statusCode, 200);
+    assert.equal(overriddenWarning.override.actor, 'editor@example.com');
+    assert.match(overriddenWarning.override.reason, /two independent sources/);
+  });
+
+  it('warns when a packet has fewer than two independent fetched sources', async () => {
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/story-candidates/manual',
+      payload: {
+        showSlug: 'the-synthetic-lens',
+        url: 'https://single-source.example.com/news/research-story',
+        title: 'Single Source Story',
+      },
+    });
+    const candidate = createResponse.json().candidate as StoryCandidateRecord;
+
+    const packetResponse = await app.inject({
+      method: 'POST',
+      url: `/story-candidates/${candidate.id}/research-packet`,
+    });
+    const warnings = packetResponse.json().researchPacket.warnings as Array<{ code: string }>;
+
+    assert.equal(packetResponse.statusCode, 201);
+    assert.ok(warnings.some((warning) => warning.code === 'INSUFFICIENT_INDEPENDENT_SOURCES'));
   });
 
   it('returns validation errors for invalid payloads', async () => {

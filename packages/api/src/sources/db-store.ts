@@ -1,8 +1,11 @@
 import { and, asc, desc, eq } from 'drizzle-orm';
 import {
+  approvalEvents,
   createDb,
   jobs,
+  researchPackets,
   shows,
+  sourceDocuments,
   sourceProfiles,
   sourceQueries,
   storyCandidates,
@@ -18,6 +21,17 @@ import type {
   StoryCandidateRecord,
   UpdateJobInput,
 } from '../search/store.js';
+import type {
+  CreateResearchPacketInput,
+  CreateSourceDocumentInput,
+  OverrideResearchWarningInput,
+  ResearchCitation,
+  ResearchClaim,
+  ResearchPacketRecord,
+  ResearchStore,
+  ResearchWarning,
+  SourceDocumentRecord,
+} from '../research/store.js';
 import type {
   CreateSourceProfileInput,
   CreateSourceQueryInput,
@@ -43,6 +57,28 @@ function asJsonArray(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => {
     return Boolean(item && typeof item === 'object' && !Array.isArray(item));
   }) : [];
+}
+
+function asResearchClaims(value: unknown): ResearchClaim[] {
+  return Array.isArray(value) ? value.filter((item): item is ResearchClaim => {
+    return Boolean(item && typeof item === 'object' && !Array.isArray(item));
+  }) : [];
+}
+
+function asResearchCitations(value: unknown): ResearchCitation[] {
+  return Array.isArray(value) ? value.filter((item): item is ResearchCitation => {
+    return Boolean(item && typeof item === 'object' && !Array.isArray(item));
+  }) : [];
+}
+
+function asResearchWarnings(value: unknown): ResearchWarning[] {
+  return Array.isArray(value) ? value.filter((item): item is ResearchWarning => {
+    return Boolean(item && typeof item === 'object' && !Array.isArray(item));
+  }) : [];
+}
+
+function toJsonRecords<T extends object>(values: T[]): Array<Record<string, unknown>> {
+  return values.map((value) => value as unknown as Record<string, unknown>);
 }
 
 function mapShow(row: typeof shows.$inferSelect): ShowRecord {
@@ -142,6 +178,42 @@ function mapStoryCandidate(row: typeof storyCandidates.$inferSelect): StoryCandi
   };
 }
 
+function mapSourceDocument(row: typeof sourceDocuments.$inferSelect): SourceDocumentRecord {
+  return {
+    id: row.id,
+    storyCandidateId: row.storyCandidateId,
+    url: row.url,
+    canonicalUrl: row.canonicalUrl,
+    title: row.title,
+    fetchedAt: row.fetchedAt,
+    fetchStatus: row.fetchStatus,
+    httpStatus: row.httpStatus,
+    contentType: row.contentType,
+    textContent: row.textContent,
+    metadata: row.metadata,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function mapResearchPacket(row: typeof researchPackets.$inferSelect): ResearchPacketRecord {
+  return {
+    id: row.id,
+    showId: row.showId,
+    episodeCandidateId: row.episodeCandidateId,
+    title: row.title,
+    status: row.status,
+    sourceDocumentIds: asStringArray(row.sourceDocumentIds),
+    claims: asResearchClaims(row.claims),
+    citations: asResearchCitations(row.citations),
+    warnings: asResearchWarnings(row.warnings),
+    content: asJsonObject(row.content),
+    approvedAt: row.approvedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 function queryConfig(input: CreateSourceQueryInput | UpdateSourceQueryInput, current: JsonObject = {}): JsonObject {
   const config = { ...current, ...input.config };
 
@@ -164,7 +236,7 @@ function queryConfig(input: CreateSourceQueryInput | UpdateSourceQueryInput, cur
   return config;
 }
 
-export function createDbSourceStore(connectionString = process.env.DATABASE_URL): SourceStore & SearchJobStore {
+export function createDbSourceStore(connectionString = process.env.DATABASE_URL): SourceStore & SearchJobStore & ResearchStore {
   const { db, pool } = createDb(connectionString);
 
   return {
@@ -378,6 +450,103 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
         .limit(filter.limit ?? 50);
 
       return rows.map(mapStoryCandidate);
+    },
+
+    async getStoryCandidate(id: string) {
+      const [row] = await db.select().from(storyCandidates).where(eq(storyCandidates.id, id)).limit(1);
+      return row ? mapStoryCandidate(row) : undefined;
+    },
+
+    async createSourceDocument(input: CreateSourceDocumentInput) {
+      const [row] = await db.insert(sourceDocuments).values({
+        storyCandidateId: input.storyCandidateId,
+        url: input.url,
+        canonicalUrl: input.canonicalUrl,
+        title: input.title,
+        fetchedAt: input.fetchedAt,
+        fetchStatus: input.fetchStatus,
+        httpStatus: input.httpStatus,
+        contentType: input.contentType,
+        textContent: input.textContent,
+        metadata: input.metadata,
+      }).returning();
+
+      return mapSourceDocument(row);
+    },
+
+    async createResearchPacket(input: CreateResearchPacketInput) {
+      const [row] = await db.insert(researchPackets).values({
+        showId: input.showId,
+        episodeCandidateId: input.episodeCandidateId,
+        title: input.title,
+        status: input.status,
+        sourceDocumentIds: input.sourceDocumentIds,
+        claims: toJsonRecords(input.claims),
+        citations: toJsonRecords(input.citations),
+        warnings: toJsonRecords(input.warnings),
+        content: input.content,
+      }).returning();
+
+      return mapResearchPacket(row);
+    },
+
+    async getResearchPacket(id: string) {
+      const [row] = await db.select().from(researchPackets).where(eq(researchPackets.id, id)).limit(1);
+      return row ? mapResearchPacket(row) : undefined;
+    },
+
+    async overrideResearchWarning(id: string, input: OverrideResearchWarningInput) {
+      const current = await this.getResearchPacket(id);
+
+      if (!current) {
+        return undefined;
+      }
+
+      const overriddenAt = new Date().toISOString();
+      let matched = false;
+      const warnings = current.warnings.map((warning) => {
+        const isMatch = input.warningId ? warning.id === input.warningId : warning.code === input.warningCode;
+
+        if (!isMatch) {
+          return warning;
+        }
+
+        matched = true;
+        return {
+          ...warning,
+          override: {
+            actor: input.actor,
+            reason: input.reason,
+            overriddenAt,
+          },
+        };
+      });
+
+      if (!matched) {
+        return undefined;
+      }
+
+      await db.insert(approvalEvents).values({
+        researchPacketId: id,
+        action: 'override',
+        gate: 'research-warning',
+        actor: input.actor,
+        reason: input.reason,
+        metadata: {
+          warningId: input.warningId,
+          warningCode: input.warningCode,
+        },
+      });
+
+      const [row] = await db.update(researchPackets)
+        .set({
+          warnings: toJsonRecords(warnings),
+          updatedAt: new Date(),
+        })
+        .where(eq(researchPackets.id, id))
+        .returning();
+
+      return row ? mapResearchPacket(row) : undefined;
     },
 
     async close() {

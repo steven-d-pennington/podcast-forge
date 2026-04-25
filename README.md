@@ -141,3 +141,34 @@ curl -X POST http://localhost:3450/story-candidates/manual \
 The local UI at `http://localhost:3450/ui` includes a manual URL form. For RSS,
 create or edit a profile with type `rss`, add enabled query rows containing feed
 URLs, then use the `Ingest RSS` action shown for RSS profiles.
+
+## Research packets
+
+Selected story candidates can produce deterministic research packets without an
+LLM dependency. The API fetches readable source snapshots into
+`source_documents`, then writes a `research_packets` row with summary content,
+cited claims, citations, and warning objects.
+
+Build a packet from the candidate URL plus optional extra URLs:
+
+```sh
+curl -X POST http://localhost:3450/story-candidates/:id/research-packet \
+  -H 'content-type: application/json' \
+  -d '{"extraUrls":["https://example.org/second-source"]}'
+```
+
+Read and override warnings:
+
+```sh
+curl http://localhost:3450/research-packets/:id
+
+curl -X POST http://localhost:3450/research-packets/:id/override-warning \
+  -H 'content-type: application/json' \
+  -d '{"warningId":"INSUFFICIENT_INDEPENDENT_SOURCES","reason":"Editor approved with direct source material.","actor":"local-user"}'
+```
+
+Research endpoints:
+
+- `POST /story-candidates/:id/research-packet`
+- `GET /research-packets/:id`
+- `POST /research-packets/:id/override-warning`
