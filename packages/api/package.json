@@ -8,6 +8,7 @@
     "check": "tsc --noEmit && npm run test:config"
   },
   "dependencies": {
+    "@podcast-forge/db": "file:../db",
     "ajv": "8.20.0",
     "fastify": "latest",
     "zod": "latest"

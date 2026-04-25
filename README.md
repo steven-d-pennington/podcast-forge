@@ -53,3 +53,36 @@ Available config endpoints:
 - `GET /config?path=./config/examples/the-synthetic-lens.json` loads and
   validates a config file path. Leading `~/` is expanded, and relative paths
   resolve from the API process working directory.
+
+## Source profile UI
+
+Source profiles and search queries are persisted in Postgres through the
+`@podcast-forge/db` schema. To run the app locally:
+
+```sh
+cp .env.example .env
+docker compose up -d postgres
+npm run db:migrate --workspace @podcast-forge/db
+npm run db:seed --workspace @podcast-forge/db
+npm run dev --workspace @podcast-forge/api
+```
+
+Open `http://localhost:3450/ui` to edit source profiles and queries for
+`the-synthetic-lens`. The UI can enable or disable profiles and individual
+queries, edit query text, freshness, include/exclude domains, and weights, and
+create or delete query buckets.
+
+Source profile endpoints:
+
+- `GET /shows`
+- `GET /source-profiles?showSlug=the-synthetic-lens`
+- `POST /source-profiles`
+- `PATCH /source-profiles/:id`
+- `GET /source-profiles/:id/queries`
+- `GET /source-profiles/:id/queries?enabledOnly=true`
+- `POST /source-profiles/:id/queries`
+- `PATCH /source-queries/:id`
+- `DELETE /source-queries/:id`
+
+Use `enabledOnly=true` for search jobs so disabled profiles and queries are not
+included in source discovery.

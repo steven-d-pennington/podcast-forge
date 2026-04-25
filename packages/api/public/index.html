@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Podcast Forge Sources</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Podcast Forge</h1>
+        <p id="status">Loading sources...</p>
+      </div>
+      <button id="refresh" type="button">Refresh</button>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <label class="field">
+          <span>Show</span>
+          <select id="showSelect"></select>
+        </label>
+        <section>
+          <div class="section-title">
+            <h2>Source Profiles</h2>
+          </div>
+          <div id="profileList" class="list"></div>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <form id="profileForm" class="panel" hidden>
+          <div class="panel-heading">
+            <div>
+              <h2 id="profileTitle">Source profile</h2>
+              <p id="profileMeta"></p>
+            </div>
+            <label class="toggle">
+              <input id="profileEnabled" type="checkbox">
+              <span>Enabled</span>
+            </label>
+          </div>
+
+          <div class="grid">
+            <label class="field">
+              <span>Name</span>
+              <input id="profileName" type="text" required>
+            </label>
+            <label class="field">
+              <span>Slug</span>
+              <input id="profileSlug" type="text" required>
+            </label>
+            <label class="field">
+              <span>Type</span>
+              <select id="profileType">
+                <option value="brave">brave</option>
+                <option value="rss">rss</option>
+                <option value="manual">manual</option>
+                <option value="local-json">local-json</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Weight</span>
+              <input id="profileWeight" type="number" min="0" step="0.001" required>
+            </label>
+            <label class="field">
+              <span>Freshness</span>
+              <input id="profileFreshness" type="text" placeholder="pd, pw, pm">
+            </label>
+          </div>
+
+          <div class="grid two">
+            <label class="field">
+              <span>Include domains</span>
+              <textarea id="profileIncludeDomains" rows="3"></textarea>
+            </label>
+            <label class="field">
+              <span>Exclude domains</span>
+              <textarea id="profileExcludeDomains" rows="3"></textarea>
+            </label>
+          </div>
+
+          <div class="actions">
+            <button type="submit">Save Profile</button>
+          </div>
+        </form>
+
+        <section id="queriesPanel" class="panel" hidden>
+          <div class="panel-heading">
+            <div>
+              <h2>Queries</h2>
+              <p id="queryCount"></p>
+            </div>
+          </div>
+          <form id="newQueryForm" class="new-query">
+            <textarea id="newQueryText" rows="2" placeholder="New query text" required></textarea>
+            <button type="submit">Create Query</button>
+          </form>
+          <div id="queryList" class="query-list"></div>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="/ui.js"></script>
+  </body>
+</html>

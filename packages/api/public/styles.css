@@ -1,0 +1,243 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f5f6f8;
+  color: #20242c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  border: 1px solid #1f5b95;
+  border-radius: 6px;
+  background: #2468a8;
+  color: white;
+  cursor: pointer;
+  padding: 0.55rem 0.8rem;
+}
+
+button.secondary {
+  border-color: #c9ced6;
+  background: white;
+  color: #27303b;
+}
+
+button.danger {
+  border-color: #9b2c2c;
+  background: #b83232;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.topbar {
+  align-items: center;
+  background: #ffffff;
+  border-bottom: 1px solid #d8dde5;
+  display: flex;
+  justify-content: space-between;
+  min-height: 78px;
+  padding: 1rem 1.5rem;
+}
+
+.topbar h1,
+.panel h2,
+.section-title h2 {
+  margin: 0;
+}
+
+.topbar p,
+.panel p {
+  color: #586575;
+  margin: 0.25rem 0 0;
+}
+
+.layout {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(260px, 330px) minmax(0, 1fr);
+  padding: 1rem;
+}
+
+.sidebar,
+.panel {
+  background: white;
+  border: 1px solid #d8dde5;
+  border-radius: 8px;
+}
+
+.sidebar {
+  align-self: start;
+  padding: 1rem;
+}
+
+.section-title {
+  margin: 1.25rem 0 0.75rem;
+}
+
+.list,
+.query-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.profile-button {
+  background: #f8fafc;
+  border: 1px solid #d8dde5;
+  border-radius: 6px;
+  color: #20242c;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  text-align: left;
+  width: 100%;
+}
+
+.profile-button.active {
+  border-color: #2468a8;
+  box-shadow: inset 3px 0 0 #2468a8;
+}
+
+.profile-button span {
+  color: #586575;
+  font-size: 0.9rem;
+}
+
+.workspace {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.panel {
+  padding: 1rem;
+}
+
+.panel-heading {
+  align-items: start;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.grid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0.85rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.field span,
+.toggle span {
+  color: #3f4b5a;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+input,
+select,
+textarea {
+  border: 1px solid #c9ced6;
+  border-radius: 6px;
+  min-width: 0;
+  padding: 0.5rem 0.6rem;
+  width: 100%;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.toggle {
+  align-items: center;
+  display: flex;
+  gap: 0.45rem;
+  white-space: nowrap;
+}
+
+.toggle input {
+  height: 1rem;
+  width: 1rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.new-query {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-bottom: 1rem;
+}
+
+.query-card {
+  border: 1px solid #d8dde5;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.9rem;
+}
+
+.query-card.disabled {
+  background: #f5f6f8;
+}
+
+.query-card .query-top {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.query-card .query-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: 120px 120px repeat(2, minmax(0, 1fr));
+}
+
+.empty {
+  color: #586575;
+  padding: 1rem 0;
+}
+
+@media (max-width: 820px) {
+  .layout,
+  .grid,
+  .grid.two,
+  .new-query,
+  .query-card .query-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-heading {
+    display: grid;
+  }
+}

@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyServerOptions } from 'fastify';
 
 import {
@@ -6,15 +9,62 @@ import {
   loadExampleConfig,
   validateConfig,
 } from './config/loader.js';
+import { createDbSourceStore } from './sources/db-store.js';
+import { registerSourceRoutes } from './sources/routes.js';
+import type { SourceStore } from './sources/store.js';
 
 interface ConfigQuery {
   path?: string;
 }
 
-export function buildApp(options: FastifyServerOptions = {}) {
-  const app = Fastify(options);
+interface BuildAppOptions extends FastifyServerOptions {
+  sourceStore?: SourceStore;
+}
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+async function readPublicFile(fileName: string) {
+  const candidates = [
+    resolve(process.cwd(), 'packages/api/public', fileName),
+    resolve(process.cwd(), 'public', fileName),
+    resolve(__dirname, '../public', fileName),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      return await readFile(candidate, 'utf8');
+    } catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error(`Public asset not found: ${fileName}`);
+}
+
+export function buildApp(options: BuildAppOptions = {}) {
+  const { sourceStore, ...fastifyOptions } = options;
+  const app = Fastify(fastifyOptions);
+  let resolvedSourceStore: SourceStore | undefined = sourceStore;
 
   app.get('/health', async () => ({ ok: true, service: 'podcast-forge-api' }));
+
+  app.get('/', async (_request, reply) => {
+    return reply.type('text/html').send(await readPublicFile('index.html'));
+  });
+
+  app.get('/ui', async (_request, reply) => {
+    return reply.type('text/html').send(await readPublicFile('index.html'));
+  });
+
+  app.get('/ui.js', async (_request, reply) => {
+    return reply.type('application/javascript').send(await readPublicFile('ui.js'));
+  });
+
+  app.get('/styles.css', async (_request, reply) => {
+    return reply.type('text/css').send(await readPublicFile('styles.css'));
+  });
 
   app.get('/config/example', async () => loadExampleConfig());
 
@@ -56,6 +106,19 @@ export function buildApp(options: FastifyServerOptions = {}) {
       }
 
       throw error;
+    }
+  });
+
+  registerSourceRoutes(app, {
+    getStore() {
+      resolvedSourceStore ??= createDbSourceStore();
+      return resolvedSourceStore;
+    },
+  });
+
+  app.addHook('onClose', async () => {
+    if (resolvedSourceStore && resolvedSourceStore !== sourceStore && resolvedSourceStore.close) {
+      await resolvedSourceStore.close();
     }
   });
 
