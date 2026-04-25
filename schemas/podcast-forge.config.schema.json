@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Podcast Forge Config",
+  "type": "object",
+  "required": ["show", "sources", "models", "production"],
+  "properties": {
+    "show": {
+      "type": "object",
+      "required": ["slug", "title"],
+      "properties": {
+        "slug": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "format": { "type": "string" },
+        "defaultRuntimeMinutes": { "type": "number" },
+        "cast": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "voice"],
+            "properties": {
+              "name": { "type": "string" },
+              "role": { "type": "string" },
+              "voice": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "enabled"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "enum": ["brave", "rss", "manual", "local-json"] },
+          "enabled": { "type": "boolean" },
+          "weight": { "type": "number" },
+          "freshness": { "type": "string" },
+          "queries": { "type": "array", "items": { "type": "string" } },
+          "feeds": { "type": "array", "items": { "type": "string" } },
+          "includeDomains": { "type": "array", "items": { "type": "string" } },
+          "excludeDomains": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["provider", "model"],
+        "properties": {
+          "provider": { "type": "string" },
+          "model": { "type": "string" },
+          "temperature": { "type": "number" },
+          "maxTokens": { "type": "integer" },
+          "fallbacks": { "type": "array", "items": { "type": "string" } },
+          "promptTemplate": { "type": "string" },
+          "budgetUsd": { "type": "number" }
+        }
+      }
+    },
+    "production": {
+      "type": "object",
+      "properties": {
+        "ttsProvider": { "type": "string" },
+        "artProvider": { "type": "string" },
+        "storage": { "enum": ["local", "s3", "r2"] },
+        "rssFeedPath": { "type": "string" },
+        "publicBaseUrl": { "type": "string" },
+        "op3Wrap": { "type": "boolean" }
+      }
+    }
+  }
+}

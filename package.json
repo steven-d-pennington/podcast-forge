@@ -1,0 +1,1 @@
+{"name":"podcast-forge","version":"0.0.0","private":true,"type":"module","workspaces":["packages/*"],"scripts":{"check":"npm -ws run check --if-present"},"devDependencies":{"typescript":"latest"}}

@@ -1,0 +1,1 @@
+{"name":"@podcast-forge/api","version":"0.0.0","type":"module","scripts":{"dev":"tsx src/server.ts","check":"tsc --noEmit"},"dependencies":{"fastify":"latest","zod":"latest"},"devDependencies":{"tsx":"latest","typescript":"latest"}}

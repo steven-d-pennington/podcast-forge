@@ -1,0 +1,69 @@
+{
+  "show": {
+    "slug": "the-synthetic-lens",
+    "title": "The Synthetic Lens",
+    "description": "A research-backed AI news and analysis show.",
+    "format": "feature-analysis",
+    "defaultRuntimeMinutes": 8,
+    "cast": [
+      { "name": "DAVID", "role": "host", "voice": "Orus" },
+      { "name": "MARCUS", "role": "analyst", "voice": "Charon" },
+      { "name": "INGRID", "role": "correspondent", "voice": "Leda" }
+    ]
+  },
+  "sources": [
+    {
+      "id": "ai-news-brave",
+      "type": "brave",
+      "enabled": true,
+      "weight": 1,
+      "freshness": "pd",
+      "queries": [
+        "artificial intelligence AI news today 2026",
+        "OpenAI announcement product news 2026",
+        "Anthropic Claude news 2026",
+        "Google DeepMind Gemini news 2026",
+        "Meta AI Llama news 2026",
+        "new AI model release launch 2026",
+        "AI regulation policy government 2026",
+        "AI startup funding acquisition 2026",
+        "AI research paper breakthrough 2026",
+        "artificial intelligence controversy criticism safety 2026"
+      ]
+    }
+  ],
+  "models": {
+    "candidate_scorer": {
+      "provider": "google-vertex",
+      "model": "gemini-2.5-flash",
+      "temperature": 0.2,
+      "maxTokens": 1200
+    },
+    "research_synthesizer": {
+      "provider": "google-gemini-cli",
+      "model": "gemini-3-pro-preview",
+      "temperature": 0.3,
+      "maxTokens": 8000
+    },
+    "script_writer": {
+      "provider": "openai-codex",
+      "model": "gpt-5.3-codex",
+      "temperature": 0.7,
+      "maxTokens": 12000
+    },
+    "cover_prompt_writer": {
+      "provider": "openai",
+      "model": "gpt-5.5",
+      "temperature": 0.7,
+      "maxTokens": 1000
+    }
+  },
+  "production": {
+    "ttsProvider": "vertex-gemini-tts",
+    "artProvider": "openai-gpt-image",
+    "storage": "r2",
+    "rssFeedPath": "~/clawd/podcasts/the-synthetic-lens/feed.xml",
+    "publicBaseUrl": "https://podcast.spennington.dev/the-synthetic-lens",
+    "op3Wrap": true
+  }
+}
