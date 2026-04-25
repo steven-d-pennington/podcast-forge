@@ -143,6 +143,7 @@ export type UpdatePublishEventInput = Partial<Omit<CreatePublishEventInput, 'epi
 
 export interface ProductionStore {
   getEpisode(id: string): Promise<EpisodeRecord | undefined>;
+  listEpisodes(filter: { showId: string; limit?: number }): Promise<EpisodeRecord[]>;
   getEpisodeForScript(scriptId: string, researchPacketId: string): Promise<EpisodeRecord | undefined>;
   createEpisodeFromScript(input: CreateEpisodeFromScriptInput): Promise<EpisodeRecord>;
   updateEpisodeProduction(id: string, input: UpdateEpisodeProductionInput): Promise<EpisodeRecord | undefined>;

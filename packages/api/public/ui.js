@@ -3,6 +3,8 @@ const state = {
   profiles: [],
   queries: [],
   scripts: [],
+  storyCandidates: [],
+  episodes: [],
   selectedScriptId: '',
   selectedScript: null,
   selectedRevision: null,
@@ -19,6 +21,7 @@ const state = {
 const els = {
   status: document.querySelector('#status'),
   refresh: document.querySelector('#refresh'),
+  importLegacy: document.querySelector('#importLegacy'),
   showSelect: document.querySelector('#showSelect'),
   profileList: document.querySelector('#profileList'),
   profileForm: document.querySelector('#profileForm'),
@@ -39,6 +42,10 @@ const els = {
   manualSourceName: document.querySelector('#manualSourceName'),
   manualSummary: document.querySelector('#manualSummary'),
   manualResult: document.querySelector('#manualResult'),
+  candidateMeta: document.querySelector('#candidateMeta'),
+  candidateList: document.querySelector('#candidateList'),
+  episodeMeta: document.querySelector('#episodeMeta'),
+  episodeList: document.querySelector('#episodeList'),
   queriesPanel: document.querySelector('#queriesPanel'),
   queryCount: document.querySelector('#queryCount'),
   newQueryForm: document.querySelector('#newQueryForm'),
@@ -233,6 +240,68 @@ function renderQueries() {
   }
 }
 
+function renderStoryCandidates() {
+  els.candidateList.innerHTML = '';
+  els.candidateMeta.textContent = `${state.storyCandidates.length} recent candidate${state.storyCandidates.length === 1 ? '' : 's'}`;
+
+  if (state.storyCandidates.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No story candidates found.';
+    els.candidateList.append(empty);
+    return;
+  }
+
+  for (const candidate of state.storyCandidates) {
+    const row = document.createElement('article');
+    row.className = 'record-row';
+
+    const title = document.createElement('strong');
+    title.textContent = candidate.title;
+
+    const meta = document.createElement('span');
+    const score = candidate.score === null || candidate.score === undefined ? 'unscored' : `score ${candidate.score}`;
+    meta.textContent = `${candidate.sourceName || 'unknown source'} | ${score} | ${candidate.status}`;
+
+    const summary = document.createElement('p');
+    summary.textContent = candidate.summary || candidate.url || 'No summary recorded.';
+
+    row.append(title, meta, summary);
+    els.candidateList.append(row);
+  }
+}
+
+function renderEpisodes() {
+  els.episodeList.innerHTML = '';
+  els.episodeMeta.textContent = `${state.episodes.length} episode${state.episodes.length === 1 ? '' : 's'}`;
+
+  if (state.episodes.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No episodes found.';
+    els.episodeList.append(empty);
+    return;
+  }
+
+  for (const episode of state.episodes) {
+    const row = document.createElement('article');
+    row.className = 'record-row';
+
+    const title = document.createElement('strong');
+    title.textContent = episode.episodeNumber ? `EP${episode.episodeNumber}: ${episode.title}` : episode.title;
+
+    const meta = document.createElement('span');
+    const published = episode.publishedAt ? ` | published ${new Date(episode.publishedAt).toLocaleString()}` : '';
+    meta.textContent = `${episode.status} | ${episode.slug}${published}`;
+
+    const summary = document.createElement('p');
+    summary.textContent = episode.feedGuid || episode.metadata?.publicAudioUrl || episode.description || 'No publish metadata recorded.';
+
+    row.append(title, meta, summary);
+    els.episodeList.append(row);
+  }
+}
+
 function isTerminalJob(job) {
   return ['succeeded', 'failed', 'cancelled'].includes(job.status);
 }
@@ -349,6 +418,8 @@ function render() {
   renderShows();
   renderProfiles();
   renderProfileForm();
+  renderStoryCandidates();
+  renderEpisodes();
   renderQueries();
   renderScripts();
 }
@@ -409,6 +480,26 @@ async function loadScripts() {
   }
 }
 
+async function loadStoryCandidates() {
+  if (!state.selectedShowSlug) {
+    state.storyCandidates = [];
+    return;
+  }
+
+  const body = await api(`/story-candidates?showSlug=${encodeURIComponent(state.selectedShowSlug)}&limit=25`);
+  state.storyCandidates = body.storyCandidates;
+}
+
+async function loadEpisodes() {
+  if (!state.selectedShowSlug) {
+    state.episodes = [];
+    return;
+  }
+
+  const body = await api(`/episodes?showSlug=${encodeURIComponent(state.selectedShowSlug)}&limit=25`);
+  state.episodes = body.episodes;
+}
+
 async function loadScript(id) {
   const body = await api(`/scripts/${id}`);
   state.selectedScriptId = id;
@@ -438,6 +529,8 @@ async function loadAll() {
     await loadShows();
     await loadProfiles();
     await loadQueries();
+    await loadStoryCandidates();
+    await loadEpisodes();
     await loadScripts();
     render();
     setStatus('Source profiles loaded.');
@@ -445,6 +538,26 @@ async function loadAll() {
     setStatus(error.message);
   } finally {
     els.refresh.disabled = false;
+  }
+}
+
+async function importLegacyData() {
+  els.importLegacy.disabled = true;
+  setStatus('Importing legacy data...');
+
+  try {
+    const body = await api('/imports/legacy', {
+      method: 'POST',
+      body: JSON.stringify({ showSlug: state.selectedShowSlug || undefined }),
+    });
+    await loadStoryCandidates();
+    await loadEpisodes();
+    render();
+    setStatus(`Legacy import complete: ${body.summary.candidates.inserted} candidates inserted, ${body.summary.candidates.updated} updated.`);
+  } catch (error) {
+    setStatus(error.message);
+  } finally {
+    els.importLegacy.disabled = false;
   }
 }
 
@@ -489,6 +602,8 @@ async function ingestSelectedProfile() {
 
   try {
     const body = await api(`/source-profiles/${profile.id}/ingest`, { method: 'POST' });
+    await loadStoryCandidates();
+    render();
     setStatus(`RSS ingest complete: ${body.inserted} inserted, ${body.skipped} skipped.`);
   } catch (error) {
     setStatus(error.message);
@@ -521,6 +636,8 @@ async function submitManualUrl(event) {
     if (body.inserted) {
       els.manualForm.reset();
       els.manualResult.textContent = `Created candidate: ${body.candidate.title}`;
+      await loadStoryCandidates();
+      render();
       setStatus('Manual URL submitted.');
     } else {
       els.manualResult.textContent = `Skipped: ${body.reason}`;
@@ -722,12 +839,15 @@ async function startCoverArt() {
 }
 
 els.refresh.addEventListener('click', loadAll);
+els.importLegacy.addEventListener('click', importLegacyData);
 els.showSelect.addEventListener('change', async () => {
   state.selectedShowSlug = els.showSelect.value;
   state.selectedProfileId = '';
   state.selectedScriptId = '';
   await loadProfiles();
   await loadQueries();
+  await loadStoryCandidates();
+  await loadEpisodes();
   await loadScripts();
   render();
 });

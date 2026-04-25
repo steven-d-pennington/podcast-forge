@@ -41,3 +41,9 @@ This file grows automatically. Each session that encounters bugs, project quirks
 **Fix:** What to do instead.
 **Applies to:** Which files/patterns this affects.
 -->
+
+### Workspace Script CWD for Legacy Paths (2026-04-25)
+**What happened:** The legacy import default paths needed to work from both the repo root and the API workspace package.
+**Root cause:** `npm run ... --workspace @podcast-forge/api` may execute with `packages/api` as the process working directory, while legacy folders sit beside the repo root.
+**Fix:** Resolve legacy default paths against multiple likely roots, and keep explicit CLI/API path overrides available.
+**Applies to:** `packages/api/src/import/legacy.ts`, any future filesystem import scripts.

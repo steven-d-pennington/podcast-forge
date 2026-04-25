@@ -110,6 +110,7 @@ function requireScriptStore(store: Partial<ScriptStore>): Pick<ScriptStore, 'get
 function requireProductionStore(store: Partial<ProductionStore>): ProductionStore {
   const required: Array<keyof ProductionStore> = [
     'getEpisode',
+    'listEpisodes',
     'getEpisodeForScript',
     'createEpisodeFromScript',
     'updateEpisodeProduction',
@@ -129,6 +130,30 @@ function requireProductionStore(store: Partial<ProductionStore>): ProductionStor
   }
 
   return store as ProductionStore;
+}
+
+async function resolveShowId(store: SourceStore, showId?: string, showSlug?: string): Promise<string> {
+  if (showId) {
+    const show = (await store.listShows()).find((candidate) => candidate.id === showId);
+
+    if (!show) {
+      throw new ApiError(404, 'SHOW_NOT_FOUND', `Show not found: ${showId}`);
+    }
+
+    return show.id;
+  }
+
+  if (!showSlug) {
+    throw new ApiError(400, 'SHOW_FILTER_REQUIRED', 'Provide showId or showSlug.');
+  }
+
+  const show = (await store.listShows()).find((candidate) => candidate.slug === showSlug);
+
+  if (!show) {
+    throw new ApiError(404, 'SHOW_NOT_FOUND', `Show not found: ${showSlug}`);
+  }
+
+  return show.id;
 }
 
 function requireJobStore(store: Partial<SearchJobStore>): Pick<SearchJobStore, 'createJob' | 'updateJob' | 'getJob' | 'listJobs'> {
@@ -351,6 +376,21 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
   const coverArtProvider = options.coverArtProvider ?? deterministicCoverArtProvider;
   const rssUpdateAdapter = options.rssUpdateAdapter ?? localRssUpdateAdapter;
   const urlValidator = options.publishUrlValidator ?? strictPublicUrlValidator;
+
+  app.get<{ Querystring: { showId?: string; showSlug?: string; limit?: string } }>('/episodes', async (request, reply) => {
+    try {
+      const rawStore = options.getStore();
+      const productionStore = requireProductionStore(rawStore);
+      const showId = await resolveShowId(rawStore, request.query.showId, request.query.showSlug);
+      const parsedLimit = request.query.limit ? Number(request.query.limit) : undefined;
+      const limit = parsedLimit && Number.isInteger(parsedLimit) && parsedLimit > 0 ? parsedLimit : undefined;
+      const episodeRows = await productionStore.listEpisodes({ showId, limit });
+
+      return { ok: true, episodes: episodeRows };
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
 
   app.get<{ Params: { id: string } }>('/scripts/:id/production', async (request, reply) => {
     try {

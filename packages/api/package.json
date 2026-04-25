@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --import tsx src/server.ts",
+    "import:legacy": "node --import tsx src/import/legacy-cli.ts",
     "test:config": "node --import tsx --test src/*.test.ts src/**/*.test.ts",
     "check": "tsc --noEmit && npm run test:config"
   },

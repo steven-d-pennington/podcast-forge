@@ -27,6 +27,7 @@ import { registerSearchRoutes } from './search/routes.js';
 import type { BraveFetch } from './search/brave.js';
 import type { RssFetch } from './search/rss.js';
 import type { SearchJobStore } from './search/store.js';
+import { registerLegacyImportRoutes } from './import/routes.js';
 
 interface ConfigQuery {
   path?: string;
@@ -209,6 +210,8 @@ export function buildApp(options: BuildAppOptions = {}) {
     rssUpdateAdapter,
     publishUrlValidator,
   });
+
+  registerLegacyImportRoutes(app);
 
   app.addHook('onClose', async () => {
     if (resolvedSourceStore && resolvedSourceStore !== sourceStore && resolvedSourceStore.close) {

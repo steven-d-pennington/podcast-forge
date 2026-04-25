@@ -91,7 +91,8 @@ button:disabled {
 }
 
 .list,
-.query-list {
+.query-list,
+.record-list {
   display: grid;
   gap: 0.75rem;
 }
@@ -276,6 +277,31 @@ textarea {
 .production-row span {
   color: #586575;
   font-size: 0.9rem;
+}
+
+.record-row {
+  background: #f8fafc;
+  border: 1px solid #d8dde5;
+  border-radius: 6px;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem;
+}
+
+.record-row strong,
+.record-row span,
+.record-row p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.record-row span {
+  color: #586575;
+  font-size: 0.9rem;
+}
+
+.record-row p {
+  margin: 0;
 }
 
 .production-row.failed {

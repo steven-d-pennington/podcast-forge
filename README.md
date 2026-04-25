@@ -145,6 +145,53 @@ Search/job endpoints:
 - `GET /jobs/:id`
 - `GET /story-candidates?showSlug=the-synthetic-lens`
 
+## Legacy TSL and Byte Sized import
+
+After seeding the Synthetic Lens config, import the current local TSL Command
+Center and Byte Sized data into Postgres:
+
+```sh
+npm run import:legacy --workspace @podcast-forge/api
+```
+
+By default the importer assumes this repo sits beside the legacy project
+folders and reads:
+
+- `../tsl-command-center/data/stories.json`
+- `../tsl-command-center/data/episodes.json`
+- `../byte-sized/raw`
+- `../byte-sized/output/*-ranked.json`
+
+Override paths when needed:
+
+```sh
+npm run import:legacy --workspace @podcast-forge/api -- \
+  --show-slug=the-synthetic-lens \
+  --tsl-stories=/path/to/stories.json \
+  --tsl-episodes=/path/to/episodes.json \
+  --byte-raw=/path/to/byte-sized/raw \
+  --byte-ranked=/path/to/byte-sized/output
+```
+
+The import is repeatable. It upserts story candidates by canonical URL, upserts
+TSL episodes by show/slug, refreshes only previously imported episode assets,
+and records one idempotent `source.import` job per Byte Sized raw date. Published
+episode metadata such as EP85 number, public audio/cover URLs, feed GUID, and
+publish event details are preserved where present.
+
+The same flow is available from the local UI with `Import Legacy`, or through:
+
+```sh
+curl -X POST http://localhost:3450/imports/legacy \
+  -H 'content-type: application/json' \
+  -d '{"showSlug":"the-synthetic-lens"}'
+```
+
+Read imported records:
+
+- `GET /story-candidates?showSlug=the-synthetic-lens`
+- `GET /episodes?showSlug=the-synthetic-lens`
+
 ## RSS and manual source ingest
 
 RSS source profiles use enabled `source_queries.query` values as feed URLs.

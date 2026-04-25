@@ -12,7 +12,10 @@
         <h1>Podcast Forge</h1>
         <p id="status">Loading sources...</p>
       </div>
-      <button id="refresh" type="button">Refresh</button>
+      <div class="actions inline">
+        <button id="importLegacy" class="secondary" type="button">Import Legacy</button>
+        <button id="refresh" type="button">Refresh</button>
+      </div>
     </header>
 
     <main class="layout">
@@ -115,6 +118,26 @@
               <button type="submit">Submit URL</button>
             </div>
           </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Story Candidates</h2>
+              <p id="candidateMeta"></p>
+            </div>
+          </div>
+          <div id="candidateList" class="record-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Episodes</h2>
+              <p id="episodeMeta"></p>
+            </div>
+          </div>
+          <div id="episodeList" class="record-list"></div>
         </section>
 
         <section id="queriesPanel" class="panel" hidden>

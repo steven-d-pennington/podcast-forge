@@ -323,6 +323,12 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
     return this.episodes.find((episode) => episode.id === id);
   }
 
+  async listEpisodes(filter: { showId: string; limit?: number }) {
+    return this.episodes
+      .filter((episode) => episode.showId === filter.showId)
+      .slice(0, filter.limit ?? 50);
+  }
+
   async getEpisodeForScript(scriptId: string, researchPacketId: string) {
     return this.episodes.find((episode) => {
       return episode.researchPacketId === researchPacketId && episode.metadata.scriptId === scriptId;
@@ -1083,6 +1089,42 @@ describe('source profile routes', () => {
     });
     assert.equal(candidatesResponse.statusCode, 200);
     assert.equal(candidatesResponse.json().storyCandidates.length, 1);
+  });
+
+  it('lists episodes for the selected show', async () => {
+    store.episodes.push({
+      id: 'episode-imported',
+      showId: '11111111-1111-4111-8111-111111111111',
+      feedId: 'feed-1',
+      episodeCandidateId: null,
+      researchPacketId: null,
+      slug: 'tsl-ep85-model-shockwave-deepseek-v4',
+      title: 'Model Shockwave - DeepSeek returns with V4',
+      description: null,
+      episodeNumber: 85,
+      status: 'published',
+      scriptText: null,
+      scriptFormat: 'main-tsl',
+      durationSeconds: null,
+      publishedAt: new Date('2026-04-25T04:54:48.345Z'),
+      feedGuid: 'synthetic-lens-model-shockwave-deepseek-v4-2026-04-25',
+      warnings: [],
+      metadata: { importedFrom: 'legacy-tsl' },
+      createdAt: new Date('2026-04-25T01:25:18.338Z'),
+      updatedAt: new Date('2026-04-25T04:54:48.345Z'),
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/episodes?showSlug=the-synthetic-lens',
+    });
+    const body = response.json();
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(body.episodes.length, 1);
+    assert.equal(body.episodes[0].episodeNumber, 85);
+    assert.equal(body.episodes[0].status, 'published');
+    assert.equal(body.episodes[0].feedGuid, 'synthetic-lens-model-shockwave-deepseek-v4-2026-04-25');
   });
 
   it('ingests RSS source profiles and dedupes against existing candidates', async () => {

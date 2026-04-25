@@ -978,6 +978,16 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
       return row ? mapEpisode(row) : undefined;
     },
 
+    async listEpisodes(filter) {
+      const rows = await db.select()
+        .from(episodes)
+        .where(eq(episodes.showId, filter.showId))
+        .orderBy(desc(episodes.updatedAt))
+        .limit(filter.limit ?? 50);
+
+      return rows.map(mapEpisode);
+    },
+
     async getEpisodeForScript(scriptId: string, researchPacketId: string) {
       const rows = await db.select()
         .from(episodes)
