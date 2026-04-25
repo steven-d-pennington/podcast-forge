@@ -12,13 +12,19 @@ import {
 import { createDbSourceStore } from './sources/db-store.js';
 import { registerSourceRoutes } from './sources/routes.js';
 import type { SourceStore } from './sources/store.js';
+import { registerSearchRoutes } from './search/routes.js';
+import type { BraveFetch } from './search/brave.js';
+import type { SearchJobStore } from './search/store.js';
 
 interface ConfigQuery {
   path?: string;
 }
 
 interface BuildAppOptions extends FastifyServerOptions {
-  sourceStore?: SourceStore;
+  sourceStore?: SourceStore & Partial<SearchJobStore>;
+  braveApiKey?: string;
+  fetchImpl?: BraveFetch;
+  sleep?: (ms: number) => Promise<void>;
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -44,9 +50,9 @@ async function readPublicFile(fileName: string) {
 }
 
 export function buildApp(options: BuildAppOptions = {}) {
-  const { sourceStore, ...fastifyOptions } = options;
+  const { sourceStore, braveApiKey, fetchImpl, sleep, ...fastifyOptions } = options;
   const app = Fastify(fastifyOptions);
-  let resolvedSourceStore: SourceStore | undefined = sourceStore;
+  let resolvedSourceStore: SourceStore & Partial<SearchJobStore> | undefined = sourceStore;
 
   app.get('/health', async () => ({ ok: true, service: 'podcast-forge-api' }));
 
@@ -114,6 +120,16 @@ export function buildApp(options: BuildAppOptions = {}) {
       resolvedSourceStore ??= createDbSourceStore();
       return resolvedSourceStore;
     },
+  });
+
+  registerSearchRoutes(app, {
+    getStore() {
+      resolvedSourceStore ??= createDbSourceStore();
+      return resolvedSourceStore;
+    },
+    braveApiKey,
+    fetchImpl,
+    sleep,
   });
 
   app.addHook('onClose', async () => {

@@ -86,3 +86,30 @@ Source profile endpoints:
 
 Use `enabledOnly=true` for search jobs so disabled profiles and queries are not
 included in source discovery.
+
+## Brave source search
+
+Brave source profiles can be searched from the API using the enabled
+`source_queries` rows stored in Postgres. Set a Brave API key before starting
+the API:
+
+```sh
+BRAVE_API_KEY=your_brave_search_key npm run dev --workspace @podcast-forge/api
+```
+
+Run a search for a Brave source profile:
+
+```sh
+curl -X POST http://localhost:3450/source-profiles/:id/search
+```
+
+The endpoint runs a synchronous `source.search` job for now and writes new
+`story_candidates` for deduped Brave news results. It respects count,
+freshness, region/language, and simple rate-limit delay config from the source
+profile/query records where present.
+
+Search/job endpoints:
+
+- `POST /source-profiles/:id/search`
+- `GET /jobs/:id`
+- `GET /story-candidates?showSlug=the-synthetic-lens`

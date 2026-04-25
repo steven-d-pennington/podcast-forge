@@ -1,11 +1,23 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import {
   createDb,
+  jobs,
   shows,
   sourceProfiles,
   sourceQueries,
+  storyCandidates,
 } from '@podcast-forge/db';
 
+import type {
+  CandidateDedupeKey,
+  CreateJobInput,
+  CreateStoryCandidateInput,
+  JobRecord,
+  SearchJobStore,
+  StoryCandidateListFilter,
+  StoryCandidateRecord,
+  UpdateJobInput,
+} from '../search/store.js';
 import type {
   CreateSourceProfileInput,
   CreateSourceQueryInput,
@@ -25,6 +37,12 @@ function asJsonObject(value: unknown): JsonObject {
 
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function asJsonArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => {
+    return Boolean(item && typeof item === 'object' && !Array.isArray(item));
+  }) : [];
 }
 
 function mapShow(row: typeof shows.$inferSelect): ShowRecord {
@@ -77,6 +95,53 @@ function mapQuery(row: typeof sourceQueries.$inferSelect): SourceQueryRecord {
   };
 }
 
+function mapJob(row: typeof jobs.$inferSelect): JobRecord {
+  return {
+    id: row.id,
+    showId: row.showId,
+    episodeId: row.episodeId,
+    type: row.type,
+    status: row.status,
+    progress: row.progress,
+    attempts: row.attempts,
+    maxAttempts: row.maxAttempts,
+    input: row.input,
+    output: row.output,
+    logs: asJsonArray(row.logs),
+    error: row.error,
+    lockedBy: row.lockedBy,
+    lockedAt: row.lockedAt,
+    startedAt: row.startedAt,
+    finishedAt: row.finishedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function mapStoryCandidate(row: typeof storyCandidates.$inferSelect): StoryCandidateRecord {
+  return {
+    id: row.id,
+    showId: row.showId,
+    sourceProfileId: row.sourceProfileId,
+    sourceQueryId: row.sourceQueryId,
+    title: row.title,
+    url: row.url,
+    canonicalUrl: row.canonicalUrl,
+    sourceName: row.sourceName,
+    author: row.author,
+    summary: row.summary,
+    publishedAt: row.publishedAt,
+    discoveredAt: row.discoveredAt,
+    score: row.score === null ? null : Number(row.score),
+    scoreBreakdown: row.scoreBreakdown,
+    status: row.status,
+    rawPayload: row.rawPayload,
+    metadata: row.metadata,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 function queryConfig(input: CreateSourceQueryInput | UpdateSourceQueryInput, current: JsonObject = {}): JsonObject {
   const config = { ...current, ...input.config };
 
@@ -99,7 +164,7 @@ function queryConfig(input: CreateSourceQueryInput | UpdateSourceQueryInput, cur
   return config;
 }
 
-export function createDbSourceStore(connectionString = process.env.DATABASE_URL): SourceStore {
+export function createDbSourceStore(connectionString = process.env.DATABASE_URL): SourceStore & SearchJobStore {
   const { db, pool } = createDb(connectionString);
 
   return {
@@ -237,6 +302,82 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
     async deleteSourceQuery(id) {
       const deleted = await db.delete(sourceQueries).where(eq(sourceQueries.id, id)).returning({ id: sourceQueries.id });
       return deleted.length > 0;
+    },
+
+    async createJob(input: CreateJobInput) {
+      const [row] = await db.insert(jobs).values({
+        showId: input.showId,
+        type: input.type,
+        status: input.status,
+        progress: input.progress,
+        attempts: input.attempts ?? 0,
+        maxAttempts: input.maxAttempts ?? 1,
+        input: input.input,
+        logs: input.logs ?? [],
+        startedAt: input.startedAt,
+      }).returning();
+
+      return mapJob(row);
+    },
+
+    async updateJob(id: string, input: UpdateJobInput) {
+      const [row] = await db.update(jobs)
+        .set({
+          ...('status' in input ? { status: input.status } : {}),
+          ...('progress' in input ? { progress: input.progress } : {}),
+          ...('output' in input ? { output: input.output } : {}),
+          ...('logs' in input ? { logs: input.logs } : {}),
+          ...('error' in input ? { error: input.error } : {}),
+          ...('startedAt' in input ? { startedAt: input.startedAt } : {}),
+          ...('finishedAt' in input ? { finishedAt: input.finishedAt } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(jobs.id, id))
+        .returning();
+
+      return row ? mapJob(row) : undefined;
+    },
+
+    async getJob(id: string) {
+      const [row] = await db.select().from(jobs).where(eq(jobs.id, id)).limit(1);
+      return row ? mapJob(row) : undefined;
+    },
+
+    async listStoryCandidateDedupeKeys(showId: string): Promise<CandidateDedupeKey[]> {
+      return db.select({
+        title: storyCandidates.title,
+        canonicalUrl: storyCandidates.canonicalUrl,
+      }).from(storyCandidates).where(eq(storyCandidates.showId, showId));
+    },
+
+    async insertStoryCandidate(input: CreateStoryCandidateInput) {
+      const [row] = await db.insert(storyCandidates).values({
+        showId: input.showId,
+        sourceProfileId: input.sourceProfileId,
+        sourceQueryId: input.sourceQueryId,
+        title: input.title,
+        url: input.url,
+        canonicalUrl: input.canonicalUrl,
+        sourceName: input.sourceName,
+        summary: input.summary,
+        publishedAt: input.publishedAt,
+        rawPayload: input.rawPayload,
+        metadata: input.metadata,
+      }).onConflictDoNothing({
+        target: [storyCandidates.showId, storyCandidates.canonicalUrl],
+      }).returning();
+
+      return row ? mapStoryCandidate(row) : undefined;
+    },
+
+    async listStoryCandidates(filter: StoryCandidateListFilter) {
+      const rows = await db.select()
+        .from(storyCandidates)
+        .where(eq(storyCandidates.showId, filter.showId))
+        .orderBy(desc(storyCandidates.discoveredAt))
+        .limit(filter.limit ?? 50);
+
+      return rows.map(mapStoryCandidate);
     },
 
     async close() {
