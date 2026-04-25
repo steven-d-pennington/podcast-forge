@@ -4,8 +4,10 @@ import {
   createDb,
   episodeAssets,
   episodes,
+  feeds,
   jobs,
   modelProfiles,
+  publishEvents,
   researchPackets,
   scriptRevisions,
   scripts,
@@ -58,7 +60,9 @@ import type {
   CreateEpisodeFromScriptInput,
   EpisodeAssetRecord,
   EpisodeRecord,
+  FeedRecord,
   ProductionStore,
+  PublishEventRecord,
   UpdateEpisodeProductionInput,
 } from '../production/store.js';
 import type {
@@ -331,6 +335,44 @@ function mapEpisodeAsset(row: typeof episodeAssets.$inferSelect): EpisodeAssetRe
     byteSize: row.byteSize,
     durationSeconds: row.durationSeconds,
     checksum: row.checksum,
+    metadata: asJsonObject(row.metadata),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function mapFeed(row: typeof feeds.$inferSelect): FeedRecord {
+  return {
+    id: row.id,
+    showId: row.showId,
+    slug: row.slug,
+    title: row.title,
+    description: row.description,
+    rssFeedPath: row.rssFeedPath,
+    publicFeedUrl: row.publicFeedUrl,
+    publicBaseUrl: row.publicBaseUrl,
+    storageType: row.storageType,
+    storageConfig: asJsonObject(row.storageConfig),
+    op3Wrap: row.op3Wrap,
+    episodeNumberPolicy: row.episodeNumberPolicy,
+    metadata: asJsonObject(row.metadata),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function mapPublishEvent(row: typeof publishEvents.$inferSelect): PublishEventRecord {
+  return {
+    id: row.id,
+    episodeId: row.episodeId,
+    feedId: row.feedId,
+    status: row.status,
+    feedGuid: row.feedGuid,
+    audioUrl: row.audioUrl,
+    coverUrl: row.coverUrl,
+    rssUrl: row.rssUrl,
+    changelog: row.changelog,
+    error: row.error,
     metadata: asJsonObject(row.metadata),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -969,10 +1011,13 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
     async updateEpisodeProduction(id: string, input: UpdateEpisodeProductionInput) {
       const [row] = await db.update(episodes)
         .set({
+          ...('feedId' in input ? { feedId: input.feedId } : {}),
           ...('status' in input ? { status: input.status } : {}),
           ...('scriptText' in input ? { scriptText: input.scriptText } : {}),
           ...('scriptFormat' in input ? { scriptFormat: input.scriptFormat } : {}),
           ...('durationSeconds' in input ? { durationSeconds: input.durationSeconds } : {}),
+          ...('publishedAt' in input ? { publishedAt: input.publishedAt } : {}),
+          ...('feedGuid' in input ? { feedGuid: input.feedGuid } : {}),
           ...('metadata' in input ? { metadata: input.metadata } : {}),
           updatedAt: new Date(),
         })
@@ -1007,6 +1052,93 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
         .orderBy(desc(episodeAssets.createdAt));
 
       return rows.map(mapEpisodeAsset);
+    },
+
+    async listFeeds(showId: string) {
+      const rows = await db.select()
+        .from(feeds)
+        .where(eq(feeds.showId, showId))
+        .orderBy(asc(feeds.slug));
+
+      return rows.map(mapFeed);
+    },
+
+    async getFeed(id: string) {
+      const [row] = await db.select().from(feeds).where(eq(feeds.id, id)).limit(1);
+      return row ? mapFeed(row) : undefined;
+    },
+
+    async approveEpisodeForPublish(id: string, input) {
+      const current = await this.getEpisode(id);
+
+      if (!current) {
+        return undefined;
+      }
+
+      const approvedAt = new Date();
+      await db.insert(approvalEvents).values({
+        episodeId: id,
+        researchPacketId: current.researchPacketId,
+        action: 'approve',
+        gate: 'episode-publish',
+        actor: input.actor,
+        reason: input.reason ?? null,
+        metadata: input.metadata ?? {},
+      });
+      const [row] = await db.update(episodes)
+        .set({
+          status: 'approved-for-publish',
+          metadata: {
+            ...current.metadata,
+            publishApproval: {
+              actor: input.actor,
+              reason: input.reason ?? null,
+              approvedAt: approvedAt.toISOString(),
+            },
+          },
+          updatedAt: approvedAt,
+        })
+        .where(eq(episodes.id, id))
+        .returning();
+
+      return row ? mapEpisode(row) : undefined;
+    },
+
+    async createPublishEvent(input) {
+      const [row] = await db.insert(publishEvents).values({
+        episodeId: input.episodeId,
+        feedId: input.feedId ?? null,
+        status: input.status,
+        feedGuid: input.feedGuid ?? null,
+        audioUrl: input.audioUrl ?? null,
+        coverUrl: input.coverUrl ?? null,
+        rssUrl: input.rssUrl ?? null,
+        changelog: input.changelog ?? null,
+        error: input.error ?? null,
+        metadata: input.metadata ?? {},
+      }).returning();
+
+      return mapPublishEvent(row);
+    },
+
+    async updatePublishEvent(id: string, input) {
+      const [row] = await db.update(publishEvents)
+        .set({
+          ...('feedId' in input ? { feedId: input.feedId } : {}),
+          ...('status' in input ? { status: input.status } : {}),
+          ...('feedGuid' in input ? { feedGuid: input.feedGuid } : {}),
+          ...('audioUrl' in input ? { audioUrl: input.audioUrl } : {}),
+          ...('coverUrl' in input ? { coverUrl: input.coverUrl } : {}),
+          ...('rssUrl' in input ? { rssUrl: input.rssUrl } : {}),
+          ...('changelog' in input ? { changelog: input.changelog } : {}),
+          ...('error' in input ? { error: input.error } : {}),
+          ...('metadata' in input ? { metadata: input.metadata } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(publishEvents.id, id))
+        .returning();
+
+      return row ? mapPublishEvent(row) : undefined;
     },
 
     async close() {

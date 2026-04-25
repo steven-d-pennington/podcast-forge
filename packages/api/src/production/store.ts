@@ -49,6 +49,42 @@ export interface EpisodeAssetRecord {
   updatedAt: Date;
 }
 
+export interface FeedRecord {
+  id: string;
+  showId: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  rssFeedPath: string | null;
+  publicFeedUrl: string | null;
+  publicBaseUrl: string | null;
+  storageType: string;
+  storageConfig: Record<string, unknown>;
+  op3Wrap: boolean;
+  episodeNumberPolicy: string;
+  metadata: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type PublishStatus = 'started' | 'succeeded' | 'failed' | 'rolled-back';
+
+export interface PublishEventRecord {
+  id: string;
+  episodeId: string;
+  feedId: string | null;
+  status: PublishStatus;
+  feedGuid: string | null;
+  audioUrl: string | null;
+  coverUrl: string | null;
+  rssUrl: string | null;
+  changelog: string | null;
+  error: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface CreateEpisodeFromScriptInput {
   showId: string;
   researchPacketId: string;
@@ -60,10 +96,13 @@ export interface CreateEpisodeFromScriptInput {
 }
 
 export interface UpdateEpisodeProductionInput {
+  feedId?: string | null;
   status?: EpisodeStatus;
   scriptText?: string | null;
   scriptFormat?: string | null;
   durationSeconds?: number | null;
+  publishedAt?: Date | null;
+  feedGuid?: string | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -81,6 +120,27 @@ export interface CreateEpisodeAssetInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface ApproveEpisodeForPublishInput {
+  actor: string;
+  reason?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CreatePublishEventInput {
+  episodeId: string;
+  feedId?: string | null;
+  status: PublishStatus;
+  feedGuid?: string | null;
+  audioUrl?: string | null;
+  coverUrl?: string | null;
+  rssUrl?: string | null;
+  changelog?: string | null;
+  error?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export type UpdatePublishEventInput = Partial<Omit<CreatePublishEventInput, 'episodeId'>>;
+
 export interface ProductionStore {
   getEpisode(id: string): Promise<EpisodeRecord | undefined>;
   getEpisodeForScript(scriptId: string, researchPacketId: string): Promise<EpisodeRecord | undefined>;
@@ -88,4 +148,9 @@ export interface ProductionStore {
   updateEpisodeProduction(id: string, input: UpdateEpisodeProductionInput): Promise<EpisodeRecord | undefined>;
   createEpisodeAsset(input: CreateEpisodeAssetInput): Promise<EpisodeAssetRecord>;
   listEpisodeAssets(episodeId: string): Promise<EpisodeAssetRecord[]>;
+  listFeeds(showId: string): Promise<FeedRecord[]>;
+  getFeed(id: string): Promise<FeedRecord | undefined>;
+  approveEpisodeForPublish(id: string, input: ApproveEpisodeForPublishInput): Promise<EpisodeRecord | undefined>;
+  createPublishEvent(input: CreatePublishEventInput): Promise<PublishEventRecord>;
+  updatePublishEvent(id: string, input: UpdatePublishEventInput): Promise<PublishEventRecord | undefined>;
 }

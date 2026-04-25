@@ -266,6 +266,29 @@ Production endpoints:
 - `POST /scripts/:id/production/audio-preview`
 - `POST /scripts/:id/production/cover-art`
 
+## Approval-gated RSS publishing
+
+Episodes must reach `approved-for-publish` before `publish.rss` can update a
+feed. The publish job uploads the selected audio and cover art through the
+configured feed storage adapter, preserves the feed OP3 wrapping setting, upserts
+the RSS item by episode/feed GUID, validates the resulting public URLs, records a
+`publish_events` audit row, and marks the episode `published`.
+
+```sh
+curl -X POST http://localhost:3450/episodes/:id/approve-for-publish \
+  -H 'content-type: application/json' \
+  -d '{"actor":"producer@example.com","reason":"Final assets approved."}'
+
+curl -X POST http://localhost:3450/episodes/:id/publish/rss \
+  -H 'content-type: application/json' \
+  -d '{"actor":"publisher@example.com"}'
+```
+
+Publishing endpoints:
+
+- `POST /episodes/:id/approve-for-publish`
+- `POST /episodes/:id/publish/rss`
+
 The local UI at `http://localhost:3450/ui` includes a script review panel where
 editors can paste a research packet ID, generate a draft, edit the latest
 revision, and approve it for audio.

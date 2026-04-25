@@ -20,8 +20,9 @@ import type { ResearchStore } from './research/store.js';
 import { registerScriptRoutes } from './scripts/routes.js';
 import type { ScriptStore } from './scripts/store.js';
 import type { AudioPreviewProvider, CoverArtProvider } from './production/providers.js';
+import type { PublishStorageAdapter, PublishUrlValidator, RssUpdateAdapter } from './production/publishing.js';
 import { registerProductionRoutes } from './production/routes.js';
-import type { ProductionStore } from './production/store.js';
+import type { FeedRecord, ProductionStore } from './production/store.js';
 import { registerSearchRoutes } from './search/routes.js';
 import type { BraveFetch } from './search/brave.js';
 import type { RssFetch } from './search/rss.js';
@@ -44,6 +45,9 @@ interface BuildAppOptions extends FastifyServerOptions {
   researchFetchImpl?: ResearchFetch;
   audioPreviewProvider?: AudioPreviewProvider;
   coverArtProvider?: CoverArtProvider;
+  publishStorageAdapterFactory?: (feed: FeedRecord) => PublishStorageAdapter;
+  rssUpdateAdapter?: RssUpdateAdapter;
+  publishUrlValidator?: PublishUrlValidator;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -78,6 +82,9 @@ export function buildApp(options: BuildAppOptions = {}) {
     researchFetchImpl,
     audioPreviewProvider,
     coverArtProvider,
+    publishStorageAdapterFactory,
+    rssUpdateAdapter,
+    publishUrlValidator,
     sleep,
     ...fastifyOptions
   } = options;
@@ -198,6 +205,9 @@ export function buildApp(options: BuildAppOptions = {}) {
     },
     audioPreviewProvider,
     coverArtProvider,
+    publishStorageAdapterFactory,
+    rssUpdateAdapter,
+    publishUrlValidator,
   });
 
   app.addHook('onClose', async () => {

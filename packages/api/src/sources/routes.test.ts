@@ -12,11 +12,22 @@ import type {
 } from '../models/store.js';
 import type { AudioPreviewProvider } from '../production/providers.js';
 import type {
+  PublishStorageAdapter,
+  PublishUrlValidator,
+  RssEpisodeEntry,
+  RssUpdateAdapter,
+} from '../production/publishing.js';
+import type {
+  ApproveEpisodeForPublishInput,
+  CreatePublishEventInput,
   CreateEpisodeAssetInput,
   CreateEpisodeFromScriptInput,
   EpisodeAssetRecord,
   EpisodeRecord,
+  FeedRecord,
   ProductionStore,
+  PublishEventRecord,
+  UpdatePublishEventInput,
   UpdateEpisodeProductionInput,
 } from '../production/store.js';
 import type { ResearchFetch } from '../research/fetch.js';
@@ -123,6 +134,24 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
   ];
   episodes: EpisodeRecord[] = [];
   episodeAssets: EpisodeAssetRecord[] = [];
+  feeds: FeedRecord[] = [{
+    id: 'feed-1',
+    showId: '11111111-1111-4111-8111-111111111111',
+    slug: 'main',
+    title: 'The Synthetic Lens',
+    description: 'AI news feed',
+    rssFeedPath: null,
+    publicFeedUrl: 'https://podcast.example.com/the-synthetic-lens/feed.xml',
+    publicBaseUrl: 'https://podcast.example.com/the-synthetic-lens',
+    storageType: 'local',
+    storageConfig: {},
+    op3Wrap: true,
+    episodeNumberPolicy: 'increment',
+    metadata: {},
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
+  }];
+  publishEvents: PublishEventRecord[] = [];
 
   async listShows() {
     return this.shows;
@@ -363,6 +392,67 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
 
   async listEpisodeAssets(episodeId: string) {
     return this.episodeAssets.filter((asset) => asset.episodeId === episodeId);
+  }
+
+  async listFeeds(showId: string) {
+    return this.feeds.filter((feed) => feed.showId === showId);
+  }
+
+  async getFeed(id: string) {
+    return this.feeds.find((feed) => feed.id === id);
+  }
+
+  async approveEpisodeForPublish(id: string, input: ApproveEpisodeForPublishInput) {
+    const episode = await this.getEpisode(id);
+
+    if (!episode) {
+      return undefined;
+    }
+
+    Object.assign(episode, {
+      status: 'approved-for-publish',
+      metadata: {
+        ...episode.metadata,
+        publishApproval: {
+          actor: input.actor,
+          reason: input.reason ?? null,
+          approvedAt: '2026-01-08T00:00:00.000Z',
+        },
+      },
+      updatedAt: new Date('2026-01-08T00:00:00Z'),
+    });
+    return episode;
+  }
+
+  async createPublishEvent(input: CreatePublishEventInput) {
+    const event: PublishEventRecord = {
+      id: `publish-event-${this.publishEvents.length + 1}`,
+      episodeId: input.episodeId,
+      feedId: input.feedId ?? null,
+      status: input.status,
+      feedGuid: input.feedGuid ?? null,
+      audioUrl: input.audioUrl ?? null,
+      coverUrl: input.coverUrl ?? null,
+      rssUrl: input.rssUrl ?? null,
+      changelog: input.changelog ?? null,
+      error: input.error ?? null,
+      metadata: input.metadata ?? {},
+      createdAt: new Date('2026-01-08T00:00:00Z'),
+      updatedAt: new Date('2026-01-08T00:00:00Z'),
+    };
+    this.publishEvents.push(event);
+    return event;
+  }
+
+  async updatePublishEvent(id: string, input: UpdatePublishEventInput) {
+    const event = this.publishEvents.find((candidate) => candidate.id === id);
+
+    if (!event) {
+      return undefined;
+    }
+
+    Object.assign(event, input, { updatedAt: new Date('2026-01-08T00:00:00Z') });
+    return event;
   }
 
   async listStoryCandidateDedupeKeys(showId: string): Promise<CandidateDedupeKey[]> {
@@ -633,6 +723,39 @@ let store = new FakeSourceStore();
 let requestedUrls: string[] = [];
 let requestedRssUrls: string[] = [];
 let requestedResearchUrls: string[] = [];
+let uploadedPublishAssets: Array<{ feedId: string; episodeId: string; assetId: string; type: string }> = [];
+let rssEntries = new Map<string, RssEpisodeEntry>();
+let validatedPublishUrls: string[] = [];
+const publishStorageAdapterFactory = (): PublishStorageAdapter => ({
+  async uploadAsset({ feed, episode, asset }) {
+    uploadedPublishAssets.push({ feedId: feed.id, episodeId: episode.id, assetId: asset.id, type: asset.type });
+    return {
+      assetId: asset.id,
+      type: asset.type,
+      objectKey: asset.objectKey,
+      publicUrl: `https://cdn.example.com/${episode.slug}/${asset.type}`,
+      byteSize: asset.byteSize,
+      metadata: { adapter: 'fake-storage' },
+    };
+  },
+});
+const rssUpdateAdapter: RssUpdateAdapter = {
+  async upsertEpisode({ feed, entry }) {
+    const inserted = !rssEntries.has(entry.guid);
+    rssEntries.set(entry.guid, entry);
+    return {
+      rssUrl: feed.publicFeedUrl ?? 'https://podcast.example.com/feed.xml',
+      inserted,
+      itemCount: rssEntries.size,
+    };
+  },
+};
+const publishUrlValidator: PublishUrlValidator = {
+  async validate(urls) {
+    validatedPublishUrls.push(...urls);
+    return urls.map((url) => ({ url, ok: true }));
+  },
+};
 const braveFetch: BraveFetch = async (url) => {
   requestedUrls.push(url);
   return {
@@ -732,6 +855,9 @@ const app = buildApp({
   fetchImpl: braveFetch,
   rssFetchImpl: rssFetch,
   researchFetchImpl: researchFetch,
+  publishStorageAdapterFactory,
+  rssUpdateAdapter,
+  publishUrlValidator,
   sleep: async () => {},
 });
 
@@ -749,14 +875,64 @@ describe('source profile routes', () => {
     store.modelProfiles = new FakeSourceStore().modelProfiles;
     store.episodes = [];
     store.episodeAssets = [];
+    store.feeds = new FakeSourceStore().feeds;
+    store.publishEvents = [];
     requestedUrls = [];
     requestedRssUrls = [];
     requestedResearchUrls = [];
+    uploadedPublishAssets = [];
+    rssEntries = new Map<string, RssEpisodeEntry>();
+    validatedPublishUrls = [];
   });
 
   after(async () => {
     await app.close();
   });
+
+  async function createProducedEpisode(title: string) {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title,
+      status: 'approved',
+      sourceDocumentIds: [],
+      claims: [{ id: 'claim-1', text: `${title} claim exists.`, sourceDocumentIds: [], citationUrls: ['https://example.com/publish'] }],
+      citations: [],
+      warnings: [],
+      content: { summary: `A packet summary for ${title}.` },
+    });
+    const scriptResponse = await app.inject({
+      method: 'POST',
+      url: `/research-packets/${packet.id}/script`,
+    });
+    const initial = scriptResponse.json();
+
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/approve-for-audio`,
+      payload: {
+        actor: 'producer@example.com',
+        reason: 'Ready for production.',
+      },
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/audio-preview`,
+      payload: { actor: 'producer@example.com' },
+    });
+    const artResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/cover-art`,
+      payload: { actor: 'producer@example.com' },
+    });
+
+    return {
+      packet,
+      script: initial.script as ScriptRecord,
+      episode: artResponse.json().episode as EpisodeRecord,
+    };
+  }
 
   it('lists shows and source profiles for the configured show', async () => {
     const showsResponse = await app.inject({ method: 'GET', url: '/shows' });
@@ -1304,6 +1480,89 @@ describe('source profile routes', () => {
       productionBody.jobs.map((job: JobRecord) => job.type).sort(),
       ['art.generate', 'audio.preview'],
     );
+  });
+
+  it('rejects RSS publishing until an episode is approved for publish', async () => {
+    const { episode } = await createProducedEpisode('Unapproved Publish Story');
+    const response = await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/publish/rss`,
+      payload: { actor: 'publisher@example.com' },
+    });
+    const body = response.json();
+
+    assert.equal(response.statusCode, 409);
+    assert.equal(body.code, 'EPISODE_NOT_APPROVED_FOR_PUBLISH');
+    assert.equal(store.jobs.some((job) => job.type === 'publish.rss'), false);
+    assert.equal(uploadedPublishAssets.length, 0);
+  });
+
+  it('publishes approved episodes to RSS with uploaded assets, OP3 wrapping, and URL validation', async () => {
+    const { episode } = await createProducedEpisode('Approved Publish Story');
+    const approvalResponse = await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/approve-for-publish`,
+      payload: {
+        actor: 'editor@example.com',
+        reason: 'Final audio and art approved.',
+      },
+    });
+
+    assert.equal(approvalResponse.statusCode, 201);
+    assert.equal(approvalResponse.json().episode.status, 'approved-for-publish');
+
+    const publishResponse = await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/publish/rss`,
+      payload: { actor: 'publisher@example.com' },
+    });
+    const publishBody = publishResponse.json();
+
+    assert.equal(publishResponse.statusCode, 201);
+    assert.equal(publishBody.job.type, 'publish.rss');
+    assert.equal(publishBody.job.status, 'succeeded');
+    assert.equal(publishBody.episode.status, 'published');
+    assert.equal(publishBody.publishEvent.status, 'succeeded');
+    assert.equal(uploadedPublishAssets.length, 2);
+    assert.deepEqual(uploadedPublishAssets.map((asset) => asset.type).sort(), ['audio-preview', 'cover-art']);
+    assert.match(publishBody.publishEvent.audioUrl, /^https:\/\/op3\.dev\/e\/https:\/\/cdn\.example\.com\//);
+    assert.equal(publishBody.publishEvent.coverUrl.startsWith('https://cdn.example.com/'), true);
+    assert.equal(publishBody.publishEvent.rssUrl, 'https://podcast.example.com/the-synthetic-lens/feed.xml');
+    assert.equal(validatedPublishUrls.includes(publishBody.publishEvent.audioUrl), true);
+    assert.equal(validatedPublishUrls.includes(publishBody.publishEvent.coverUrl), true);
+    assert.equal(validatedPublishUrls.includes(publishBody.publishEvent.rssUrl), true);
+    assert.equal(rssEntries.size, 1);
+    assert.equal(Array.from(rssEntries.values())[0]?.guid, publishBody.episode.feedGuid);
+  });
+
+  it('keeps RSS publishing idempotent by episode feed GUID', async () => {
+    const { episode } = await createProducedEpisode('Idempotent Publish Story');
+
+    await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/approve-for-publish`,
+      payload: { actor: 'editor@example.com' },
+    });
+    const firstResponse = await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/publish/rss`,
+      payload: { actor: 'publisher@example.com' },
+    });
+    const secondResponse = await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/publish/rss`,
+      payload: { actor: 'publisher@example.com' },
+    });
+    const firstBody = firstResponse.json();
+    const secondBody = secondResponse.json();
+
+    assert.equal(firstResponse.statusCode, 201);
+    assert.equal(secondResponse.statusCode, 201);
+    assert.equal(firstBody.episode.feedGuid, secondBody.episode.feedGuid);
+    assert.equal(firstBody.job.output.rssInserted, true);
+    assert.equal(secondBody.job.output.rssInserted, false);
+    assert.equal(rssEntries.size, 1);
+    assert.equal(store.publishEvents.filter((event) => event.status === 'succeeded').length, 2);
   });
 
   it('records production job failure state and allows a later retry', async () => {
