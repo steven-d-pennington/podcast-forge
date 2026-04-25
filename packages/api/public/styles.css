@@ -156,9 +156,22 @@ button:disabled {
   margin-top: 0.85rem;
 }
 
+.setup-form {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.setup-form .grid {
+  margin-top: 0;
+}
+
 .field {
   display: grid;
   gap: 0.35rem;
+}
+
+.compact-field {
+  min-width: 160px;
 }
 
 .field span,
@@ -216,6 +229,12 @@ textarea {
   display: grid;
   gap: 0.85rem;
   grid-template-columns: minmax(180px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr);
+}
+
+.model-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .manual-form .wide {
@@ -380,6 +399,7 @@ textarea {
   .layout,
   .grid,
   .grid.two,
+  .model-grid,
   .manual-form,
   .script-generate,
   .script-workspace,

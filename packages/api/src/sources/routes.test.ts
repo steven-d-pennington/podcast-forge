@@ -77,6 +77,7 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
     slug: 'the-synthetic-lens',
     title: 'The Synthetic Lens',
     description: 'AI news',
+    setupStatus: 'active',
     format: 'feature-analysis',
     defaultRuntimeMinutes: 8,
     cast: [
@@ -84,6 +85,7 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
       { name: 'MARCUS', role: 'analyst', voice: 'Charon' },
       { name: 'INGRID', role: 'correspondent', voice: 'Leda' },
     ],
+    defaultModelProfile: {},
     settings: {
       production: {
         ttsProvider: 'vertex-gemini-tts',

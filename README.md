@@ -72,9 +72,25 @@ Open `http://localhost:3450/ui` to edit source profiles and queries for
 queries, edit query text, freshness, include/exclude domains, and weights, and
 create or delete query buckets.
 
-Source profile endpoints:
+## New show onboarding
+
+Shows can be added from the local UI with `New Show`. The onboarding form
+creates the show in `draft` or `active` setup state, adds a feed, creates a
+starter source profile and query, and seeds model profiles for each supported
+agent role. Draft shows are returned by `GET /shows`, so setup can be completed
+over time without editing seed data, config files, or the database directly.
+
+Show/feed endpoints:
 
 - `GET /shows`
+- `POST /shows`
+- `PATCH /shows/:id`
+- `GET /shows/:showSlug/feeds`
+- `POST /shows/:showSlug/feeds`
+- `PATCH /feeds/:id`
+
+Source profile endpoints:
+
 - `GET /source-profiles?showSlug=the-synthetic-lens`
 - `POST /source-profiles`
 - `PATCH /source-profiles/:id`

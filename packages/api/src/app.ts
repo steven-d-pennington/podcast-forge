@@ -10,6 +10,7 @@ import {
   validateConfig,
 } from './config/loader.js';
 import { createDbSourceStore } from './sources/db-store.js';
+import { registerShowRoutes } from './shows/routes.js';
 import { registerSourceRoutes } from './sources/routes.js';
 import type { SourceStore } from './sources/store.js';
 import { registerModelRoutes } from './models/routes.js';
@@ -164,6 +165,13 @@ export function buildApp(options: BuildAppOptions = {}) {
   });
 
   registerSourceRoutes(app, {
+    getStore() {
+      resolvedSourceStore ??= createDbSourceStore();
+      return resolvedSourceStore;
+    },
+  });
+
+  registerShowRoutes(app, {
     getStore() {
       resolvedSourceStore ??= createDbSourceStore();
       return resolvedSourceStore;

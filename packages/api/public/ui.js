@@ -3,6 +3,7 @@ const state = {
   profiles: [],
   queries: [],
   scripts: [],
+  modelProfiles: [],
   scheduledPipelines: [],
   failedScheduledRuns: [],
   storyCandidates: [],
@@ -18,6 +19,7 @@ const state = {
   productionPoll: null,
   selectedShowSlug: '',
   selectedProfileId: '',
+  showSetupOpen: false,
 };
 
 const els = {
@@ -25,6 +27,26 @@ const els = {
   refresh: document.querySelector('#refresh'),
   importLegacy: document.querySelector('#importLegacy'),
   showSelect: document.querySelector('#showSelect'),
+  newShowToggle: document.querySelector('#newShowToggle'),
+  showSetupForm: document.querySelector('#showSetupForm'),
+  showSetupMeta: document.querySelector('#showSetupMeta'),
+  showSetupStatus: document.querySelector('#showSetupStatus'),
+  showName: document.querySelector('#showName'),
+  showSlug: document.querySelector('#showSlug'),
+  showHostVoice: document.querySelector('#showHostVoice'),
+  showDescription: document.querySelector('#showDescription'),
+  showToneNotes: document.querySelector('#showToneNotes'),
+  showScriptNotes: document.querySelector('#showScriptNotes'),
+  showFeedTitle: document.querySelector('#showFeedTitle'),
+  showFeedUrl: document.querySelector('#showFeedUrl'),
+  showPublicBase: document.querySelector('#showPublicBase'),
+  showOutputPath: document.querySelector('#showOutputPath'),
+  showSourceQuery: document.querySelector('#showSourceQuery'),
+  showPublishingMode: document.querySelector('#showPublishingMode'),
+  showModelProvider: document.querySelector('#showModelProvider'),
+  showModelName: document.querySelector('#showModelName'),
+  showReasoningEffort: document.querySelector('#showReasoningEffort'),
+  cancelShowSetup: document.querySelector('#cancelShowSetup'),
   profileList: document.querySelector('#profileList'),
   profileForm: document.querySelector('#profileForm'),
   profileTitle: document.querySelector('#profileTitle'),
@@ -51,6 +73,8 @@ const els = {
   failedScheduleRuns: document.querySelector('#failedScheduleRuns'),
   episodeMeta: document.querySelector('#episodeMeta'),
   episodeList: document.querySelector('#episodeList'),
+  modelMeta: document.querySelector('#modelMeta'),
+  modelProfileList: document.querySelector('#modelProfileList'),
   queriesPanel: document.querySelector('#queriesPanel'),
   queryCount: document.querySelector('#queryCount'),
   newQueryForm: document.querySelector('#newQueryForm'),
@@ -86,6 +110,14 @@ function linesToList(value) {
 
 function listToLines(value) {
   return (value || []).join('\n');
+}
+
+function slugify(value) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .replace(/-{2,}/g, '-');
 }
 
 async function api(path, options = {}) {
@@ -152,6 +184,11 @@ function renderProfiles() {
     });
     els.profileList.append(button);
   }
+}
+
+function renderShowSetup() {
+  els.showSetupForm.hidden = !state.showSetupOpen;
+  els.showSetupMeta.textContent = state.showSetupOpen ? 'Draft setups stay visible in the show list.' : '';
 }
 
 function renderProfileForm() {
@@ -304,6 +341,37 @@ function renderEpisodes() {
 
     row.append(title, meta, summary);
     els.episodeList.append(row);
+  }
+}
+
+function renderModelProfiles() {
+  els.modelProfileList.innerHTML = '';
+  els.modelMeta.textContent = `${state.modelProfiles.length} role profile${state.modelProfiles.length === 1 ? '' : 's'}`;
+
+  if (state.modelProfiles.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No model profiles configured.';
+    els.modelProfileList.append(empty);
+    return;
+  }
+
+  for (const profile of state.modelProfiles) {
+    const row = document.createElement('article');
+    row.className = 'record-row';
+
+    const title = document.createElement('strong');
+    title.textContent = profile.role;
+
+    const meta = document.createElement('span');
+    meta.textContent = `${profile.provider} | ${profile.model}`;
+
+    const detail = document.createElement('p');
+    const params = profile.config?.params ? JSON.stringify(profile.config.params) : 'No params';
+    detail.textContent = `${profile.promptTemplateKey || 'default prompt'} | ${params}`;
+
+    row.append(title, meta, detail);
+    els.modelProfileList.append(row);
   }
 }
 
@@ -490,11 +558,13 @@ function renderScripts() {
 
 function render() {
   renderShows();
+  renderShowSetup();
   renderProfiles();
   renderProfileForm();
   renderStoryCandidates();
   renderScheduler();
   renderEpisodes();
+  renderModelProfiles();
   renderQueries();
   renderScripts();
 }
@@ -553,6 +623,16 @@ async function loadScripts() {
     state.selectedRevision = null;
     state.production = { episode: null, assets: [], jobs: [] };
   }
+}
+
+async function loadModelProfiles() {
+  if (!state.selectedShowSlug) {
+    state.modelProfiles = [];
+    return;
+  }
+
+  const body = await api(`/model-profiles?showSlug=${encodeURIComponent(state.selectedShowSlug)}`);
+  state.modelProfiles = body.modelProfiles;
 }
 
 async function loadStoryCandidates() {
@@ -663,6 +743,7 @@ async function loadAll() {
     await loadShows();
     await loadProfiles();
     await loadQueries();
+    await loadModelProfiles();
     await loadStoryCandidates();
     await loadScheduledPipelines();
     await loadEpisodes();
@@ -673,6 +754,70 @@ async function loadAll() {
     setStatus(error.message);
   } finally {
     els.refresh.disabled = false;
+  }
+}
+
+async function createShow(event) {
+  event.preventDefault();
+  const slug = slugify(els.showSlug.value.trim());
+  const provider = els.showModelProvider.value.trim();
+  const model = els.showModelName.value.trim();
+  const reasoningEffort = els.showReasoningEffort.value.trim();
+
+  const payload = {
+    name: els.showName.value.trim(),
+    slug,
+    description: els.showDescription.value.trim(),
+    setupStatus: els.showSetupStatus.value,
+    hostVoiceDefaults: [{
+      name: 'HOST',
+      role: 'host',
+      voice: els.showHostVoice.value.trim(),
+    }],
+    toneStyleNotes: els.showToneNotes.value.trim() || undefined,
+    scriptFormatNotes: els.showScriptNotes.value.trim() || undefined,
+    publishingMode: els.showPublishingMode.value,
+    feed: {
+      title: els.showFeedTitle.value.trim(),
+      publicFeedUrl: els.showFeedUrl.value.trim() || undefined,
+      publicBaseUrl: els.showPublicBase.value.trim() || undefined,
+      publicAssetBaseUrl: els.showPublicBase.value.trim() || undefined,
+      outputPath: els.showOutputPath.value.trim() || undefined,
+    },
+    sourceProfileDefaults: {
+      queries: [els.showSourceQuery.value.trim() || `${els.showName.value.trim()} news`],
+    },
+    modelRoleDefaults: {
+      candidate_scorer: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
+      source_summarizer: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
+      claim_extractor: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
+      research_synthesizer: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
+      script_writer: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
+      script_editor: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
+      metadata_writer: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
+      cover_prompt_writer: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
+    },
+  };
+
+  setStatus('Creating show...');
+
+  try {
+    const body = await api('/shows', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    state.selectedShowSlug = body.show.slug;
+    state.selectedProfileId = '';
+    state.selectedScriptId = '';
+    state.showSetupOpen = false;
+    els.showSetupForm.reset();
+    els.showModelProvider.value = 'openai';
+    els.showModelName.value = 'gpt-5.5';
+    els.showReasoningEffort.value = 'high';
+    await loadAll();
+    setStatus(`Show created: ${body.show.title}`);
+  } catch (error) {
+    setStatus(error.message);
   }
 }
 
@@ -975,12 +1120,37 @@ async function startCoverArt() {
 
 els.refresh.addEventListener('click', loadAll);
 els.importLegacy.addEventListener('click', importLegacyData);
+els.newShowToggle.addEventListener('click', () => {
+  state.showSetupOpen = true;
+  render();
+});
+els.cancelShowSetup.addEventListener('click', () => {
+  state.showSetupOpen = false;
+  render();
+});
+els.showName.addEventListener('input', () => {
+  if (!els.showSlug.dataset.touched) {
+    els.showSlug.value = slugify(els.showName.value);
+  }
+  if (!els.showFeedTitle.value.trim()) {
+    els.showFeedTitle.value = els.showName.value;
+  }
+  if (!els.showSourceQuery.value.trim()) {
+    els.showSourceQuery.placeholder = `${els.showName.value || 'show'} news`;
+  }
+});
+els.showSlug.addEventListener('input', () => {
+  els.showSlug.dataset.touched = 'true';
+  els.showSlug.value = slugify(els.showSlug.value);
+});
+els.showSetupForm.addEventListener('submit', createShow);
 els.showSelect.addEventListener('change', async () => {
   state.selectedShowSlug = els.showSelect.value;
   state.selectedProfileId = '';
   state.selectedScriptId = '';
   await loadProfiles();
   await loadQueries();
+  await loadModelProfiles();
   await loadStoryCandidates();
   await loadScheduledPipelines();
   await loadEpisodes();

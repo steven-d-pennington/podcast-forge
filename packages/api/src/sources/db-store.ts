@@ -58,12 +58,14 @@ import type {
 } from '../models/store.js';
 import type {
   CreateEpisodeAssetInput,
+  CreateFeedInput,
   CreateEpisodeFromScriptInput,
   EpisodeAssetRecord,
   EpisodeRecord,
   FeedRecord,
   ProductionStore,
   PublishEventRecord,
+  UpdateFeedInput,
   UpdateEpisodeProductionInput,
 } from '../production/store.js';
 import type {
@@ -76,12 +78,14 @@ import type {
 import type {
   CreateSourceProfileInput,
   CreateSourceQueryInput,
+  CreateShowInput,
   ShowRecord,
   SourceProfileRecord,
   SourceQueryRecord,
   SourceStore,
   UpdateSourceProfileInput,
   UpdateSourceQueryInput,
+  UpdateShowInput,
 } from './store.js';
 
 type JsonObject = Record<string, unknown>;
@@ -142,9 +146,11 @@ function mapShow(row: typeof shows.$inferSelect): ShowRecord {
     slug: row.slug,
     title: row.title,
     description: row.description,
+    setupStatus: row.setupStatus,
     format: row.format,
     defaultRuntimeMinutes: row.defaultRuntimeMinutes,
     cast: asCast(row.cast),
+    defaultModelProfile: asJsonObject(row.defaultModelProfile) as Record<string, string>,
     settings: asJsonObject(row.settings),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -471,6 +477,42 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
     async listShows() {
       const rows = await db.select().from(shows).orderBy(asc(shows.slug));
       return rows.map(mapShow);
+    },
+
+    async createShow(input: CreateShowInput) {
+      const [row] = await db.insert(shows).values({
+        slug: input.slug,
+        title: input.title,
+        description: input.description,
+        setupStatus: input.setupStatus,
+        format: input.format,
+        defaultRuntimeMinutes: input.defaultRuntimeMinutes,
+        cast: input.cast,
+        defaultModelProfile: input.defaultModelProfile,
+        settings: input.settings,
+      }).returning();
+
+      return mapShow(row);
+    },
+
+    async updateShow(id: string, input: UpdateShowInput) {
+      const [row] = await db.update(shows)
+        .set({
+          ...('slug' in input ? { slug: input.slug } : {}),
+          ...('title' in input ? { title: input.title } : {}),
+          ...('description' in input ? { description: input.description } : {}),
+          ...('setupStatus' in input ? { setupStatus: input.setupStatus } : {}),
+          ...('format' in input ? { format: input.format } : {}),
+          ...('defaultRuntimeMinutes' in input ? { defaultRuntimeMinutes: input.defaultRuntimeMinutes } : {}),
+          ...('cast' in input ? { cast: input.cast } : {}),
+          ...('defaultModelProfile' in input ? { defaultModelProfile: input.defaultModelProfile } : {}),
+          ...('settings' in input ? { settings: input.settings } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(shows.id, id))
+        .returning();
+
+      return row ? mapShow(row) : undefined;
     },
 
     async listModelProfiles(filter = {}) {
@@ -1199,6 +1241,47 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
 
     async getFeed(id: string) {
       const [row] = await db.select().from(feeds).where(eq(feeds.id, id)).limit(1);
+      return row ? mapFeed(row) : undefined;
+    },
+
+    async createFeed(input: CreateFeedInput) {
+      const [row] = await db.insert(feeds).values({
+        showId: input.showId,
+        slug: input.slug,
+        title: input.title,
+        description: input.description,
+        rssFeedPath: input.rssFeedPath,
+        publicFeedUrl: input.publicFeedUrl,
+        publicBaseUrl: input.publicBaseUrl,
+        storageType: input.storageType,
+        storageConfig: input.storageConfig,
+        op3Wrap: input.op3Wrap,
+        episodeNumberPolicy: input.episodeNumberPolicy,
+        metadata: input.metadata,
+      }).returning();
+
+      return mapFeed(row);
+    },
+
+    async updateFeed(id: string, input: UpdateFeedInput) {
+      const [row] = await db.update(feeds)
+        .set({
+          ...('slug' in input ? { slug: input.slug } : {}),
+          ...('title' in input ? { title: input.title } : {}),
+          ...('description' in input ? { description: input.description } : {}),
+          ...('rssFeedPath' in input ? { rssFeedPath: input.rssFeedPath } : {}),
+          ...('publicFeedUrl' in input ? { publicFeedUrl: input.publicFeedUrl } : {}),
+          ...('publicBaseUrl' in input ? { publicBaseUrl: input.publicBaseUrl } : {}),
+          ...('storageType' in input ? { storageType: input.storageType } : {}),
+          ...('storageConfig' in input ? { storageConfig: input.storageConfig } : {}),
+          ...('op3Wrap' in input ? { op3Wrap: input.op3Wrap } : {}),
+          ...('episodeNumberPolicy' in input ? { episodeNumberPolicy: input.episodeNumberPolicy } : {}),
+          ...('metadata' in input ? { metadata: input.metadata } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(feeds.id, id))
+        .returning();
+
       return row ? mapFeed(row) : undefined;
     },
 

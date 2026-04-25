@@ -24,6 +24,9 @@
           <span>Show</span>
           <select id="showSelect"></select>
         </label>
+        <div class="actions">
+          <button id="newShowToggle" class="secondary" type="button">New Show</button>
+        </div>
         <section>
           <div class="section-title">
             <h2>Source Profiles</h2>
@@ -33,6 +36,106 @@
       </aside>
 
       <section class="workspace">
+        <form id="showSetupForm" class="panel setup-form" hidden>
+          <div class="panel-heading">
+            <div>
+              <h2>New Show Setup</h2>
+              <p id="showSetupMeta"></p>
+            </div>
+            <label class="field compact-field">
+              <span>Status</span>
+              <select id="showSetupStatus">
+                <option value="draft">draft</option>
+                <option value="active">active</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="grid">
+            <label class="field">
+              <span>Name</span>
+              <input id="showName" type="text" required>
+            </label>
+            <label class="field">
+              <span>Slug</span>
+              <input id="showSlug" type="text" pattern="[a-z0-9]+(-[a-z0-9]+)*" required>
+            </label>
+            <label class="field">
+              <span>Host voice</span>
+              <input id="showHostVoice" type="text" placeholder="Nova" required>
+            </label>
+          </div>
+
+          <label class="field">
+            <span>Description</span>
+            <textarea id="showDescription" rows="2" required></textarea>
+          </label>
+
+          <div class="grid two">
+            <label class="field">
+              <span>Tone and style</span>
+              <textarea id="showToneNotes" rows="3"></textarea>
+            </label>
+            <label class="field">
+              <span>Script format</span>
+              <textarea id="showScriptNotes" rows="3"></textarea>
+            </label>
+          </div>
+
+          <div class="grid">
+            <label class="field">
+              <span>Feed title</span>
+              <input id="showFeedTitle" type="text" required>
+            </label>
+            <label class="field">
+              <span>Feed URL</span>
+              <input id="showFeedUrl" type="url">
+            </label>
+            <label class="field">
+              <span>Public asset base</span>
+              <input id="showPublicBase" type="url">
+            </label>
+          </div>
+
+          <div class="grid">
+            <label class="field">
+              <span>RSS output path</span>
+              <input id="showOutputPath" type="text" placeholder="feeds/show.xml">
+            </label>
+            <label class="field">
+              <span>Starter source query</span>
+              <input id="showSourceQuery" type="text">
+            </label>
+            <label class="field">
+              <span>Publishing mode</span>
+              <select id="showPublishingMode">
+                <option value="approval-gated">approval-gated</option>
+                <option value="autopublish-later">autopublish-later</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="grid">
+            <label class="field">
+              <span>Model provider</span>
+              <input id="showModelProvider" type="text" value="openai" required>
+            </label>
+            <label class="field">
+              <span>Model</span>
+              <input id="showModelName" type="text" value="gpt-5.5" required>
+            </label>
+            <label class="field">
+              <span>Reasoning</span>
+              <input id="showReasoningEffort" type="text" value="high">
+            </label>
+          </div>
+
+          <div class="actions">
+            <button id="cancelShowSetup" class="secondary" type="button">Cancel</button>
+            <button type="submit">Create Show</button>
+          </div>
+        </form>
+
         <form id="profileForm" class="panel" hidden>
           <div class="panel-heading">
             <div>
@@ -118,6 +221,16 @@
               <button type="submit">Submit URL</button>
             </div>
           </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Model Profiles</h2>
+              <p id="modelMeta"></p>
+            </div>
+          </div>
+          <div id="modelProfileList" class="model-grid"></div>
         </section>
 
         <section class="panel">

@@ -141,6 +141,23 @@ export interface CreatePublishEventInput {
 
 export type UpdatePublishEventInput = Partial<Omit<CreatePublishEventInput, 'episodeId'>>;
 
+export interface CreateFeedInput {
+  showId: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  rssFeedPath: string | null;
+  publicFeedUrl: string | null;
+  publicBaseUrl: string | null;
+  storageType: string;
+  storageConfig: Record<string, unknown>;
+  op3Wrap: boolean;
+  episodeNumberPolicy: string;
+  metadata: Record<string, unknown>;
+}
+
+export type UpdateFeedInput = Partial<Omit<CreateFeedInput, 'showId'>>;
+
 export interface ProductionStore {
   getEpisode(id: string): Promise<EpisodeRecord | undefined>;
   listEpisodes(filter: { showId: string; limit?: number }): Promise<EpisodeRecord[]>;
@@ -151,6 +168,8 @@ export interface ProductionStore {
   listEpisodeAssets(episodeId: string): Promise<EpisodeAssetRecord[]>;
   listFeeds(showId: string): Promise<FeedRecord[]>;
   getFeed(id: string): Promise<FeedRecord | undefined>;
+  createFeed?(input: CreateFeedInput): Promise<FeedRecord>;
+  updateFeed?(id: string, input: UpdateFeedInput): Promise<FeedRecord | undefined>;
   approveEpisodeForPublish(id: string, input: ApproveEpisodeForPublishInput): Promise<EpisodeRecord | undefined>;
   createPublishEvent(input: CreatePublishEventInput): Promise<PublishEventRecord>;
   updatePublishEvent(id: string, input: UpdatePublishEventInput): Promise<PublishEventRecord | undefined>;

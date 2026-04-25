@@ -60,6 +60,7 @@ try {
     slug: showConfig.slug,
     title: showConfig.title,
     description: showConfig.description,
+    setupStatus: 'active',
     format: showConfig.format,
     defaultRuntimeMinutes: showConfig.defaultRuntimeMinutes,
     cast: showConfig.cast ?? [],
@@ -70,6 +71,7 @@ try {
     set: {
       title: showConfig.title,
       description: showConfig.description,
+      setupStatus: 'active',
       format: showConfig.format,
       defaultRuntimeMinutes: showConfig.defaultRuntimeMinutes,
       cast: showConfig.cast ?? [],

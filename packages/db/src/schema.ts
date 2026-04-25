@@ -13,6 +13,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 export const sourceType = pgEnum('source_type', ['brave', 'rss', 'manual', 'local-json']);
+export const showSetupStatus = pgEnum('show_setup_status', ['draft', 'active']);
 export const storyStatus = pgEnum('story_status', ['new', 'shortlisted', 'ignored', 'merged']);
 export const episodeCandidateStatus = pgEnum('episode_candidate_status', ['draft', 'researching', 'ready', 'rejected']);
 export const episodeStatus = pgEnum('episode_status', [
@@ -40,6 +41,7 @@ export const shows = pgTable('shows', {
   slug: text('slug').notNull().unique(),
   title: text('title').notNull(),
   description: text('description'),
+  setupStatus: showSetupStatus('setup_status').notNull().default('draft'),
   format: text('format'),
   defaultRuntimeMinutes: integer('default_runtime_minutes'),
   cast: jsonb('cast').$type<Array<{ name: string; role?: string; voice: string }>>().notNull().default([]),

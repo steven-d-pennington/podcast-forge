@@ -1,13 +1,22 @@
 export type SourceType = 'brave' | 'rss' | 'manual' | 'local-json';
+export type ShowSetupStatus = 'draft' | 'active';
+
+export interface ShowCastMember {
+  name: string;
+  role?: string;
+  voice: string;
+}
 
 export interface ShowRecord {
   id: string;
   slug: string;
   title: string;
   description: string | null;
+  setupStatus: ShowSetupStatus;
   format: string | null;
   defaultRuntimeMinutes: number | null;
-  cast: Array<{ name: string; role?: string; voice: string }>;
+  cast: ShowCastMember[];
+  defaultModelProfile: Record<string, string>;
   settings: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
@@ -76,8 +85,24 @@ export interface CreateSourceQueryInput {
 
 export type UpdateSourceQueryInput = Partial<CreateSourceQueryInput>;
 
+export interface CreateShowInput {
+  slug: string;
+  title: string;
+  description: string | null;
+  setupStatus: ShowSetupStatus;
+  format: string | null;
+  defaultRuntimeMinutes: number | null;
+  cast: ShowCastMember[];
+  defaultModelProfile: Record<string, string>;
+  settings: Record<string, unknown>;
+}
+
+export type UpdateShowInput = Partial<CreateShowInput>;
+
 export interface SourceStore {
   listShows(): Promise<ShowRecord[]>;
+  createShow?(input: CreateShowInput): Promise<ShowRecord>;
+  updateShow?(id: string, input: UpdateShowInput): Promise<ShowRecord | undefined>;
   listSourceProfiles(filter?: { showSlug?: string; showId?: string }): Promise<SourceProfileRecord[]>;
   getSourceProfile(id: string): Promise<SourceProfileRecord | undefined>;
   createSourceProfile(input: CreateSourceProfileInput): Promise<SourceProfileRecord>;
