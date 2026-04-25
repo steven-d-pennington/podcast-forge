@@ -31,6 +31,7 @@ type ExampleConfig = {
     model: string;
     temperature?: number;
     maxTokens?: number;
+    params?: Record<string, unknown>;
     fallbacks?: string[];
     promptTemplate?: string;
     budgetUsd?: number;
@@ -113,7 +114,7 @@ try {
       budgetUsd: model.budgetUsd?.toString(),
       fallbacks: model.fallbacks ?? [],
       promptTemplateKey: model.promptTemplate,
-      config: {}
+      config: { params: model.params ?? {} }
     }).onConflictDoUpdate({
       target: [modelProfiles.showId, modelProfiles.role],
       set: {
@@ -124,6 +125,7 @@ try {
         budgetUsd: model.budgetUsd?.toString(),
         fallbacks: model.fallbacks ?? [],
         promptTemplateKey: model.promptTemplate,
+        config: { params: model.params ?? {} },
         updatedAt: new Date()
       }
     });

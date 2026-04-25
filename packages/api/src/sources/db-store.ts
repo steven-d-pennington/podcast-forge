@@ -1,8 +1,9 @@
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, or } from 'drizzle-orm';
 import {
   approvalEvents,
   createDb,
   jobs,
+  modelProfiles,
   researchPackets,
   shows,
   sourceDocuments,
@@ -32,6 +33,13 @@ import type {
   ResearchWarning,
   SourceDocumentRecord,
 } from '../research/store.js';
+import { isModelRole } from '../models/roles.js';
+import type {
+  CreateModelProfileInput,
+  ModelProfileRecord,
+  ModelProfileStore,
+  UpdateModelProfileInput,
+} from '../models/store.js';
 import type {
   CreateSourceProfileInput,
   CreateSourceQueryInput,
@@ -214,6 +222,28 @@ function mapResearchPacket(row: typeof researchPackets.$inferSelect): ResearchPa
   };
 }
 
+function mapModelProfile(row: typeof modelProfiles.$inferSelect): ModelProfileRecord {
+  if (!isModelRole(row.role)) {
+    throw new Error(`Unknown model profile role in database: ${row.role}`);
+  }
+
+  return {
+    id: row.id,
+    showId: row.showId,
+    role: row.role,
+    provider: row.provider,
+    model: row.model,
+    temperature: row.temperature === null ? null : Number(row.temperature),
+    maxTokens: row.maxTokens,
+    budgetUsd: row.budgetUsd === null ? null : Number(row.budgetUsd),
+    fallbacks: asStringArray(row.fallbacks),
+    promptTemplateKey: row.promptTemplateKey,
+    config: asJsonObject(row.config),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 function queryConfig(input: CreateSourceQueryInput | UpdateSourceQueryInput, current: JsonObject = {}): JsonObject {
   const config = { ...current, ...input.config };
 
@@ -236,13 +266,81 @@ function queryConfig(input: CreateSourceQueryInput | UpdateSourceQueryInput, cur
   return config;
 }
 
-export function createDbSourceStore(connectionString = process.env.DATABASE_URL): SourceStore & SearchJobStore & ResearchStore {
+export function createDbSourceStore(connectionString = process.env.DATABASE_URL): SourceStore & SearchJobStore & ResearchStore & ModelProfileStore {
   const { db, pool } = createDb(connectionString);
 
   return {
     async listShows() {
       const rows = await db.select().from(shows).orderBy(asc(shows.slug));
       return rows.map(mapShow);
+    },
+
+    async listModelProfiles(filter = {}) {
+      let showId = filter.showId;
+
+      if (!showId && filter.showSlug) {
+        const [show] = await db.select().from(shows).where(eq(shows.slug, filter.showSlug)).limit(1);
+
+        if (!show) {
+          return [];
+        }
+
+        showId = show.id;
+      }
+
+      const roleWhere = filter.role ? eq(modelProfiles.role, filter.role) : undefined;
+      const showWhere = showId
+        ? filter.includeGlobal
+          ? or(eq(modelProfiles.showId, showId), isNull(modelProfiles.showId))
+          : eq(modelProfiles.showId, showId)
+        : undefined;
+      const where = roleWhere && showWhere ? and(roleWhere, showWhere) : roleWhere ?? showWhere;
+      const rows = where
+        ? await db.select().from(modelProfiles).where(where).orderBy(asc(modelProfiles.role), desc(modelProfiles.updatedAt))
+        : await db.select().from(modelProfiles).orderBy(asc(modelProfiles.role), desc(modelProfiles.updatedAt));
+
+      return rows.map(mapModelProfile);
+    },
+
+    async getModelProfile(id) {
+      const [row] = await db.select().from(modelProfiles).where(eq(modelProfiles.id, id)).limit(1);
+      return row ? mapModelProfile(row) : undefined;
+    },
+
+    async createModelProfile(input: CreateModelProfileInput) {
+      const [row] = await db.insert(modelProfiles).values({
+        showId: input.showId,
+        role: input.role,
+        provider: input.provider,
+        model: input.model,
+        temperature: input.temperature === null ? null : input.temperature?.toString(),
+        maxTokens: input.maxTokens,
+        budgetUsd: input.budgetUsd === null ? null : input.budgetUsd?.toString(),
+        fallbacks: input.fallbacks,
+        promptTemplateKey: input.promptTemplateKey,
+        config: input.config,
+      }).returning();
+
+      return mapModelProfile(row);
+    },
+
+    async updateModelProfile(id: string, input: UpdateModelProfileInput) {
+      const [row] = await db.update(modelProfiles)
+        .set({
+          ...('provider' in input ? { provider: input.provider } : {}),
+          ...('model' in input ? { model: input.model } : {}),
+          ...('temperature' in input ? { temperature: input.temperature === null ? null : input.temperature?.toString() } : {}),
+          ...('maxTokens' in input ? { maxTokens: input.maxTokens } : {}),
+          ...('budgetUsd' in input ? { budgetUsd: input.budgetUsd === null ? null : input.budgetUsd?.toString() } : {}),
+          ...('fallbacks' in input ? { fallbacks: input.fallbacks } : {}),
+          ...('promptTemplateKey' in input ? { promptTemplateKey: input.promptTemplateKey } : {}),
+          ...('config' in input ? { config: input.config } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(modelProfiles.id, id))
+        .returning();
+
+      return row ? mapModelProfile(row) : undefined;
     },
 
     async listSourceProfiles(filter = {}) {

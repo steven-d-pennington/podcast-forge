@@ -37,6 +37,7 @@ export interface ModelConfig {
   model: string;
   temperature?: number;
   maxTokens?: number;
+  params?: Record<string, unknown>;
   fallbacks?: string[];
   promptTemplate?: string;
   budgetUsd?: number;

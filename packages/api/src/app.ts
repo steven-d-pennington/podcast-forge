@@ -12,6 +12,8 @@ import {
 import { createDbSourceStore } from './sources/db-store.js';
 import { registerSourceRoutes } from './sources/routes.js';
 import type { SourceStore } from './sources/store.js';
+import { registerModelRoutes } from './models/routes.js';
+import type { ModelProfileStore } from './models/store.js';
 import { registerResearchRoutes } from './research/routes.js';
 import type { ResearchFetch } from './research/fetch.js';
 import type { ResearchStore } from './research/store.js';
@@ -25,7 +27,7 @@ interface ConfigQuery {
 }
 
 interface BuildAppOptions extends FastifyServerOptions {
-  sourceStore?: SourceStore & Partial<SearchJobStore> & Partial<ResearchStore>;
+  sourceStore?: SourceStore & Partial<SearchJobStore> & Partial<ResearchStore> & Partial<ModelProfileStore>;
   braveApiKey?: string;
   fetchImpl?: BraveFetch;
   rssFetchImpl?: RssFetch;
@@ -58,7 +60,7 @@ async function readPublicFile(fileName: string) {
 export function buildApp(options: BuildAppOptions = {}) {
   const { sourceStore, braveApiKey, fetchImpl, rssFetchImpl, researchFetchImpl, sleep, ...fastifyOptions } = options;
   const app = Fastify(fastifyOptions);
-  let resolvedSourceStore: SourceStore & Partial<SearchJobStore> & Partial<ResearchStore> | undefined = sourceStore;
+  let resolvedSourceStore: SourceStore & Partial<SearchJobStore> & Partial<ResearchStore> & Partial<ModelProfileStore> | undefined = sourceStore;
 
   app.get('/health', async () => ({ ok: true, service: 'podcast-forge-api' }));
 
@@ -122,6 +124,13 @@ export function buildApp(options: BuildAppOptions = {}) {
   });
 
   registerSourceRoutes(app, {
+    getStore() {
+      resolvedSourceStore ??= createDbSourceStore();
+      return resolvedSourceStore;
+    },
+  });
+
+  registerModelRoutes(app, {
     getStore() {
       resolvedSourceStore ??= createDbSourceStore();
       return resolvedSourceStore;

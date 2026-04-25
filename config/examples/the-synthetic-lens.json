@@ -37,25 +37,61 @@
       "provider": "google-vertex",
       "model": "gemini-2.5-flash",
       "temperature": 0.2,
-      "maxTokens": 1200
+      "maxTokens": 1200,
+      "budgetUsd": 0.25
+    },
+    "source_summarizer": {
+      "provider": "google-vertex",
+      "model": "gemini-2.5-flash",
+      "temperature": 0.1,
+      "maxTokens": 3000,
+      "budgetUsd": 0.75
+    },
+    "claim_extractor": {
+      "provider": "google-vertex",
+      "model": "gemini-2.5-flash",
+      "temperature": 0,
+      "maxTokens": 2500,
+      "budgetUsd": 0.75
     },
     "research_synthesizer": {
       "provider": "google-gemini-cli",
       "model": "gemini-3-pro-preview",
       "temperature": 0.3,
-      "maxTokens": 8000
+      "maxTokens": 8000,
+      "fallbacks": ["gemini-2.5-pro"],
+      "budgetUsd": 2.5
     },
     "script_writer": {
       "provider": "openai-codex",
       "model": "gpt-5.3-codex",
       "temperature": 0.7,
-      "maxTokens": 12000
+      "maxTokens": 12000,
+      "params": {
+        "reasoningEffort": "high"
+      },
+      "budgetUsd": 4
+    },
+    "script_editor": {
+      "provider": "openai-codex",
+      "model": "gpt-5.3-codex",
+      "temperature": 0.4,
+      "maxTokens": 8000,
+      "budgetUsd": 2
+    },
+    "metadata_writer": {
+      "provider": "openai",
+      "model": "gpt-5.5",
+      "temperature": 0.3,
+      "maxTokens": 1500,
+      "budgetUsd": 0.5
     },
     "cover_prompt_writer": {
       "provider": "openai",
       "model": "gpt-5.5",
       "temperature": 0.7,
-      "maxTokens": 1000
+      "maxTokens": 1000,
+      "budgetUsd": 1
     }
   },
   "production": {

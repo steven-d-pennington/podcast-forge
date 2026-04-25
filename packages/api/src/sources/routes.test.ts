@@ -2,6 +2,14 @@ import assert from 'node:assert/strict';
 import { after, beforeEach, describe, it } from 'node:test';
 
 import { buildApp } from '../app.js';
+import type { ModelRole } from '../models/roles.js';
+import type {
+  CreateModelProfileInput,
+  ModelProfileListFilter,
+  ModelProfileRecord,
+  ModelProfileStore,
+  UpdateModelProfileInput,
+} from '../models/store.js';
 import type { ResearchFetch } from '../research/fetch.js';
 import type {
   CreateResearchPacketInput,
@@ -34,7 +42,7 @@ import type {
   UpdateSourceQueryInput,
 } from './store.js';
 
-class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore {
+class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, ModelProfileStore {
   shows: ShowRecord[] = [{
     id: '11111111-1111-4111-8111-111111111111',
     slug: 'the-synthetic-lens',
@@ -70,9 +78,56 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore {
   candidates: StoryCandidateRecord[] = [];
   sourceDocuments: SourceDocumentRecord[] = [];
   researchPackets: ResearchPacketRecord[] = [];
+  modelProfiles: ModelProfileRecord[] = [
+    this.modelProfileRecord('candidate_scorer', 'google-vertex', 'gemini-2.5-flash'),
+    this.modelProfileRecord('source_summarizer', 'google-vertex', 'gemini-2.5-flash'),
+    this.modelProfileRecord('claim_extractor', 'google-vertex', 'gemini-2.5-flash'),
+    this.modelProfileRecord('research_synthesizer', 'google-gemini-cli', 'gemini-3-pro-preview'),
+    this.modelProfileRecord('script_writer', 'openai-codex', 'gpt-5.3-codex'),
+  ];
 
   async listShows() {
     return this.shows;
+  }
+
+  async listModelProfiles(filter: ModelProfileListFilter = {}) {
+    const show = filter.showSlug ? this.shows.find((candidate) => candidate.slug === filter.showSlug) : undefined;
+    const showId = filter.showId ?? show?.id;
+
+    return this.modelProfiles.filter((profile) => {
+      const roleMatches = !filter.role || profile.role === filter.role;
+      const showMatches = showId
+        ? profile.showId === showId || (filter.includeGlobal && profile.showId === null)
+        : true;
+
+      return roleMatches && showMatches;
+    });
+  }
+
+  async getModelProfile(id: string) {
+    return this.modelProfiles.find((profile) => profile.id === id);
+  }
+
+  async createModelProfile(input: CreateModelProfileInput) {
+    const profile: ModelProfileRecord = {
+      ...input,
+      id: `model-profile-${this.modelProfiles.length + 1}`,
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+    };
+    this.modelProfiles.push(profile);
+    return profile;
+  }
+
+  async updateModelProfile(id: string, input: UpdateModelProfileInput) {
+    const profile = await this.getModelProfile(id);
+
+    if (!profile) {
+      return undefined;
+    }
+
+    Object.assign(profile, input, { updatedAt: new Date('2026-01-04T00:00:00Z') });
+    return profile;
   }
 
   async listSourceProfiles(filter: { showSlug?: string; showId?: string } = {}) {
@@ -332,6 +387,24 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore {
       updatedAt: new Date('2026-01-01T00:00:00Z'),
     };
   }
+
+  private modelProfileRecord(role: ModelRole, provider: string, model: string): ModelProfileRecord {
+    return {
+      id: `model-profile-${role}`,
+      showId: '11111111-1111-4111-8111-111111111111',
+      role,
+      provider,
+      model,
+      temperature: role === 'claim_extractor' ? 0 : 0.2,
+      maxTokens: 1200,
+      budgetUsd: 1,
+      fallbacks: [],
+      promptTemplateKey: null,
+      config: {},
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+    };
+  }
 }
 
 let store = new FakeSourceStore();
@@ -449,6 +522,7 @@ describe('source profile routes', () => {
     store.candidates = [];
     store.sourceDocuments = [];
     store.researchPackets = [];
+    store.modelProfiles = new FakeSourceStore().modelProfiles;
     requestedUrls = [];
     requestedRssUrls = [];
     requestedResearchUrls = [];
@@ -582,6 +656,9 @@ describe('source profile routes', () => {
     assert.equal(searchBody.ok, true);
     assert.equal(searchBody.job.type, 'source.search');
     assert.equal(searchBody.job.status, 'succeeded');
+    assert.equal(searchBody.job.input.modelProfiles.candidate_scorer.provider, 'google-vertex');
+    assert.equal(searchBody.job.input.modelProfiles.candidate_scorer.model, 'gemini-2.5-flash');
+    assert.equal(searchBody.job.output.modelProfiles.candidate_scorer.version, '2026-01-01T00:00:00.000Z');
     assert.equal(searchBody.inserted, 1);
     assert.equal(searchBody.skipped, 2);
     assert.equal(searchBody.candidates.length, 1);
@@ -723,6 +800,10 @@ describe('source profile routes', () => {
     const packetBody = packetResponse.json();
 
     assert.equal(packetResponse.statusCode, 201);
+    assert.equal(packetBody.job.type, 'research.packet');
+    assert.equal(packetBody.job.status, 'succeeded');
+    assert.equal(packetBody.job.input.modelProfiles.source_summarizer.model, 'gemini-2.5-flash');
+    assert.equal(packetBody.job.output.modelProfiles.research_synthesizer.provider, 'google-gemini-cli');
     assert.deepEqual(requestedResearchUrls, [
       'https://manual.example.com/news/research-story',
       'https://independent.example.net/story',
@@ -731,6 +812,7 @@ describe('source profile routes', () => {
     assert.equal(packetBody.sourceDocuments.length, 3);
     assert.equal(packetBody.sourceDocuments.filter((document: SourceDocumentRecord) => document.fetchStatus === 'fetched').length, 2);
     assert.equal(packetBody.researchPacket.content.storyCandidateId, candidate.id);
+    assert.equal(packetBody.researchPacket.content.modelProfiles.claim_extractor.version, '2026-01-01T00:00:00.000Z');
     assert.equal(packetBody.researchPacket.citations.length, 3);
     assert.ok(packetBody.researchPacket.claims.length >= 2);
     assert.ok(packetBody.researchPacket.claims.every((claim: { citationUrls: string[] }) => claim.citationUrls.length > 0));

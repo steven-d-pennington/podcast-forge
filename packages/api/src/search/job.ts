@@ -2,6 +2,7 @@ import { searchBraveNews, type BraveCandidate, type BraveFetch } from './brave.j
 import { normalizeTitle, type SourceCandidate } from './candidate.js';
 import { fetchRssCandidates, type RssFetch } from './rss.js';
 import type { JobRecord, SearchJobStore, StoryCandidateRecord } from './store.js';
+import type { ResolvedModelProfile } from '../models/resolver.js';
 import type { SourceProfileRecord, SourceQueryRecord, SourceStore } from '../sources/store.js';
 
 export interface SourceSearchResult {
@@ -18,6 +19,7 @@ interface RunSourceSearchOptions {
   store: SourceStore & SearchJobStore;
   fetchImpl?: BraveFetch;
   sleep?: (ms: number) => Promise<void>;
+  modelProfile?: ResolvedModelProfile;
 }
 
 interface RunSourceIngestOptions {
@@ -83,8 +85,11 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
     log('info', 'Starting source.search job.', {
       sourceProfileId: options.profile.id,
       queryCount: options.queries.length,
+      modelProfileId: options.modelProfile?.id,
+      modelProfileVersion: options.modelProfile?.version,
     }),
   ];
+  const modelProfiles = options.modelProfile ? { candidate_scorer: options.modelProfile } : {};
   let job = await options.store.createJob({
     showId: options.profile.showId,
     type: 'source.search',
@@ -96,6 +101,7 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
       sourceProfileSlug: options.profile.slug,
       sourceType: options.profile.type,
       queryIds: options.queries.map((query) => query.id),
+      modelProfiles,
     },
     logs,
     startedAt: new Date(),
@@ -157,10 +163,11 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
       job = await options.store.updateJob(job.id, {
         progress,
         logs,
-        output: {
-          inserted: insertedCandidates.length,
-          skipped,
-        },
+      output: {
+        inserted: insertedCandidates.length,
+        skipped,
+        modelProfiles,
+      },
       }) ?? job;
 
       const delayMs = index < options.queries.length - 1 ? rateLimitDelayMs(options.profile, query) : 0;
@@ -183,6 +190,7 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
         inserted: insertedCandidates.length,
         skipped,
         candidateIds: insertedCandidates.map((candidate) => candidate.id),
+        modelProfiles,
       },
       finishedAt: new Date(),
     }) ?? job;

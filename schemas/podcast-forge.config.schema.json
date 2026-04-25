@@ -47,6 +47,18 @@
     },
     "models": {
       "type": "object",
+      "propertyNames": {
+        "enum": [
+          "candidate_scorer",
+          "source_summarizer",
+          "claim_extractor",
+          "research_synthesizer",
+          "script_writer",
+          "script_editor",
+          "metadata_writer",
+          "cover_prompt_writer"
+        ]
+      },
       "additionalProperties": {
         "type": "object",
         "required": ["provider", "model"],
@@ -55,6 +67,10 @@
           "model": { "type": "string" },
           "temperature": { "type": "number" },
           "maxTokens": { "type": "integer" },
+          "params": {
+            "type": "object",
+            "additionalProperties": true
+          },
           "fallbacks": { "type": "array", "items": { "type": "string" } },
           "promptTemplate": { "type": "string" },
           "budgetUsd": { "type": "number" }

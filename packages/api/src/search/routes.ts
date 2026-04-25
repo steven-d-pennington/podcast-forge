@@ -6,6 +6,8 @@ import { runSourceIngest, runSourceSearch } from './job.js';
 import { submitManualCandidate } from './manual.js';
 import { resolveRssFeedRefs, type RssFetch } from './rss.js';
 import type { SearchJobStore } from './store.js';
+import { hasModelProfileStore, resolveModelProfile } from '../models/resolver.js';
+import type { ModelProfileStore } from '../models/store.js';
 import type { SourceStore } from '../sources/store.js';
 
 class ApiError extends Error {
@@ -19,7 +21,7 @@ class ApiError extends Error {
 }
 
 export interface SearchRoutesOptions {
-  getStore(): SourceStore & Partial<SearchJobStore>;
+  getStore(): SourceStore & Partial<SearchJobStore> & Partial<ModelProfileStore>;
   braveApiKey?: string;
   fetchImpl?: BraveFetch;
   rssFetchImpl?: RssFetch;
@@ -117,7 +119,8 @@ async function resolveShowId(store: SourceStore, showId?: string, showSlug?: str
 export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutesOptions) {
   app.post<{ Params: { id: string } }>('/source-profiles/:id/search', async (request, reply) => {
     try {
-      const store = requireSearchStore(options.getStore());
+      const rawStore = options.getStore();
+      const store = requireSearchStore(rawStore);
       const profile = await store.getSourceProfile(request.params.id);
 
       if (!profile) {
@@ -144,6 +147,9 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
         throw new ApiError(400, 'NO_ENABLED_SOURCE_QUERIES', `Source profile has no enabled queries: ${profile.slug}`);
       }
 
+      const modelProfile = hasModelProfileStore(rawStore)
+        ? await resolveModelProfile(rawStore, { showId: profile.showId, role: 'candidate_scorer' })
+        : undefined;
       const result = await runSourceSearch({
         apiKey,
         profile,
@@ -151,6 +157,7 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
         store,
         fetchImpl: options.fetchImpl,
         sleep: options.sleep,
+        modelProfile,
       });
 
       return {

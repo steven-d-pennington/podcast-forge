@@ -87,6 +87,35 @@ Source profile endpoints:
 Use `enabledOnly=true` for search jobs so disabled profiles and queries are not
 included in source discovery.
 
+## Model profile routing
+
+Model choices are runtime configuration, not code constants. The supported
+roles are `candidate_scorer`, `source_summarizer`, `claim_extractor`,
+`research_synthesizer`, `script_writer`, `script_editor`, `metadata_writer`,
+and `cover_prompt_writer`.
+
+Seeded configs write each `models` entry into `model_profiles` with
+provider/model, params, fallbacks, prompt template key, and budget. Worker-style
+jobs resolve the active profile by show and role at runtime. `source.search`
+records the resolved `candidate_scorer`; research packet generation records
+`source_summarizer`, `claim_extractor`, and `research_synthesizer` in both the
+job metadata and packet content.
+
+Model profile endpoints:
+
+- `GET /model-profiles?showSlug=the-synthetic-lens`
+- `GET /model-profiles?showSlug=the-synthetic-lens&role=script_writer&includeGlobal=true`
+- `POST /model-profiles`
+- `PATCH /model-profiles/:id`
+
+Example update without code changes:
+
+```sh
+curl -X PATCH http://localhost:3450/model-profiles/:id \
+  -H 'content-type: application/json' \
+  -d '{"provider":"openai","model":"gpt-5.5","params":{"reasoningEffort":"high"}}'
+```
+
 ## Brave source search
 
 Brave source profiles can be searched from the API using the enabled
