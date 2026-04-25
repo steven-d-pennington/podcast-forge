@@ -25,6 +25,7 @@ Shared storage: local filesystem in dev; S3/R2-compatible object storage in prod
 - `research_packets`
 - `episodes`
 - `episode_assets`
+- `scheduled_pipelines`
 - `jobs`
 - `approval_events`
 - `publish_events`
@@ -42,6 +43,8 @@ Shared storage: local filesystem in dev; S3/R2-compatible object storage in prod
 - `art.generate`
 - `publish.rss`
 - `analytics.sync`
+- `pipeline.scheduled`
+- `legacy.shell`
 
 ## Agent role adapters
 
@@ -92,10 +95,17 @@ Public publishing requires:
 - publish target configured.
 - user-triggered publish action.
 
+Scheduled pipeline publishing follows the same rule. A recurring pipeline can
+prepare or queue publish work, but RSS publication stays blocked on approval
+unless the schedule is explicitly configured for autopublish.
+
 ## Migration strategy from current tools
 
 1. Import existing TSL/Byte Sized story JSON into `story_candidates`.
-2. Wrap existing production scripts behind worker adapters.
-3. Replace JSON state files with DB reads/writes.
-4. Port current TSL UI features into the new web app.
-5. Gradually retire old command center endpoints.
+2. Create `scheduled_pipelines` records for existing TSL, Byte Sized, and
+   Executive Lens cron cadences, preserving current shell commands in
+   `legacyAdapter.command`.
+3. Wrap existing production scripts behind worker adapters.
+4. Replace JSON state files with DB reads/writes.
+5. Port current TSL UI features into the new web app.
+6. Gradually retire old command center endpoints.

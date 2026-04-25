@@ -100,6 +100,30 @@ export const sourceQueries = pgTable('source_queries', {
   profileQueryIdx: uniqueIndex('source_queries_profile_query_idx').on(table.sourceProfileId, table.query)
 }));
 
+export const scheduledPipelines = pgTable('scheduled_pipelines', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  showId: uuid('show_id').notNull().references(() => shows.id, { onDelete: 'cascade' }),
+  feedId: uuid('feed_id').references(() => feeds.id, { onDelete: 'set null' }),
+  sourceProfileId: uuid('source_profile_id').references(() => sourceProfiles.id, { onDelete: 'set null' }),
+  slug: text('slug').notNull(),
+  name: text('name').notNull(),
+  enabled: boolean('enabled').notNull().default(true),
+  cron: text('cron').notNull(),
+  timezone: text('timezone').notNull().default('UTC'),
+  workflow: jsonb('workflow').$type<string[]>().notNull().default([]),
+  autopublish: boolean('autopublish').notNull().default(false),
+  legacyAdapter: jsonb('legacy_adapter').$type<Record<string, unknown>>().notNull().default({}),
+  config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
+  lastRunJobId: uuid('last_run_job_id'),
+  lastRunAt: timestamp('last_run_at', { withTimezone: true }),
+  nextRunAt: timestamp('next_run_at', { withTimezone: true }),
+  ...timestamps
+}, (table) => ({
+  showSlugIdx: uniqueIndex('scheduled_pipelines_show_slug_idx').on(table.showId, table.slug),
+  showEnabledIdx: index('scheduled_pipelines_show_enabled_idx').on(table.showId, table.enabled),
+  nextRunIdx: index('scheduled_pipelines_next_run_idx').on(table.enabled, table.nextRunAt),
+}));
+
 export const modelProfiles = pgTable('model_profiles', {
   id: uuid('id').primaryKey().defaultRandom(),
   showId: uuid('show_id').references(() => shows.id, { onDelete: 'cascade' }),

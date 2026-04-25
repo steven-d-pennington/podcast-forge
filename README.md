@@ -145,6 +145,72 @@ Search/job endpoints:
 - `GET /jobs/:id`
 - `GET /story-candidates?showSlug=the-synthetic-lens`
 
+## Scheduled pipelines
+
+Recurring show workflows are stored as `scheduled_pipelines` records. A
+schedule belongs to a show, can point at a feed and source profile, uses a
+five-field cron expression, and records each launch as a durable
+`pipeline.scheduled` job. The scheduler is intentionally runtime-neutral:
+Sam/OpenClaw, system cron, GitHub Actions, or another heartbeat can call the
+API while Podcast Forge keeps the definitions, run history, logs, progress, and
+retry state.
+
+Create a scheduled pipeline:
+
+```sh
+curl -X POST http://localhost:3450/scheduled-pipelines \
+  -H 'content-type: application/json' \
+  -d '{
+    "showSlug": "the-synthetic-lens",
+    "sourceProfileId": "SOURCE_PROFILE_ID",
+    "slug": "weekday-ai-brief",
+    "name": "Weekday AI Brief",
+    "cron": "0 6 * * 1-5",
+    "timezone": "UTC",
+    "workflow": ["ingest", "research", "script", "audio", "publish"],
+    "autopublish": false,
+    "legacyAdapter": { "command": "/path/to/current/openclaw-pipeline.sh" }
+  }'
+```
+
+Run a schedule immediately from the dashboard or API:
+
+```sh
+curl -X POST http://localhost:3450/scheduled-pipelines/:id/run \
+  -H 'content-type: application/json' \
+  -d '{"actor":"local-user"}'
+```
+
+External cron/heartbeat integrations should call:
+
+```sh
+curl -X POST http://localhost:3450/scheduler/heartbeat \
+  -H 'content-type: application/json' \
+  -d '{"runnerId":"openclaw-cron"}'
+```
+
+Failed scheduled runs are visible and retryable:
+
+```sh
+curl "http://localhost:3450/scheduled-pipeline-runs?showSlug=the-synthetic-lens&status=failed"
+curl -X POST http://localhost:3450/scheduled-pipeline-runs/:jobId/retry \
+  -H 'content-type: application/json' \
+  -d '{"actor":"local-user"}'
+```
+
+V1 runs source ingest/search directly for RSS and Brave source profiles.
+Research, script, audio, and publish stages are represented as child jobs so
+the control plane can track the intended workflow while worker adapters are
+migrated. Publishing remains approval-gated unless the scheduled pipeline sets
+`autopublish: true`.
+
+Migration path for existing Executive Lens, TSL, and Byte Sized cron workflows:
+create one schedule per show/feed/source profile, copy the current cron cadence
+into `cron`, copy the current shell command into `legacyAdapter.command`, and
+enable native stages as each worker adapter is moved behind Podcast Forge job
+records. During migration, old cron can keep executing the shell command while
+`/scheduler/heartbeat` records due runs and failures in the same job history.
+
 ## Legacy TSL and Byte Sized import
 
 After seeding the Synthetic Lens config, import the current local TSL Command

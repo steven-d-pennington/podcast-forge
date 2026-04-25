@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
 import {
   approvalEvents,
   createDb,
@@ -11,6 +11,7 @@ import {
   researchPackets,
   scriptRevisions,
   scripts,
+  scheduledPipelines,
   shows,
   sourceDocuments,
   sourceProfiles,
@@ -65,6 +66,13 @@ import type {
   PublishEventRecord,
   UpdateEpisodeProductionInput,
 } from '../production/store.js';
+import type {
+  CreateScheduledPipelineInput,
+  ScheduledPipelineRecord,
+  ScheduledRunListFilter,
+  SchedulerStore,
+  UpdateScheduledPipelineInput,
+} from '../scheduler/store.js';
 import type {
   CreateSourceProfileInput,
   CreateSourceQueryInput,
@@ -200,6 +208,29 @@ function mapJob(row: typeof jobs.$inferSelect): JobRecord {
     lockedAt: row.lockedAt,
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function mapScheduledPipeline(row: typeof scheduledPipelines.$inferSelect): ScheduledPipelineRecord {
+  return {
+    id: row.id,
+    showId: row.showId,
+    feedId: row.feedId,
+    sourceProfileId: row.sourceProfileId,
+    slug: row.slug,
+    name: row.name,
+    enabled: row.enabled,
+    cron: row.cron,
+    timezone: row.timezone,
+    workflow: asStringArray(row.workflow) as ScheduledPipelineRecord['workflow'],
+    autopublish: row.autopublish,
+    legacyAdapter: asJsonObject(row.legacyAdapter),
+    config: asJsonObject(row.config),
+    lastRunJobId: row.lastRunJobId,
+    lastRunAt: row.lastRunAt,
+    nextRunAt: row.nextRunAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -433,7 +464,7 @@ function slugify(value: string) {
   return slug || 'episode';
 }
 
-export function createDbSourceStore(connectionString = process.env.DATABASE_URL): SourceStore & SearchJobStore & ResearchStore & ModelProfileStore & ScriptStore & ProductionStore {
+export function createDbSourceStore(connectionString = process.env.DATABASE_URL): SourceStore & SearchJobStore & ResearchStore & ModelProfileStore & ScriptStore & ProductionStore & SchedulerStore {
   const { db, pool } = createDb(connectionString);
 
   return {
@@ -639,6 +670,99 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
     async deleteSourceQuery(id) {
       const deleted = await db.delete(sourceQueries).where(eq(sourceQueries.id, id)).returning({ id: sourceQueries.id });
       return deleted.length > 0;
+    },
+
+    async createScheduledPipeline(input: CreateScheduledPipelineInput) {
+      const [row] = await db.insert(scheduledPipelines).values({
+        showId: input.showId,
+        feedId: input.feedId ?? null,
+        sourceProfileId: input.sourceProfileId ?? null,
+        slug: input.slug,
+        name: input.name,
+        enabled: input.enabled,
+        cron: input.cron,
+        timezone: input.timezone,
+        workflow: input.workflow,
+        autopublish: input.autopublish,
+        legacyAdapter: input.legacyAdapter,
+        config: input.config,
+        nextRunAt: input.nextRunAt,
+      }).returning();
+
+      return mapScheduledPipeline(row);
+    },
+
+    async updateScheduledPipeline(id: string, input: UpdateScheduledPipelineInput) {
+      const [row] = await db.update(scheduledPipelines)
+        .set({
+          ...('feedId' in input ? { feedId: input.feedId } : {}),
+          ...('sourceProfileId' in input ? { sourceProfileId: input.sourceProfileId } : {}),
+          ...('slug' in input ? { slug: input.slug } : {}),
+          ...('name' in input ? { name: input.name } : {}),
+          ...('enabled' in input ? { enabled: input.enabled } : {}),
+          ...('cron' in input ? { cron: input.cron } : {}),
+          ...('timezone' in input ? { timezone: input.timezone } : {}),
+          ...('workflow' in input ? { workflow: input.workflow } : {}),
+          ...('autopublish' in input ? { autopublish: input.autopublish } : {}),
+          ...('legacyAdapter' in input ? { legacyAdapter: input.legacyAdapter } : {}),
+          ...('config' in input ? { config: input.config } : {}),
+          ...('nextRunAt' in input ? { nextRunAt: input.nextRunAt } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(scheduledPipelines.id, id))
+        .returning();
+
+      return row ? mapScheduledPipeline(row) : undefined;
+    },
+
+    async getScheduledPipeline(id: string) {
+      const [row] = await db.select().from(scheduledPipelines).where(eq(scheduledPipelines.id, id)).limit(1);
+      return row ? mapScheduledPipeline(row) : undefined;
+    },
+
+    async listScheduledPipelines(filter = {}) {
+      const showWhere = filter.showId ? eq(scheduledPipelines.showId, filter.showId) : undefined;
+      const enabledWhere = filter.enabledOnly ? eq(scheduledPipelines.enabled, true) : undefined;
+      const dueWhere = filter.dueAt ? lte(scheduledPipelines.nextRunAt, filter.dueAt) : undefined;
+      const where = [showWhere, enabledWhere, dueWhere].filter(Boolean).reduce((current, next) => {
+        return current && next ? and(current, next) : current ?? next;
+      });
+      const rows = where
+        ? await db.select().from(scheduledPipelines).where(where).orderBy(asc(scheduledPipelines.nextRunAt)).limit(filter.limit ?? 50)
+        : await db.select().from(scheduledPipelines).orderBy(asc(scheduledPipelines.createdAt)).limit(filter.limit ?? 50);
+
+      return rows.map(mapScheduledPipeline);
+    },
+
+    async markScheduledPipelineRun(input) {
+      const [row] = await db.update(scheduledPipelines)
+        .set({
+          lastRunJobId: input.jobId,
+          lastRunAt: input.lastRunAt,
+          nextRunAt: input.nextRunAt,
+          updatedAt: new Date(),
+        })
+        .where(eq(scheduledPipelines.id, input.id))
+        .returning();
+
+      return row ? mapScheduledPipeline(row) : undefined;
+    },
+
+    async listScheduledRuns(filter: ScheduledRunListFilter = {}) {
+      const showWhere = filter.showId ? eq(jobs.showId, filter.showId) : undefined;
+      const statusWhere = filter.status ? eq(jobs.status, filter.status) : undefined;
+      const where = [eq(jobs.type, 'pipeline.scheduled'), showWhere, statusWhere].filter(Boolean).reduce((current, next) => {
+        return current && next ? and(current, next) : current ?? next;
+      });
+      const rows = await db.select().from(jobs)
+        .where(where)
+        .orderBy(desc(jobs.createdAt))
+        .limit(filter.scheduledPipelineId ? 200 : filter.limit ?? 50);
+      const mapped = rows.map(mapJob).filter((job) => {
+        return !filter.scheduledPipelineId || job.input.scheduledPipelineId === filter.scheduledPipelineId;
+      });
+
+      return mapped.slice(0, filter.limit ?? 50);
     },
 
     async createJob(input: CreateJobInput) {

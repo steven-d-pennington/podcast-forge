@@ -27,6 +27,8 @@ import { registerSearchRoutes } from './search/routes.js';
 import type { BraveFetch } from './search/brave.js';
 import type { RssFetch } from './search/rss.js';
 import type { SearchJobStore } from './search/store.js';
+import { registerSchedulerRoutes } from './scheduler/routes.js';
+import type { SchedulerStore } from './scheduler/store.js';
 import { registerLegacyImportRoutes } from './import/routes.js';
 
 interface ConfigQuery {
@@ -39,7 +41,8 @@ interface BuildAppOptions extends FastifyServerOptions {
     & Partial<ResearchStore>
     & Partial<ModelProfileStore>
     & Partial<ScriptStore>
-    & Partial<ProductionStore>;
+    & Partial<ProductionStore>
+    & Partial<SchedulerStore>;
   braveApiKey?: string;
   fetchImpl?: BraveFetch;
   rssFetchImpl?: RssFetch;
@@ -96,6 +99,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     & Partial<ModelProfileStore>
     & Partial<ScriptStore>
     & Partial<ProductionStore>
+    & Partial<SchedulerStore>
     | undefined = sourceStore;
 
   app.get('/health', async () => ({ ok: true, service: 'podcast-forge-api' }));
@@ -209,6 +213,17 @@ export function buildApp(options: BuildAppOptions = {}) {
     publishStorageAdapterFactory,
     rssUpdateAdapter,
     publishUrlValidator,
+  });
+
+  registerSchedulerRoutes(app, {
+    getStore() {
+      resolvedSourceStore ??= createDbSourceStore();
+      return resolvedSourceStore;
+    },
+    braveApiKey,
+    fetchImpl,
+    rssFetchImpl,
+    sleep,
   });
 
   registerLegacyImportRoutes(app);

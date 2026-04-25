@@ -304,6 +304,32 @@ textarea {
   margin: 0;
 }
 
+.scheduler-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.scheduler-row strong,
+.scheduler-row span,
+.scheduler-row p {
+  grid-column: 1;
+}
+
+.scheduler-row button {
+  align-self: center;
+  grid-column: 2;
+  grid-row: 1 / 4;
+}
+
+.scheduler-failures {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.scheduler-failures h3 {
+  margin: 0;
+}
+
 .production-row.failed {
   border-color: #c55353;
 }
@@ -360,6 +386,12 @@ textarea {
   .new-query,
   .query-card .query-grid {
     grid-template-columns: 1fr;
+  }
+
+  .scheduler-row,
+  .scheduler-row button {
+    grid-column: 1;
+    grid-row: auto;
   }
 
   .panel-heading {

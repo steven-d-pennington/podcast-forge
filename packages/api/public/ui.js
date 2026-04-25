@@ -3,6 +3,8 @@ const state = {
   profiles: [],
   queries: [],
   scripts: [],
+  scheduledPipelines: [],
+  failedScheduledRuns: [],
   storyCandidates: [],
   episodes: [],
   selectedScriptId: '',
@@ -44,6 +46,9 @@ const els = {
   manualResult: document.querySelector('#manualResult'),
   candidateMeta: document.querySelector('#candidateMeta'),
   candidateList: document.querySelector('#candidateList'),
+  schedulerMeta: document.querySelector('#schedulerMeta'),
+  schedulerList: document.querySelector('#schedulerList'),
+  failedScheduleRuns: document.querySelector('#failedScheduleRuns'),
   episodeMeta: document.querySelector('#episodeMeta'),
   episodeList: document.querySelector('#episodeList'),
   queriesPanel: document.querySelector('#queriesPanel'),
@@ -302,6 +307,75 @@ function renderEpisodes() {
   }
 }
 
+function renderScheduler() {
+  els.schedulerList.innerHTML = '';
+  els.failedScheduleRuns.innerHTML = '';
+  els.schedulerMeta.textContent = `${state.scheduledPipelines.length} scheduled pipeline${state.scheduledPipelines.length === 1 ? '' : 's'}`;
+
+  if (state.scheduledPipelines.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No scheduled pipelines configured.';
+    els.schedulerList.append(empty);
+  }
+
+  for (const pipeline of state.scheduledPipelines) {
+    const row = document.createElement('article');
+    row.className = 'record-row scheduler-row';
+
+    const title = document.createElement('strong');
+    title.textContent = pipeline.name;
+
+    const meta = document.createElement('span');
+    const nextRun = pipeline.nextRunAt ? new Date(pipeline.nextRunAt).toLocaleString() : 'not scheduled';
+    meta.textContent = `${pipeline.enabled ? 'enabled' : 'disabled'} | ${pipeline.cron} | next ${nextRun}`;
+
+    const detail = document.createElement('p');
+    detail.textContent = `${pipeline.workflow.join(' -> ')}${pipeline.autopublish ? ' | autopublish' : ' | approval required'}`;
+
+    const run = document.createElement('button');
+    run.type = 'button';
+    run.className = 'secondary';
+    run.textContent = 'Run Now';
+    run.addEventListener('click', async () => {
+      await runScheduledPipeline(pipeline.id, run);
+    });
+
+    row.append(title, meta, detail, run);
+    els.schedulerList.append(row);
+  }
+
+  if (state.failedScheduledRuns.length === 0) {
+    return;
+  }
+
+  const heading = document.createElement('h3');
+  heading.textContent = 'Failed Runs';
+  els.failedScheduleRuns.append(heading);
+
+  for (const job of state.failedScheduledRuns) {
+    const row = document.createElement('div');
+    row.className = 'production-row failed';
+
+    const title = document.createElement('strong');
+    title.textContent = `${job.input.scheduledPipelineSlug || job.input.scheduledPipelineId} | ${job.status}`;
+
+    const meta = document.createElement('span');
+    meta.textContent = job.error || `Updated ${new Date(job.updatedAt).toLocaleString()}`;
+
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'secondary';
+    retry.textContent = 'Retry';
+    retry.addEventListener('click', async () => {
+      await retryScheduledRun(job.id, retry);
+    });
+
+    row.append(title, meta, retry);
+    els.failedScheduleRuns.append(row);
+  }
+}
+
 function isTerminalJob(job) {
   return ['succeeded', 'failed', 'cancelled'].includes(job.status);
 }
@@ -419,6 +493,7 @@ function render() {
   renderProfiles();
   renderProfileForm();
   renderStoryCandidates();
+  renderScheduler();
   renderEpisodes();
   renderQueries();
   renderScripts();
@@ -490,6 +565,65 @@ async function loadStoryCandidates() {
   state.storyCandidates = body.storyCandidates;
 }
 
+async function loadScheduledPipelines() {
+  if (!state.selectedShowSlug) {
+    state.scheduledPipelines = [];
+    state.failedScheduledRuns = [];
+    return;
+  }
+
+  const [pipelinesBody, failedRunsBody] = await Promise.all([
+    api(`/scheduled-pipelines?showSlug=${encodeURIComponent(state.selectedShowSlug)}`),
+    api(`/scheduled-pipeline-runs?showSlug=${encodeURIComponent(state.selectedShowSlug)}&status=failed&limit=10`),
+  ]);
+  state.scheduledPipelines = pipelinesBody.scheduledPipelines;
+  state.failedScheduledRuns = failedRunsBody.jobs;
+}
+
+async function runScheduledPipeline(id, button) {
+  button.disabled = true;
+  setStatus('Starting scheduled pipeline...');
+
+  try {
+    const body = await api(`/scheduled-pipelines/${id}/run`, {
+      method: 'POST',
+      body: JSON.stringify({ actor: 'local-ui' }),
+    });
+    await loadScheduledPipelines();
+    await loadStoryCandidates();
+    render();
+    setStatus(`Scheduled pipeline run ${body.job.status}.`);
+  } catch (error) {
+    await loadScheduledPipelines();
+    render();
+    setStatus(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function retryScheduledRun(id, button) {
+  button.disabled = true;
+  setStatus('Retrying scheduled pipeline...');
+
+  try {
+    const body = await api(`/scheduled-pipeline-runs/${id}/retry`, {
+      method: 'POST',
+      body: JSON.stringify({ actor: 'local-ui' }),
+    });
+    await loadScheduledPipelines();
+    await loadStoryCandidates();
+    render();
+    setStatus(`Scheduled retry ${body.job.status}.`);
+  } catch (error) {
+    await loadScheduledPipelines();
+    render();
+    setStatus(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function loadEpisodes() {
   if (!state.selectedShowSlug) {
     state.episodes = [];
@@ -530,6 +664,7 @@ async function loadAll() {
     await loadProfiles();
     await loadQueries();
     await loadStoryCandidates();
+    await loadScheduledPipelines();
     await loadEpisodes();
     await loadScripts();
     render();
@@ -847,6 +982,7 @@ els.showSelect.addEventListener('change', async () => {
   await loadProfiles();
   await loadQueries();
   await loadStoryCandidates();
+  await loadScheduledPipelines();
   await loadEpisodes();
   await loadScripts();
   render();

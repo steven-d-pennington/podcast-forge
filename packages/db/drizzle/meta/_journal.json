@@ -15,6 +15,13 @@
       "when": 1777132800000,
       "tag": "0001_script_workflow",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777136400000,
+      "tag": "0002_scheduled_pipelines",
+      "breakpoints": true
     }
   ]
 }
