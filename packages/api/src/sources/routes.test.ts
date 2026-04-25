@@ -10,6 +10,15 @@ import type {
   ModelProfileStore,
   UpdateModelProfileInput,
 } from '../models/store.js';
+import type { AudioPreviewProvider } from '../production/providers.js';
+import type {
+  CreateEpisodeAssetInput,
+  CreateEpisodeFromScriptInput,
+  EpisodeAssetRecord,
+  EpisodeRecord,
+  ProductionStore,
+  UpdateEpisodeProductionInput,
+} from '../production/store.js';
 import type { ResearchFetch } from '../research/fetch.js';
 import type {
   CreateResearchPacketInput,
@@ -51,7 +60,7 @@ import type {
   UpdateSourceQueryInput,
 } from './store.js';
 
-class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, ModelProfileStore, ScriptStore {
+class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, ModelProfileStore, ScriptStore, ProductionStore {
   shows: ShowRecord[] = [{
     id: '11111111-1111-4111-8111-111111111111',
     slug: 'the-synthetic-lens',
@@ -64,7 +73,14 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
       { name: 'MARCUS', role: 'analyst', voice: 'Charon' },
       { name: 'INGRID', role: 'correspondent', voice: 'Leda' },
     ],
-    settings: {},
+    settings: {
+      production: {
+        ttsProvider: 'vertex-gemini-tts',
+        artProvider: 'openai-gpt-image',
+        publicBaseUrl: 'https://podcast.example.com/the-synthetic-lens',
+        storage: 'local',
+      },
+    },
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
   }];
@@ -103,7 +119,10 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
     this.modelProfileRecord('claim_extractor', 'google-vertex', 'gemini-2.5-flash'),
     this.modelProfileRecord('research_synthesizer', 'google-gemini-cli', 'gemini-3-pro-preview'),
     this.modelProfileRecord('script_writer', 'openai-codex', 'gpt-5.3-codex'),
+    this.modelProfileRecord('cover_prompt_writer', 'openai', 'gpt-5.5'),
   ];
+  episodes: EpisodeRecord[] = [];
+  episodeAssets: EpisodeAssetRecord[] = [];
 
   async listShows() {
     return this.shows;
@@ -227,7 +246,7 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
     const job: JobRecord = {
       id: `job-${this.jobs.length + 1}`,
       showId: input.showId,
-      episodeId: null,
+      episodeId: input.episodeId ?? null,
       type: input.type,
       status: input.status,
       progress: input.progress,
@@ -261,6 +280,89 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
 
   async getJob(id: string) {
     return this.jobs.find((job) => job.id === id);
+  }
+
+  async listJobs(filter: { showId?: string; episodeId?: string; types?: string[]; limit?: number } = {}) {
+    return this.jobs
+      .filter((job) => (!filter.showId || job.showId === filter.showId)
+        && (!filter.episodeId || job.episodeId === filter.episodeId)
+        && (!filter.types || filter.types.includes(job.type)))
+      .slice(0, filter.limit ?? 50);
+  }
+
+  async getEpisode(id: string) {
+    return this.episodes.find((episode) => episode.id === id);
+  }
+
+  async getEpisodeForScript(scriptId: string, researchPacketId: string) {
+    return this.episodes.find((episode) => {
+      return episode.researchPacketId === researchPacketId && episode.metadata.scriptId === scriptId;
+    }) ?? this.episodes.find((episode) => episode.researchPacketId === researchPacketId);
+  }
+
+  async createEpisodeFromScript(input: CreateEpisodeFromScriptInput) {
+    const episode: EpisodeRecord = {
+      id: `episode-${this.episodes.length + 1}`,
+      showId: input.showId,
+      feedId: null,
+      episodeCandidateId: null,
+      researchPacketId: input.researchPacketId,
+      slug: `${input.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${input.scriptId}`,
+      title: input.title,
+      description: null,
+      episodeNumber: null,
+      status: 'approved-for-audio',
+      scriptText: input.scriptText,
+      scriptFormat: input.scriptFormat,
+      durationSeconds: null,
+      publishedAt: null,
+      feedGuid: null,
+      warnings: [],
+      metadata: {
+        scriptId: input.scriptId,
+        approvedRevisionId: input.revisionId,
+      },
+      createdAt: new Date('2026-01-07T00:00:00Z'),
+      updatedAt: new Date('2026-01-07T00:00:00Z'),
+    };
+    this.episodes.push(episode);
+    return episode;
+  }
+
+  async updateEpisodeProduction(id: string, input: UpdateEpisodeProductionInput) {
+    const episode = await this.getEpisode(id);
+
+    if (!episode) {
+      return undefined;
+    }
+
+    Object.assign(episode, input, { updatedAt: new Date('2026-01-07T00:00:00Z') });
+    return episode;
+  }
+
+  async createEpisodeAsset(input: CreateEpisodeAssetInput) {
+    const asset: EpisodeAssetRecord = {
+      id: `asset-${this.episodeAssets.length + 1}`,
+      episodeId: input.episodeId,
+      type: input.type,
+      label: input.label ?? null,
+      localPath: input.localPath ?? null,
+      objectKey: input.objectKey ?? null,
+      publicUrl: input.publicUrl ?? null,
+      mimeType: input.mimeType ?? null,
+      byteSize: input.byteSize ?? null,
+      durationSeconds: input.durationSeconds ?? null,
+      checksum: input.checksum ?? null,
+      metadata: input.metadata ?? {},
+      createdAt: new Date('2026-01-07T00:00:00Z'),
+      updatedAt: new Date('2026-01-07T00:00:00Z'),
+    };
+    this.episodeAssets.push(asset);
+    return asset;
+  }
+
+  async listEpisodeAssets(episodeId: string) {
+    return this.episodeAssets.filter((asset) => asset.episodeId === episodeId);
   }
 
   async listStoryCandidateDedupeKeys(showId: string): Promise<CandidateDedupeKey[]> {
@@ -645,6 +747,8 @@ describe('source profile routes', () => {
     store.scripts = [];
     store.scriptRevisions = [];
     store.modelProfiles = new FakeSourceStore().modelProfiles;
+    store.episodes = [];
+    store.episodeAssets = [];
     requestedUrls = [];
     requestedRssUrls = [];
     requestedResearchUrls = [];
@@ -1120,6 +1224,150 @@ describe('source profile routes', () => {
     assert.equal(approved.status, 'approved-for-audio');
     assert.equal(approved.approvedRevisionId, edited.revision.id);
     assert.ok(approved.approvedAt);
+  });
+
+  it('produces preview audio and cover art as durable jobs linked to an episode', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Production Story',
+      status: 'approved',
+      sourceDocumentIds: [],
+      claims: [{ id: 'claim-1', text: 'A production claim exists.', sourceDocumentIds: [], citationUrls: ['https://example.com/production'] }],
+      citations: [],
+      warnings: [],
+      content: { summary: 'A packet summary for production testing.' },
+    });
+    const scriptResponse = await app.inject({
+      method: 'POST',
+      url: `/research-packets/${packet.id}/script`,
+    });
+    const initial = scriptResponse.json();
+
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/approve-for-audio`,
+      payload: {
+        actor: 'producer@example.com',
+        reason: 'Ready for production.',
+      },
+    });
+
+    const audioResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/audio-preview`,
+      payload: { actor: 'producer@example.com' },
+    });
+    const audioBody = audioResponse.json();
+
+    assert.equal(audioResponse.statusCode, 201);
+    assert.equal(audioBody.job.type, 'audio.preview');
+    assert.equal(audioBody.job.status, 'succeeded');
+    assert.equal(audioBody.job.progress, 100);
+    assert.equal(audioBody.asset.type, 'audio-preview');
+    assert.equal(audioBody.asset.mimeType, 'audio/mpeg');
+    assert.equal(audioBody.asset.metadata.provider, 'vertex-gemini-tts');
+    assert.equal(audioBody.episode.status, 'audio-ready');
+    assert.equal(audioBody.episode.metadata.audioPreviewAssetId, audioBody.asset.id);
+
+    const artResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/cover-art`,
+      payload: { actor: 'producer@example.com' },
+    });
+    const artBody = artResponse.json();
+
+    assert.equal(artResponse.statusCode, 201);
+    assert.equal(artBody.job.type, 'art.generate');
+    assert.equal(artBody.job.status, 'succeeded');
+    assert.equal(artBody.job.input.modelProfile.role, 'cover_prompt_writer');
+    assert.equal(artBody.asset.type, 'cover-art');
+    assert.equal(artBody.asset.mimeType, 'image/png');
+    assert.equal(artBody.asset.metadata.provider, 'openai-gpt-image');
+    assert.equal(artBody.episode.id, audioBody.episode.id);
+    assert.equal(artBody.episode.metadata.coverArtAssetId, artBody.asset.id);
+
+    const jobResponse = await app.inject({ method: 'GET', url: `/jobs/${audioBody.job.id}` });
+    assert.equal(jobResponse.statusCode, 200);
+    assert.equal(jobResponse.json().job.output.assetId, audioBody.asset.id);
+
+    const productionResponse = await app.inject({ method: 'GET', url: `/scripts/${initial.script.id}/production` });
+    const productionBody = productionResponse.json();
+
+    assert.equal(productionResponse.statusCode, 200);
+    assert.equal(productionBody.episode.id, audioBody.episode.id);
+    assert.deepEqual(
+      productionBody.assets.map((asset: EpisodeAssetRecord) => asset.type).sort(),
+      ['audio-preview', 'cover-art'],
+    );
+    assert.deepEqual(
+      productionBody.jobs.map((job: JobRecord) => job.type).sort(),
+      ['art.generate', 'audio.preview'],
+    );
+  });
+
+  it('records production job failure state and allows a later retry', async () => {
+    const failingAudioProvider: AudioPreviewProvider = {
+      async generatePreviewAudio() {
+        throw new Error('Synthetic TTS failure');
+      },
+    };
+    const failingApp = buildApp({
+      sourceStore: store,
+      audioPreviewProvider: failingAudioProvider,
+    });
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Retry Story',
+      status: 'approved',
+      sourceDocumentIds: [],
+      claims: [{ id: 'claim-1', text: 'A retry claim exists.', sourceDocumentIds: [], citationUrls: ['https://example.com/retry'] }],
+      citations: [],
+      warnings: [],
+      content: { summary: 'A packet summary for retry testing.' },
+    });
+    const scriptResponse = await app.inject({
+      method: 'POST',
+      url: `/research-packets/${packet.id}/script`,
+    });
+    const initial = scriptResponse.json();
+
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/approve-for-audio`,
+      payload: {
+        actor: 'producer@example.com',
+        reason: 'Ready for retry testing.',
+      },
+    });
+
+    const failedResponse = await failingApp.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/audio-preview`,
+    });
+    const failedBody = failedResponse.json();
+
+    assert.equal(failedResponse.statusCode, 500);
+    assert.equal(failedBody.job.status, 'failed');
+    assert.equal(failedBody.job.error, 'Synthetic TTS failure');
+
+    const retryResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/audio-preview`,
+    });
+    const retryBody = retryResponse.json();
+
+    assert.equal(retryResponse.statusCode, 201);
+    assert.equal(retryBody.job.status, 'succeeded');
+    assert.notEqual(retryBody.job.id, failedBody.job.id);
+
+    const productionResponse = await app.inject({ method: 'GET', url: `/scripts/${initial.script.id}/production` });
+    const jobs = productionResponse.json().jobs as JobRecord[];
+
+    assert.ok(jobs.some((job) => job.status === 'failed'));
+    assert.ok(jobs.some((job) => job.status === 'succeeded'));
+    await failingApp.close();
   });
 
   it('returns validation errors for invalid payloads', async () => {

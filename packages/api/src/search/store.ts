@@ -52,6 +52,7 @@ export interface CandidateDedupeKey {
 
 export interface CreateJobInput {
   showId: string | null;
+  episodeId?: string | null;
   type: string;
   status: JobStatus;
   progress: number;
@@ -72,6 +73,13 @@ export interface UpdateJobInput {
   finishedAt?: Date | null;
 }
 
+export interface JobListFilter {
+  showId?: string;
+  episodeId?: string;
+  types?: string[];
+  limit?: number;
+}
+
 export interface CreateStoryCandidateInput extends SourceCandidate {
   showId: string;
   sourceProfileId: string | null;
@@ -87,6 +95,7 @@ export interface SearchJobStore {
   createJob(input: CreateJobInput): Promise<JobRecord>;
   updateJob(id: string, input: UpdateJobInput): Promise<JobRecord | undefined>;
   getJob(id: string): Promise<JobRecord | undefined>;
+  listJobs(filter?: JobListFilter): Promise<JobRecord[]>;
   listStoryCandidateDedupeKeys(showId: string): Promise<CandidateDedupeKey[]>;
   insertStoryCandidate(input: CreateStoryCandidateInput): Promise<StoryCandidateRecord | undefined>;
   listStoryCandidates(filter: StoryCandidateListFilter): Promise<StoryCandidateRecord[]>;

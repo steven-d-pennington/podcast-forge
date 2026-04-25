@@ -1,0 +1,91 @@
+export type EpisodeStatus =
+  | 'draft'
+  | 'research-ready'
+  | 'script-ready'
+  | 'approved-for-audio'
+  | 'audio-ready'
+  | 'approved-for-publish'
+  | 'published'
+  | 'archived';
+
+export type EpisodeAssetType = 'script' | 'audio-preview' | 'audio-final' | 'cover-art' | 'research-packet' | 'source-snapshot';
+
+export interface EpisodeRecord {
+  id: string;
+  showId: string;
+  feedId: string | null;
+  episodeCandidateId: string | null;
+  researchPacketId: string | null;
+  slug: string;
+  title: string;
+  description: string | null;
+  episodeNumber: number | null;
+  status: EpisodeStatus;
+  scriptText: string | null;
+  scriptFormat: string | null;
+  durationSeconds: number | null;
+  publishedAt: Date | null;
+  feedGuid: string | null;
+  warnings: Array<Record<string, unknown>>;
+  metadata: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface EpisodeAssetRecord {
+  id: string;
+  episodeId: string;
+  type: EpisodeAssetType;
+  label: string | null;
+  localPath: string | null;
+  objectKey: string | null;
+  publicUrl: string | null;
+  mimeType: string | null;
+  byteSize: number | null;
+  durationSeconds: number | null;
+  checksum: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateEpisodeFromScriptInput {
+  showId: string;
+  researchPacketId: string;
+  scriptId: string;
+  revisionId: string;
+  title: string;
+  scriptText: string;
+  scriptFormat: string;
+}
+
+export interface UpdateEpisodeProductionInput {
+  status?: EpisodeStatus;
+  scriptText?: string | null;
+  scriptFormat?: string | null;
+  durationSeconds?: number | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CreateEpisodeAssetInput {
+  episodeId: string;
+  type: EpisodeAssetType;
+  label?: string | null;
+  localPath?: string | null;
+  objectKey?: string | null;
+  publicUrl?: string | null;
+  mimeType?: string | null;
+  byteSize?: number | null;
+  durationSeconds?: number | null;
+  checksum?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ProductionStore {
+  getEpisode(id: string): Promise<EpisodeRecord | undefined>;
+  getEpisodeForScript(scriptId: string, researchPacketId: string): Promise<EpisodeRecord | undefined>;
+  createEpisodeFromScript(input: CreateEpisodeFromScriptInput): Promise<EpisodeRecord>;
+  updateEpisodeProduction(id: string, input: UpdateEpisodeProductionInput): Promise<EpisodeRecord | undefined>;
+  createEpisodeAsset(input: CreateEpisodeAssetInput): Promise<EpisodeAssetRecord>;
+  listEpisodeAssets(episodeId: string): Promise<EpisodeAssetRecord[]>;
+}

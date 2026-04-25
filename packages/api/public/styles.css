@@ -136,6 +136,14 @@ button:disabled {
   margin-bottom: 1rem;
 }
 
+.panel-heading.compact {
+  margin-bottom: 0.75rem;
+}
+
+.panel-heading h3 {
+  margin: 0;
+}
+
 .grid {
   display: grid;
   gap: 0.85rem;
@@ -192,6 +200,10 @@ textarea {
   margin-top: 1rem;
 }
 
+.actions.inline {
+  margin-top: 0;
+}
+
 .new-query {
   display: grid;
   gap: 0.75rem;
@@ -227,6 +239,60 @@ textarea {
   display: grid;
   gap: 0.85rem;
   min-width: 0;
+}
+
+.production-panel {
+  border-top: 1px solid #d8dde5;
+  margin-top: 0.5rem;
+  padding-top: 1rem;
+}
+
+.production-jobs,
+.production-assets {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.production-assets {
+  margin-top: 0.75rem;
+}
+
+.production-row {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #d8dde5;
+  border-radius: 6px;
+  display: grid;
+  gap: 0.4rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 0.65rem 0.75rem;
+}
+
+.production-row strong,
+.production-row span {
+  min-width: 0;
+}
+
+.production-row span {
+  color: #586575;
+  font-size: 0.9rem;
+}
+
+.production-row.failed {
+  border-color: #c55353;
+}
+
+.progress-track {
+  background: #e8ecf1;
+  border-radius: 999px;
+  grid-column: 1 / -1;
+  height: 0.45rem;
+  overflow: hidden;
+}
+
+.progress-fill {
+  background: #2468a8;
+  height: 100%;
 }
 
 .query-card {

@@ -241,6 +241,31 @@ Script endpoints:
 - `POST /scripts/:id/revisions`
 - `POST /scripts/:id/revisions/:revisionId/approve-for-audio`
 
+## Preview audio and cover art
+
+Approved script revisions can produce durable production jobs. The API creates
+or reuses an episode record for the script, writes `audio.preview` and
+`art.generate` jobs with logs/progress, and links output rows in
+`episode_assets`.
+
+```sh
+curl -X POST http://localhost:3450/scripts/:id/production/audio-preview \
+  -H 'content-type: application/json' \
+  -d '{"actor":"producer@example.com"}'
+
+curl -X POST http://localhost:3450/scripts/:id/production/cover-art \
+  -H 'content-type: application/json' \
+  -d '{"actor":"producer@example.com"}'
+
+curl http://localhost:3450/scripts/:id/production
+```
+
+Production endpoints:
+
+- `GET /scripts/:id/production`
+- `POST /scripts/:id/production/audio-preview`
+- `POST /scripts/:id/production/cover-art`
+
 The local UI at `http://localhost:3450/ui` includes a script review panel where
 editors can paste a research packet ID, generate a draft, edit the latest
 revision, and approve it for audio.

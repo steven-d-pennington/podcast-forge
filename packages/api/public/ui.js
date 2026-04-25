@@ -6,6 +6,12 @@ const state = {
   selectedScriptId: '',
   selectedScript: null,
   selectedRevision: null,
+  production: {
+    episode: null,
+    assets: [],
+    jobs: [],
+  },
+  productionPoll: null,
   selectedShowSlug: '',
   selectedProfileId: '',
 };
@@ -47,6 +53,12 @@ const els = {
   scriptTitle: document.querySelector('#scriptTitle'),
   scriptBody: document.querySelector('#scriptBody'),
   approveScript: document.querySelector('#approveScript'),
+  productionPanel: document.querySelector('#productionPanel'),
+  productionMeta: document.querySelector('#productionMeta'),
+  generateAudioPreview: document.querySelector('#generateAudioPreview'),
+  generateCoverArt: document.querySelector('#generateCoverArt'),
+  productionJobs: document.querySelector('#productionJobs'),
+  productionAssets: document.querySelector('#productionAssets'),
 };
 
 function setStatus(message) {
@@ -221,6 +233,82 @@ function renderQueries() {
   }
 }
 
+function isTerminalJob(job) {
+  return ['succeeded', 'failed', 'cancelled'].includes(job.status);
+}
+
+function latestJob(type) {
+  return state.production.jobs.find((job) => job.type === type);
+}
+
+function latestAsset(type) {
+  return state.production.assets.find((asset) => asset.type === type);
+}
+
+function renderProduction() {
+  const hasScript = Boolean(state.selectedScript && state.selectedRevision);
+  els.productionPanel.hidden = !hasScript;
+
+  if (!hasScript) {
+    return;
+  }
+
+  const approved = state.selectedScript.status === 'approved-for-audio'
+    && state.selectedScript.approvedRevisionId === state.selectedRevision.id;
+  const audioJob = latestJob('audio.preview');
+  const artJob = latestJob('art.generate');
+  const audioRunning = audioJob && !isTerminalJob(audioJob);
+  const artRunning = artJob && !isTerminalJob(artJob);
+
+  els.generateAudioPreview.disabled = !approved || audioRunning;
+  els.generateCoverArt.disabled = !approved || artRunning;
+  els.productionMeta.textContent = approved
+    ? (state.production.episode ? `Episode ${state.production.episode.slug}` : 'No production jobs yet.')
+    : 'Approve the selected revision before producing assets.';
+
+  els.productionJobs.innerHTML = '';
+  if (state.production.jobs.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No production jobs yet.';
+    els.productionJobs.append(empty);
+  }
+
+  for (const job of state.production.jobs) {
+    const row = document.createElement('div');
+    row.className = `production-row${job.status === 'failed' ? ' failed' : ''}`;
+    const title = document.createElement('strong');
+    title.textContent = `${job.type} | ${job.status}`;
+    const meta = document.createElement('span');
+    meta.textContent = job.error || `Progress ${job.progress}%`;
+    const progress = document.createElement('div');
+    progress.className = 'progress-track';
+    const fill = document.createElement('div');
+    fill.className = 'progress-fill';
+    fill.style.width = `${Math.max(0, Math.min(100, job.progress))}%`;
+    progress.append(fill);
+    row.append(title, meta, progress);
+    els.productionJobs.append(row);
+  }
+
+  els.productionAssets.innerHTML = '';
+  const assets = [latestAsset('audio-preview'), latestAsset('cover-art')].filter(Boolean);
+  if (assets.length === 0) {
+    return;
+  }
+
+  for (const asset of assets) {
+    const row = document.createElement('div');
+    row.className = 'production-row';
+    const title = document.createElement('strong');
+    title.textContent = asset.label || asset.type;
+    const meta = document.createElement('span');
+    meta.textContent = asset.publicUrl || asset.objectKey || asset.localPath || asset.mimeType || 'Asset recorded';
+    row.append(title, meta);
+    els.productionAssets.append(row);
+  }
+}
+
 function renderScripts() {
   els.scriptList.innerHTML = '';
   els.scriptMeta.textContent = `${state.scripts.length} script${state.scripts.length === 1 ? '' : 's'} for this show`;
@@ -253,6 +341,8 @@ function renderScripts() {
     els.scriptBody.value = state.selectedRevision.body;
     els.approveScript.disabled = state.selectedScript.approvedRevisionId === state.selectedRevision.id;
   }
+
+  renderProduction();
 }
 
 function render() {
@@ -315,6 +405,7 @@ async function loadScripts() {
   } else {
     state.selectedScript = null;
     state.selectedRevision = null;
+    state.production = { episode: null, assets: [], jobs: [] };
   }
 }
 
@@ -323,6 +414,21 @@ async function loadScript(id) {
   state.selectedScriptId = id;
   state.selectedScript = body.script;
   state.selectedRevision = body.latestRevision || null;
+  await loadProduction();
+}
+
+async function loadProduction() {
+  if (!state.selectedScriptId) {
+    state.production = { episode: null, assets: [], jobs: [] };
+    return;
+  }
+
+  const body = await api(`/scripts/${state.selectedScriptId}/production`);
+  state.production = {
+    episode: body.episode || null,
+    assets: body.assets || [],
+    jobs: body.jobs || [],
+  };
 }
 
 async function loadAll() {
@@ -495,6 +601,7 @@ async function generateScript(event) {
   state.selectedScriptId = body.script.id;
   state.selectedScript = body.script;
   state.selectedRevision = body.revision;
+  state.production = { episode: null, assets: [], jobs: [] };
   els.scriptResearchPacketId.value = '';
   render();
   setStatus(`Generated script revision ${body.revision.version}.`);
@@ -519,6 +626,7 @@ async function saveScriptRevision(event) {
   state.scripts = [body.script, ...state.scripts.filter((script) => script.id !== body.script.id)];
   state.selectedScript = body.script;
   state.selectedRevision = body.revision;
+  await loadProduction();
   render();
   setStatus(`Saved script revision ${body.revision.version}.`);
 }
@@ -537,8 +645,80 @@ async function approveSelectedScript() {
   });
   state.scripts = state.scripts.map((script) => script.id === body.script.id ? body.script : script);
   state.selectedScript = body.script;
+  await loadProduction();
   render();
   setStatus('Script approved for audio.');
+}
+
+async function refreshProductionUntilSettled() {
+  if (!state.selectedScriptId) {
+    return;
+  }
+
+  await loadProduction();
+  render();
+
+  if (state.production.jobs.some((job) => !isTerminalJob(job))) {
+    if (!state.productionPoll) {
+      state.productionPoll = window.setInterval(async () => {
+        try {
+          await loadProduction();
+          render();
+
+          if (!state.production.jobs.some((job) => !isTerminalJob(job))) {
+            window.clearInterval(state.productionPoll);
+            state.productionPoll = null;
+          }
+        } catch (error) {
+          setStatus(error.message);
+        }
+      }, 1500);
+    }
+  }
+}
+
+async function startAudioPreview() {
+  if (!state.selectedScript) {
+    return;
+  }
+
+  els.generateAudioPreview.disabled = true;
+  setStatus('Starting preview audio job...');
+
+  try {
+    await api(`/scripts/${state.selectedScript.id}/production/audio-preview`, {
+      method: 'POST',
+      body: JSON.stringify({ actor: 'local-user' }),
+    });
+    await refreshProductionUntilSettled();
+    setStatus('Preview audio job updated.');
+  } catch (error) {
+    await loadProduction();
+    render();
+    setStatus(error.message);
+  }
+}
+
+async function startCoverArt() {
+  if (!state.selectedScript) {
+    return;
+  }
+
+  els.generateCoverArt.disabled = true;
+  setStatus('Starting cover art job...');
+
+  try {
+    await api(`/scripts/${state.selectedScript.id}/production/cover-art`, {
+      method: 'POST',
+      body: JSON.stringify({ actor: 'local-user' }),
+    });
+    await refreshProductionUntilSettled();
+    setStatus('Cover art job updated.');
+  } catch (error) {
+    await loadProduction();
+    render();
+    setStatus(error.message);
+  }
 }
 
 els.refresh.addEventListener('click', loadAll);
@@ -558,5 +738,7 @@ els.newQueryForm.addEventListener('submit', createQuery);
 els.scriptGenerateForm.addEventListener('submit', generateScript);
 els.scriptEditForm.addEventListener('submit', saveScriptRevision);
 els.approveScript.addEventListener('click', approveSelectedScript);
+els.generateAudioPreview.addEventListener('click', startAudioPreview);
+els.generateCoverArt.addEventListener('click', startCoverArt);
 
 await loadAll();

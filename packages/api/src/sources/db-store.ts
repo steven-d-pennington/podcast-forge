@@ -1,7 +1,9 @@
-import { and, asc, desc, eq, isNull, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import {
   approvalEvents,
   createDb,
+  episodeAssets,
+  episodes,
   jobs,
   modelProfiles,
   researchPackets,
@@ -51,6 +53,14 @@ import type {
   ModelProfileStore,
   UpdateModelProfileInput,
 } from '../models/store.js';
+import type {
+  CreateEpisodeAssetInput,
+  CreateEpisodeFromScriptInput,
+  EpisodeAssetRecord,
+  EpisodeRecord,
+  ProductionStore,
+  UpdateEpisodeProductionInput,
+} from '../production/store.js';
 import type {
   CreateSourceProfileInput,
   CreateSourceQueryInput,
@@ -284,6 +294,49 @@ function mapScriptRevision(row: typeof scriptRevisions.$inferSelect): ScriptRevi
   };
 }
 
+function mapEpisode(row: typeof episodes.$inferSelect): EpisodeRecord {
+  return {
+    id: row.id,
+    showId: row.showId,
+    feedId: row.feedId,
+    episodeCandidateId: row.episodeCandidateId,
+    researchPacketId: row.researchPacketId,
+    slug: row.slug,
+    title: row.title,
+    description: row.description,
+    episodeNumber: row.episodeNumber,
+    status: row.status,
+    scriptText: row.scriptText,
+    scriptFormat: row.scriptFormat,
+    durationSeconds: row.durationSeconds,
+    publishedAt: row.publishedAt,
+    feedGuid: row.feedGuid,
+    warnings: asJsonArray(row.warnings),
+    metadata: asJsonObject(row.metadata),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function mapEpisodeAsset(row: typeof episodeAssets.$inferSelect): EpisodeAssetRecord {
+  return {
+    id: row.id,
+    episodeId: row.episodeId,
+    type: row.type,
+    label: row.label,
+    localPath: row.localPath,
+    objectKey: row.objectKey,
+    publicUrl: row.publicUrl,
+    mimeType: row.mimeType,
+    byteSize: row.byteSize,
+    durationSeconds: row.durationSeconds,
+    checksum: row.checksum,
+    metadata: asJsonObject(row.metadata),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 function mapModelProfile(row: typeof modelProfiles.$inferSelect): ModelProfileRecord {
   if (!isModelRole(row.role)) {
     throw new Error(`Unknown model profile role in database: ${row.role}`);
@@ -328,7 +381,17 @@ function queryConfig(input: CreateSourceQueryInput | UpdateSourceQueryInput, cur
   return config;
 }
 
-export function createDbSourceStore(connectionString = process.env.DATABASE_URL): SourceStore & SearchJobStore & ResearchStore & ModelProfileStore & ScriptStore {
+function slugify(value: string) {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 56);
+
+  return slug || 'episode';
+}
+
+export function createDbSourceStore(connectionString = process.env.DATABASE_URL): SourceStore & SearchJobStore & ResearchStore & ModelProfileStore & ScriptStore & ProductionStore {
   const { db, pool } = createDb(connectionString);
 
   return {
@@ -539,6 +602,7 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
     async createJob(input: CreateJobInput) {
       const [row] = await db.insert(jobs).values({
         showId: input.showId,
+        episodeId: input.episodeId ?? null,
         type: input.type,
         status: input.status,
         progress: input.progress,
@@ -573,6 +637,20 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
     async getJob(id: string) {
       const [row] = await db.select().from(jobs).where(eq(jobs.id, id)).limit(1);
       return row ? mapJob(row) : undefined;
+    },
+
+    async listJobs(filter = {}) {
+      const showWhere = filter.showId ? eq(jobs.showId, filter.showId) : undefined;
+      const episodeWhere = filter.episodeId ? eq(jobs.episodeId, filter.episodeId) : undefined;
+      const typeWhere = filter.types && filter.types.length > 0 ? inArray(jobs.type, filter.types) : undefined;
+      const where = [showWhere, episodeWhere, typeWhere].filter(Boolean).reduce((current, next) => {
+        return current && next ? and(current, next) : current ?? next;
+      });
+      const rows = where
+        ? await db.select().from(jobs).where(where).orderBy(desc(jobs.createdAt)).limit(filter.limit ?? 50)
+        : await db.select().from(jobs).orderBy(desc(jobs.createdAt)).limit(filter.limit ?? 50);
+
+      return rows.map(mapJob);
     },
 
     async listStoryCandidateDedupeKeys(showId: string): Promise<CandidateDedupeKey[]> {
@@ -851,6 +929,84 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
         .returning();
 
       return row ? mapScript(row) : undefined;
+    },
+
+    async getEpisode(id: string) {
+      const [row] = await db.select().from(episodes).where(eq(episodes.id, id)).limit(1);
+      return row ? mapEpisode(row) : undefined;
+    },
+
+    async getEpisodeForScript(scriptId: string, researchPacketId: string) {
+      const rows = await db.select()
+        .from(episodes)
+        .where(eq(episodes.researchPacketId, researchPacketId))
+        .orderBy(desc(episodes.updatedAt))
+        .limit(20);
+      const scriptMatch = rows.find((row) => asJsonObject(row.metadata).scriptId === scriptId);
+
+      return (scriptMatch ?? rows[0]) ? mapEpisode(scriptMatch ?? rows[0]) : undefined;
+    },
+
+    async createEpisodeFromScript(input: CreateEpisodeFromScriptInput) {
+      const slug = `${slugify(input.title)}-${input.scriptId.slice(0, 8)}`;
+      const [row] = await db.insert(episodes).values({
+        showId: input.showId,
+        researchPacketId: input.researchPacketId,
+        slug,
+        title: input.title,
+        status: 'approved-for-audio',
+        scriptText: input.scriptText,
+        scriptFormat: input.scriptFormat,
+        metadata: {
+          scriptId: input.scriptId,
+          approvedRevisionId: input.revisionId,
+        },
+      }).returning();
+
+      return mapEpisode(row);
+    },
+
+    async updateEpisodeProduction(id: string, input: UpdateEpisodeProductionInput) {
+      const [row] = await db.update(episodes)
+        .set({
+          ...('status' in input ? { status: input.status } : {}),
+          ...('scriptText' in input ? { scriptText: input.scriptText } : {}),
+          ...('scriptFormat' in input ? { scriptFormat: input.scriptFormat } : {}),
+          ...('durationSeconds' in input ? { durationSeconds: input.durationSeconds } : {}),
+          ...('metadata' in input ? { metadata: input.metadata } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(episodes.id, id))
+        .returning();
+
+      return row ? mapEpisode(row) : undefined;
+    },
+
+    async createEpisodeAsset(input: CreateEpisodeAssetInput) {
+      const [row] = await db.insert(episodeAssets).values({
+        episodeId: input.episodeId,
+        type: input.type,
+        label: input.label ?? null,
+        localPath: input.localPath ?? null,
+        objectKey: input.objectKey ?? null,
+        publicUrl: input.publicUrl ?? null,
+        mimeType: input.mimeType ?? null,
+        byteSize: input.byteSize ?? null,
+        durationSeconds: input.durationSeconds ?? null,
+        checksum: input.checksum ?? null,
+        metadata: input.metadata ?? {},
+      }).returning();
+
+      return mapEpisodeAsset(row);
+    },
+
+    async listEpisodeAssets(episodeId: string) {
+      const rows = await db.select()
+        .from(episodeAssets)
+        .where(eq(episodeAssets.episodeId, episodeId))
+        .orderBy(desc(episodeAssets.createdAt));
+
+      return rows.map(mapEpisodeAsset);
     },
 
     async close() {

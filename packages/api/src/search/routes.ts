@@ -78,6 +78,7 @@ function requireSearchStore(store: SourceStore & Partial<SearchJobStore>): Sourc
     'createJob',
     'updateJob',
     'getJob',
+    'listJobs',
     'listStoryCandidateDedupeKeys',
     'insertStoryCandidate',
     'listStoryCandidates',

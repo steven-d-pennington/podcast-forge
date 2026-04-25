@@ -164,6 +164,20 @@
                 <button id="approveScript" class="secondary" type="button">Approve for Audio</button>
                 <button type="submit">Save New Revision</button>
               </div>
+              <section id="productionPanel" class="production-panel" hidden>
+                <div class="panel-heading compact">
+                  <div>
+                    <h3>Production</h3>
+                    <p id="productionMeta"></p>
+                  </div>
+                  <div class="actions inline">
+                    <button id="generateAudioPreview" class="secondary" type="button">Preview MP3</button>
+                    <button id="generateCoverArt" class="secondary" type="button">Cover Art</button>
+                  </div>
+                </div>
+                <div id="productionJobs" class="production-jobs"></div>
+                <div id="productionAssets" class="production-assets"></div>
+              </section>
             </form>
           </div>
         </section>

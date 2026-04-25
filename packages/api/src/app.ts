@@ -19,6 +19,9 @@ import type { ResearchFetch } from './research/fetch.js';
 import type { ResearchStore } from './research/store.js';
 import { registerScriptRoutes } from './scripts/routes.js';
 import type { ScriptStore } from './scripts/store.js';
+import type { AudioPreviewProvider, CoverArtProvider } from './production/providers.js';
+import { registerProductionRoutes } from './production/routes.js';
+import type { ProductionStore } from './production/store.js';
 import { registerSearchRoutes } from './search/routes.js';
 import type { BraveFetch } from './search/brave.js';
 import type { RssFetch } from './search/rss.js';
@@ -29,11 +32,18 @@ interface ConfigQuery {
 }
 
 interface BuildAppOptions extends FastifyServerOptions {
-  sourceStore?: SourceStore & Partial<SearchJobStore> & Partial<ResearchStore> & Partial<ModelProfileStore> & Partial<ScriptStore>;
+  sourceStore?: SourceStore
+    & Partial<SearchJobStore>
+    & Partial<ResearchStore>
+    & Partial<ModelProfileStore>
+    & Partial<ScriptStore>
+    & Partial<ProductionStore>;
   braveApiKey?: string;
   fetchImpl?: BraveFetch;
   rssFetchImpl?: RssFetch;
   researchFetchImpl?: ResearchFetch;
+  audioPreviewProvider?: AudioPreviewProvider;
+  coverArtProvider?: CoverArtProvider;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -60,9 +70,25 @@ async function readPublicFile(fileName: string) {
 }
 
 export function buildApp(options: BuildAppOptions = {}) {
-  const { sourceStore, braveApiKey, fetchImpl, rssFetchImpl, researchFetchImpl, sleep, ...fastifyOptions } = options;
+  const {
+    sourceStore,
+    braveApiKey,
+    fetchImpl,
+    rssFetchImpl,
+    researchFetchImpl,
+    audioPreviewProvider,
+    coverArtProvider,
+    sleep,
+    ...fastifyOptions
+  } = options;
   const app = Fastify(fastifyOptions);
-  let resolvedSourceStore: SourceStore & Partial<SearchJobStore> & Partial<ResearchStore> & Partial<ModelProfileStore> & Partial<ScriptStore> | undefined = sourceStore;
+  let resolvedSourceStore: SourceStore
+    & Partial<SearchJobStore>
+    & Partial<ResearchStore>
+    & Partial<ModelProfileStore>
+    & Partial<ScriptStore>
+    & Partial<ProductionStore>
+    | undefined = sourceStore;
 
   app.get('/health', async () => ({ ok: true, service: 'podcast-forge-api' }));
 
@@ -163,6 +189,15 @@ export function buildApp(options: BuildAppOptions = {}) {
       resolvedSourceStore ??= createDbSourceStore();
       return resolvedSourceStore;
     },
+  });
+
+  registerProductionRoutes(app, {
+    getStore() {
+      resolvedSourceStore ??= createDbSourceStore();
+      return resolvedSourceStore;
+    },
+    audioPreviewProvider,
+    coverArtProvider,
   });
 
   app.addHook('onClose', async () => {
