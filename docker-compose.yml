@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: podcast-forge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: podcast_forge
+      POSTGRES_PASSWORD: podcast_forge
+      POSTGRES_DB: podcast_forge
+    ports:
+      - "5544:5432"
+    volumes:
+      - podcast_forge_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U podcast_forge -d podcast_forge"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  podcast_forge_postgres:
