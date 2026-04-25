@@ -2,9 +2,10 @@
 
 ## Before Any Work
 
-Read `LESSONS.md` in this repo root before making changes. It contains project-specific patterns, known gotchas, and learnings from previous sessions.
+Read `AGENTS.md` and `LESSONS.md` in this repo root before making changes. `AGENTS.md` explains the product mission, editorial integrity standards, architecture conventions, and workflow. `LESSONS.md` contains project-specific patterns, known gotchas, and learnings from previous sessions.
 
 ```bash
+cat AGENTS.md
 cat LESSONS.md
 ```
 
