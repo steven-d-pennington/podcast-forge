@@ -371,10 +371,13 @@ URLs, then use the `Ingest RSS` action shown for RSS profiles.
 
 ## Research packets
 
-Selected story candidates can produce deterministic research packets without an
-LLM dependency. The API fetches readable source snapshots into
-`source_documents`, then writes a `research_packets` row with summary content,
-cited claims, citations, and warning objects.
+Selected story candidates can produce evidence-first research packets. The API
+fetches readable source snapshots into `source_documents`, then writes a
+`research_packets` row with source document references, cited claims, citation
+URLs, warning objects, synthesis content, and readiness metadata. When injected
+model runtime support is available, research uses the configured
+`claim_extractor` and `research_synthesizer` roles; otherwise it falls back to
+deterministic packet content from fetched source snapshots.
 
 Build a packet from the candidate URL plus optional extra URLs:
 
@@ -384,9 +387,28 @@ curl -X POST http://localhost:3450/story-candidates/:id/research-packet \
   -d '{"extraUrls":["https://example.org/second-source"]}'
 ```
 
+Build a packet from multiple selected candidates:
+
+```sh
+curl -X POST http://localhost:3450/research-packets \
+  -H 'content-type: application/json' \
+  -d '{
+    "candidateIds":["CANDIDATE_ID_1","CANDIDATE_ID_2"],
+    "angle":"Why this cluster matters now",
+    "extraUrls":["https://example.org/primary-source"]
+  }'
+```
+
+The multi-candidate endpoint validates that all selected candidates exist,
+belong to the same show, and are not ignored. Duplicate candidate IDs and
+duplicate source URLs are recorded as warnings and skipped once. Fetch or model
+failures are persisted in packet/job warnings and never create citations unless
+there is a fetched `source_documents` row behind the claim.
+
 Read and override warnings:
 
 ```sh
+curl "http://localhost:3450/research-packets?showSlug=the-synthetic-lens"
 curl http://localhost:3450/research-packets/:id
 
 curl -X POST http://localhost:3450/research-packets/:id/override-warning \
@@ -397,8 +419,17 @@ curl -X POST http://localhost:3450/research-packets/:id/override-warning \
 Research endpoints:
 
 - `POST /story-candidates/:id/research-packet`
+- `POST /research-packets`
+- `GET /research-packets?showSlug=the-synthetic-lens`
 - `GET /research-packets/:id`
 - `POST /research-packets/:id/override-warning`
+
+Packet `status` is a readiness value: `ready`, `needs_more_sources`, or
+`blocked`. The same object is also available at `content.readiness` with reasons
+and counts such as `independentSourceCount`, `usableSourceCount`, and
+`selectedCandidateCount`. Script generation should consume packet `claims`,
+`citations`, `sourceDocumentIds`, and `warnings`, and should surface non-ready
+or warning-bearing packets for editorial review before production.
 
 ## Script generation workflow
 

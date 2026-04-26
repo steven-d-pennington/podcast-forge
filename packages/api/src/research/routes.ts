@@ -4,11 +4,15 @@ import { z, ZodError } from 'zod';
 import { canonicalizeUrl } from '../search/candidate.js';
 import { modelProfileMap, hasModelProfileStore, resolveModelProfile } from '../models/resolver.js';
 import type { ModelProfileStore } from '../models/store.js';
+import type { LlmRuntime } from '../llm/types.js';
+import { createPromptRegistry } from '../prompts/registry.js';
+import type { PromptTemplateStore } from '../prompts/types.js';
 import type { CreateJobInput, JobRecord, SearchJobStore, UpdateJobInput } from '../search/store.js';
 import type { ResearchFetch } from './fetch.js';
 import { fetchSourceSnapshot } from './fetch.js';
-import { buildResearchPacketInput } from './builder.js';
-import type { ResearchStore } from './store.js';
+import { buildResearchPacketInputFromCandidates } from './builder.js';
+import { createLlmResearchModelServices, type ResearchModelServices } from './models.js';
+import type { ResearchStore, ResearchWarning } from './store.js';
 
 class ApiError extends Error {
   constructor(
@@ -21,12 +25,20 @@ class ApiError extends Error {
 }
 
 export interface ResearchRoutesOptions {
-  getStore(): Partial<ResearchStore> & Partial<SearchJobStore> & Partial<ModelProfileStore>;
+  getStore(): Partial<ResearchStore> & Partial<SearchJobStore> & Partial<ModelProfileStore> & Partial<PromptTemplateStore>;
   fetchImpl?: ResearchFetch;
+  llmRuntime?: LlmRuntime;
+  researchModelServices?: ResearchModelServices;
 }
 
 const createPacketSchema = z.object({
   extraUrls: z.array(z.string().trim().url()).max(10).default([]),
+});
+
+const createMultiCandidatePacketSchema = z.object({
+  candidateIds: z.array(z.string().trim().min(1)).min(1).max(20),
+  extraUrls: z.array(z.string().trim().url()).max(10).default([]),
+  angle: z.string().trim().min(1).max(500).nullable().optional(),
 });
 
 const overrideWarningSchema = z.object({
@@ -66,6 +78,7 @@ function requireResearchStore(store: Partial<ResearchStore>): ResearchStore {
     'createSourceDocument',
     'createResearchPacket',
     'getResearchPacket',
+    'listResearchPackets',
     'overrideResearchWarning',
   ];
 
@@ -111,71 +124,167 @@ async function updateResearchJob(
   return store.updateJob(id, input);
 }
 
-function sourceUrlsFor(candidate: { url: string | null; canonicalUrl: string | null }, extraUrls: string[]): string[] {
-  const urls = [candidate.canonicalUrl, candidate.url, ...extraUrls].filter((value): value is string => Boolean(value));
+function sourceInputsFor(
+  candidates: Array<{ id: string; url: string | null; canonicalUrl: string | null }>,
+  extraUrls: string[],
+): { sources: Array<{ url: string; storyCandidateId: string | null }>; warnings: ResearchWarning[] } {
+  const urls = [
+    ...candidates.flatMap((candidate) => {
+      return [candidate.canonicalUrl, candidate.url]
+        .filter((value): value is string => Boolean(value))
+        .map((url) => ({ url, storyCandidateId: candidate.id }));
+    }),
+    ...extraUrls.map((url) => ({ url, storyCandidateId: null })),
+  ];
   const seen = new Set<string>();
-  const result: string[] = [];
+  const sources: Array<{ url: string; storyCandidateId: string | null }> = [];
+  const warnings: ResearchWarning[] = [];
 
-  for (const url of urls) {
-    const key = canonicalizeUrl(url);
+  for (const source of urls) {
+    const key = canonicalizeUrl(source.url);
 
     if (seen.has(key)) {
+      warnings.push({
+        id: `DUPLICATE_SOURCE_URL:${key}`,
+        code: 'DUPLICATE_SOURCE_URL',
+        severity: 'info',
+        message: `Duplicate source URL skipped: ${source.url}`,
+        url: source.url,
+        metadata: { canonicalUrl: key },
+      });
       continue;
     }
 
     seen.add(key);
-    result.push(url);
+    sources.push(source);
   }
 
-  return result;
+  return { sources, warnings };
+}
+
+function duplicatedValues(values: string[]): string[] {
+  const seen = new Set<string>();
+  const duplicated = new Set<string>();
+
+  for (const value of values) {
+    if (seen.has(value)) {
+      duplicated.add(value);
+    }
+
+    seen.add(value);
+  }
+
+  return [...duplicated];
+}
+
+async function selectedCandidates(
+  store: ResearchStore,
+  candidateIds: string[],
+) {
+  const duplicateIds = duplicatedValues(candidateIds);
+  const uniqueIds = [...new Set(candidateIds)];
+  const candidates = await Promise.all(uniqueIds.map(async (id) => {
+    const candidate = await store.getStoryCandidate(id);
+
+    if (!candidate) {
+      throw new ApiError(404, 'STORY_CANDIDATE_NOT_FOUND', `Story candidate not found: ${id}`);
+    }
+
+    if (candidate.status === 'ignored') {
+      throw new ApiError(400, 'STORY_CANDIDATE_IGNORED', `Ignored story candidate cannot be used for research: ${id}`);
+    }
+
+    return candidate;
+  }));
+  const showIds = new Set(candidates.map((candidate) => candidate.showId));
+
+  if (showIds.size > 1) {
+    throw new ApiError(400, 'CANDIDATE_SHOW_MISMATCH', 'All story candidates in a research packet must belong to the same show.');
+  }
+
+  const warnings = duplicateIds.map((id): ResearchWarning => ({
+    id: `DUPLICATE_CANDIDATE_ID:${id}`,
+    code: 'DUPLICATE_CANDIDATE_ID',
+    severity: 'info',
+    message: `Duplicate candidate ID was provided once and ignored on repeat: ${id}`,
+    metadata: { candidateId: id },
+  }));
+
+  return { candidates, warnings, duplicateIds, uniqueIds };
+}
+
+function researchModelsFor(options: ResearchRoutesOptions, store: Partial<PromptTemplateStore>): ResearchModelServices | undefined {
+  if (options.researchModelServices) {
+    return options.researchModelServices;
+  }
+
+  if (!options.llmRuntime) {
+    return undefined;
+  }
+
+  return createLlmResearchModelServices({
+    runtime: options.llmRuntime,
+    promptRegistry: createPromptRegistry({ store }),
+  });
+}
+
+function modelFailureWarning(code: string, message: string): ResearchWarning {
+  return {
+    id: `${code}:research.packet`,
+    code,
+    severity: 'warning',
+    message,
+  };
 }
 
 export function registerResearchRoutes(app: FastifyInstance, options: ResearchRoutesOptions) {
-  app.post<{ Params: { id: string } }>('/story-candidates/:id/research-packet', async (request, reply) => {
+  async function createPacket(
+    rawStore: Partial<ResearchStore> & Partial<SearchJobStore> & Partial<ModelProfileStore> & Partial<PromptTemplateStore>,
+    input: { candidateIds: string[]; extraUrls: string[]; angle?: string | null },
+  ) {
     let job: JobRecord | undefined;
     let jobStore: Pick<SearchJobStore, 'createJob' | 'updateJob'> | undefined;
     const logs: Array<Record<string, unknown>> = [];
 
     try {
-      const rawStore = options.getStore();
       const store = requireResearchStore(rawStore);
-      const body = createPacketSchema.parse(request.body ?? {});
-      const candidate = await store.getStoryCandidate(request.params.id);
-
-      if (!candidate) {
-        throw new ApiError(404, 'STORY_CANDIDATE_NOT_FOUND', `Story candidate not found: ${request.params.id}`);
-      }
-
-      const urls = sourceUrlsFor(candidate, body.extraUrls);
+      const selection = await selectedCandidates(store, input.candidateIds);
+      const candidates = selection.candidates;
+      const showId = candidates[0].showId;
+      const sourceInput = sourceInputsFor(candidates, input.extraUrls);
+      const warnings = [...selection.warnings, ...sourceInput.warnings];
       const modelProfiles = hasModelProfileStore(rawStore)
         ? modelProfileMap(await Promise.all([
-          resolveModelProfile(rawStore, { showId: candidate.showId, role: 'source_summarizer' }),
-          resolveModelProfile(rawStore, { showId: candidate.showId, role: 'claim_extractor' }),
-          resolveModelProfile(rawStore, { showId: candidate.showId, role: 'research_synthesizer' }),
+          resolveModelProfile(rawStore, { showId, role: 'source_summarizer' }),
+          resolveModelProfile(rawStore, { showId, role: 'claim_extractor' }),
+          resolveModelProfile(rawStore, { showId, role: 'research_synthesizer' }),
         ]))
         : {};
 
-      if (urls.length === 0) {
-        throw new ApiError(400, 'SOURCE_URL_REQUIRED', 'Candidate has no URL and no extraUrls were provided.');
+      if (sourceInput.sources.length === 0) {
+        throw new ApiError(400, 'SOURCE_URL_REQUIRED', 'Selected candidates have no URLs and no extraUrls were provided.');
       }
 
       logs.push(log('info', 'Starting research.packet job.', {
-        storyCandidateId: candidate.id,
-        sourceUrlCount: urls.length,
+        candidateIds: candidates.map((candidate) => candidate.id),
+        sourceUrlCount: sourceInput.sources.length,
         modelRoles: Object.keys(modelProfiles),
       }));
 
       if (hasResearchJobStore(rawStore)) {
         jobStore = rawStore;
         job = await createResearchJob(rawStore, {
-          showId: candidate.showId,
+          showId,
           type: 'research.packet',
           status: 'running',
           progress: 0,
           attempts: 1,
           input: {
-            storyCandidateId: candidate.id,
-            extraUrls: body.extraUrls,
+            candidateIds: input.candidateIds,
+            selectedCandidateIds: candidates.map((candidate) => candidate.id),
+            duplicateCandidateIds: selection.duplicateIds,
+            extraUrls: input.extraUrls,
+            angle: input.angle ?? null,
             modelProfiles,
           },
           logs,
@@ -183,8 +292,8 @@ export function registerResearchRoutes(app: FastifyInstance, options: ResearchRo
         });
       }
 
-      const documentInputs = await Promise.all(urls.map((url) => {
-        return fetchSourceSnapshot(candidate.id, url, options.fetchImpl);
+      const documentInputs = await Promise.all(sourceInput.sources.map((source) => {
+        return fetchSourceSnapshot(source.storyCandidateId, source.url, options.fetchImpl);
       }));
       const documents = [];
 
@@ -192,18 +301,71 @@ export function registerResearchRoutes(app: FastifyInstance, options: ResearchRo
         documents.push(await store.createSourceDocument(input));
       }
 
-      const packetInput = buildResearchPacketInput(candidate, documents);
-      const packet = await store.createResearchPacket({
-        ...packetInput,
-        content: {
-          ...packetInput.content,
-          modelProfiles,
-        },
+      const modelServices = researchModelsFor(options, rawStore);
+      let extracted = { claims: [], warnings: [], invocations: [] } as Awaited<ReturnType<ResearchModelServices['extractClaims']>>;
+      let synthesized = { synthesis: null, claims: [], warnings: [], invocations: [] } as Awaited<ReturnType<ResearchModelServices['synthesize']>>;
+
+      if (modelServices) {
+        try {
+          extracted = await modelServices.extractClaims({
+            showId,
+            candidates,
+            documents,
+            modelProfile: modelProfiles.claim_extractor,
+          });
+        } catch (error) {
+          extracted = {
+            claims: [],
+            warnings: [modelFailureWarning(
+              'MODEL_CLAIM_EXTRACTION_FAILED',
+              error instanceof Error ? error.message : 'Claim extraction model failed.',
+            )],
+            invocations: [],
+          };
+        }
+
+        try {
+          synthesized = await modelServices.synthesize({
+            showId,
+            candidates,
+            documents,
+            claims: extracted.claims,
+            warnings: [...warnings, ...extracted.warnings],
+            angle: input.angle,
+            modelProfile: modelProfiles.research_synthesizer,
+          });
+        } catch (error) {
+          synthesized = {
+            synthesis: null,
+            claims: [],
+            warnings: [modelFailureWarning(
+              'MODEL_RESEARCH_SYNTHESIS_FAILED',
+              error instanceof Error ? error.message : 'Research synthesis model failed.',
+            )],
+            invocations: [],
+          };
+        }
+      }
+      const packetInput = buildResearchPacketInputFromCandidates({
+        candidates,
+        documents,
+        angle: input.angle,
+        warnings: [...warnings, ...extracted.warnings, ...synthesized.warnings],
+        claims: [...extracted.claims, ...synthesized.claims],
+        synthesis: synthesized.synthesis,
+        modelProfiles,
+        modelInvocations: [...extracted.invocations, ...synthesized.invocations].map((invocation) => {
+          return invocation as unknown as Record<string, unknown>;
+        }),
       });
+      const packet = await store.createResearchPacket(packetInput);
+      const failedDocuments = documents.filter((document) => document.fetchStatus !== 'fetched');
 
       logs.push(log('info', 'Completed research.packet job.', {
         researchPacketId: packet.id,
         sourceDocumentCount: documents.length,
+        warningCount: packet.warnings.length,
+        readinessStatus: packet.status,
       }));
       if (jobStore && job) {
         job = await updateResearchJob(jobStore, job.id, {
@@ -213,13 +375,18 @@ export function registerResearchRoutes(app: FastifyInstance, options: ResearchRo
           output: {
             researchPacketId: packet.id,
             sourceDocumentIds: documents.map((document) => document.id),
+            fetchedSourceDocumentIds: documents.filter((document) => document.fetchStatus === 'fetched').map((document) => document.id),
+            failedSourceDocumentIds: failedDocuments.map((document) => document.id),
             modelProfiles,
+            warnings: packet.warnings,
+            warningCount: packet.warnings.length,
+            readiness: packet.content.readiness,
           },
           finishedAt: new Date(),
         }) ?? job;
       }
 
-      return reply.code(201).send({ ok: true, job, researchPacket: packet, sourceDocuments: documents });
+      return { job, researchPacket: packet, sourceDocuments: documents };
     } catch (error) {
       if (jobStore && job) {
         const message = error instanceof Error ? error.message : 'Research packet generation failed.';
@@ -233,6 +400,55 @@ export function registerResearchRoutes(app: FastifyInstance, options: ResearchRo
         }) ?? job;
       }
 
+      throw error;
+    }
+  }
+
+  app.post<{ Params: { id: string } }>('/story-candidates/:id/research-packet', async (request, reply) => {
+    try {
+      const body = createPacketSchema.parse(request.body ?? {});
+      const result = await createPacket(options.getStore(), {
+        candidateIds: [request.params.id],
+        extraUrls: body.extraUrls,
+      });
+
+      return reply.code(201).send({ ok: true, ...result });
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post('/research-packets', async (request, reply) => {
+    try {
+      const body = createMultiCandidatePacketSchema.parse(request.body ?? {});
+      const result = await createPacket(options.getStore(), {
+        candidateIds: body.candidateIds,
+        extraUrls: body.extraUrls,
+        angle: body.angle,
+      });
+
+      return reply.code(201).send({ ok: true, ...result });
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.get<{ Querystring: { showSlug?: string; limit?: string } }>('/research-packets', async (request, reply) => {
+    try {
+      const store = requireResearchStore(options.getStore());
+      const limit = request.query.limit ? Number(request.query.limit) : undefined;
+
+      if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 200)) {
+        throw new ApiError(400, 'INVALID_LIMIT', 'limit must be an integer from 1 to 200.');
+      }
+
+      const packets = await store.listResearchPackets({
+        showSlug: request.query.showSlug,
+        limit,
+      });
+
+      return { ok: true, researchPackets: packets };
+    } catch (error) {
       return sendError(reply, error);
     }
   });

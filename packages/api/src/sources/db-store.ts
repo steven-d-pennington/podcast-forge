@@ -37,6 +37,7 @@ import type {
   OverrideResearchWarningInput,
   ResearchCitation,
   ResearchClaim,
+  ResearchPacketListFilter,
   ResearchPacketRecord,
   ResearchStore,
   ResearchWarning,
@@ -1005,6 +1006,31 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
     async getResearchPacket(id: string) {
       const [row] = await db.select().from(researchPackets).where(eq(researchPackets.id, id)).limit(1);
       return row ? mapResearchPacket(row) : undefined;
+    },
+
+    async listResearchPackets(filter: ResearchPacketListFilter = {}) {
+      let showId = filter.showId;
+
+      if (!showId && filter.showSlug) {
+        const [show] = await db.select().from(shows).where(eq(shows.slug, filter.showSlug)).limit(1);
+
+        if (!show) {
+          return [];
+        }
+
+        showId = show.id;
+      }
+
+      const rows = showId
+        ? await db.select().from(researchPackets)
+          .where(eq(researchPackets.showId, showId))
+          .orderBy(desc(researchPackets.updatedAt))
+          .limit(filter.limit ?? 50)
+        : await db.select().from(researchPackets)
+          .orderBy(desc(researchPackets.updatedAt))
+          .limit(filter.limit ?? 50);
+
+      return rows.map(mapResearchPacket);
     },
 
     async overrideResearchWarning(id: string, input: OverrideResearchWarningInput) {

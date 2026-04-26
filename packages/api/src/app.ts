@@ -19,6 +19,7 @@ import { registerPromptRoutes } from './prompts/routes.js';
 import type { PromptTemplateStore } from './prompts/types.js';
 import { registerResearchRoutes } from './research/routes.js';
 import type { ResearchFetch } from './research/fetch.js';
+import type { ResearchModelServices } from './research/models.js';
 import type { ResearchStore } from './research/store.js';
 import { registerScriptRoutes } from './scripts/routes.js';
 import type { ScriptStore } from './scripts/store.js';
@@ -54,6 +55,7 @@ interface BuildAppOptions extends FastifyServerOptions {
   rssFetchImpl?: RssFetch;
   candidateScorer?: CandidateScorer;
   llmRuntime?: LlmRuntime;
+  researchModelServices?: ResearchModelServices;
   researchFetchImpl?: ResearchFetch;
   audioPreviewProvider?: AudioPreviewProvider;
   coverArtProvider?: CoverArtProvider;
@@ -93,6 +95,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     rssFetchImpl,
     candidateScorer,
     llmRuntime,
+    researchModelServices,
     researchFetchImpl,
     audioPreviewProvider,
     coverArtProvider,
@@ -221,6 +224,8 @@ export function buildApp(options: BuildAppOptions = {}) {
       return resolvedSourceStore;
     },
     fetchImpl: researchFetchImpl,
+    llmRuntime,
+    researchModelServices,
   });
 
   registerScriptRoutes(app, {
