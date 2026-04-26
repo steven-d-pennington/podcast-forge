@@ -17,11 +17,11 @@ describe('api config endpoints', () => {
     assert.deepEqual(response.json(), { ok: true, service: 'podcast-forge-api' });
   });
 
-  it('serves the source profile UI shell', async () => {
+  it('serves the local command center UI shell', async () => {
     const response = await app.inject({ method: 'GET', url: '/ui' });
 
     assert.equal(response.statusCode, 200);
-    assert.match(response.body, /Podcast Forge Sources/);
+    assert.match(response.body, /Podcast Forge Command Center/);
   });
 
   it('returns the bundled example config', async () => {

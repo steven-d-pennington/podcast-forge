@@ -3,6 +3,7 @@ const state = {
   profiles: [],
   queries: [],
   scripts: [],
+  researchPackets: [],
   modelProfiles: [],
   scheduledPipelines: [],
   failedScheduledRuns: [],
@@ -24,6 +25,8 @@ const state = {
 
 const els = {
   status: document.querySelector('#status'),
+  errorDetails: document.querySelector('#errorDetails'),
+  errorDetailsBody: document.querySelector('#errorDetailsBody'),
   refresh: document.querySelector('#refresh'),
   importLegacy: document.querySelector('#importLegacy'),
   showSelect: document.querySelector('#showSelect'),
@@ -68,6 +71,8 @@ const els = {
   manualResult: document.querySelector('#manualResult'),
   candidateMeta: document.querySelector('#candidateMeta'),
   candidateList: document.querySelector('#candidateList'),
+  researchBriefMeta: document.querySelector('#researchBriefMeta'),
+  researchBriefList: document.querySelector('#researchBriefList'),
   schedulerMeta: document.querySelector('#schedulerMeta'),
   schedulerList: document.querySelector('#schedulerList'),
   failedScheduleRuns: document.querySelector('#failedScheduleRuns'),
@@ -97,8 +102,81 @@ const els = {
   productionAssets: document.querySelector('#productionAssets'),
 };
 
-function setStatus(message) {
+class ApiRequestError extends Error {
+  constructor(message, debugDetails) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.debugDetails = debugDetails;
+  }
+}
+
+function debugText(value) {
+  if (!value) {
+    return '';
+  }
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  return JSON.stringify(value, null, 2);
+}
+
+function setStatus(message, debugDetails = '') {
   els.status.textContent = message;
+  const detail = debugText(debugDetails);
+  els.errorDetails.hidden = !detail;
+  els.errorDetailsBody.textContent = detail;
+}
+
+function reportError(error, fallback = 'Something went wrong. Open technical details for the API response.') {
+  if (error instanceof ApiRequestError) {
+    setStatus(error.message, error.debugDetails);
+    return error.message;
+  }
+
+  const message = error instanceof Error && error.message ? error.message : fallback;
+  setStatus(fallback, message);
+  return fallback;
+}
+
+function friendlyApiMessage(body, status) {
+  const code = typeof body?.code === 'string' ? body.code : '';
+  const raw = typeof body?.error === 'string' ? body.error : '';
+
+  const messages = {
+    VALIDATION_ERROR: 'Please check the form values and try again.',
+    CONFIG_FILE_NOT_FOUND: 'The requested config file could not be found.',
+    SOURCE_PROFILE_NOT_FOUND: 'That story source could not be found. Refresh and try again.',
+    SOURCE_PROFILE_SHOW_MISMATCH: 'That story source belongs to a different show.',
+    SOURCE_URL_REQUIRED: 'Choose a candidate story with a URL, or add an extra source URL before creating a research brief.',
+    STORY_CANDIDATE_NOT_FOUND: 'That candidate story could not be found. Refresh and try again.',
+    STORY_CANDIDATE_IGNORED: 'Ignored candidate stories cannot be used for research briefs.',
+    CANDIDATE_SHOW_MISMATCH: 'All selected candidate stories must belong to the same show.',
+    RESEARCH_PACKET_NOT_FOUND: 'That research brief could not be found. Check the ID and try again.',
+    RESEARCH_PACKET_OR_WARNING_NOT_FOUND: 'That research brief or warning could not be found.',
+    SCHEDULED_PIPELINE_NOT_FOUND: 'That scheduled pipeline could not be found. Refresh and try again.',
+    SCHEDULED_RUN_NOT_FOUND: 'That scheduled run could not be found. Refresh and try again.',
+    PUBLISH_BLOCKED: 'Publishing is blocked until the checklist items are complete.',
+  };
+
+  if (messages[code]) {
+    return messages[code];
+  }
+
+  if (status === 404) {
+    return 'That record could not be found. Refresh and try again.';
+  }
+
+  if (status === 409) {
+    return raw || 'This action is blocked by the current review or publishing state.';
+  }
+
+  if (status >= 500) {
+    return 'The local API hit a server error. Open technical details for the response.';
+  }
+
+  return raw || `Request failed with status ${status}.`;
 }
 
 function linesToList(value) {
@@ -133,10 +211,24 @@ async function api(path, options = {}) {
     return undefined;
   }
 
-  const body = await response.json();
+  const text = await response.text();
+  let body;
+
+  try {
+    body = text ? JSON.parse(text) : undefined;
+  } catch (error) {
+    throw new ApiRequestError(
+      response.ok ? 'The API returned an unreadable response.' : `Request failed with status ${response.status}.`,
+      text,
+    );
+  }
 
   if (!response.ok || body.ok === false) {
-    throw new Error(body.error || `Request failed: ${response.status}`);
+    throw new ApiRequestError(friendlyApiMessage(body, response.status), {
+      path,
+      status: response.status,
+      response: body,
+    });
   }
 
   return body;
@@ -148,6 +240,15 @@ function selectedProfile() {
 
 function renderShows() {
   els.showSelect.innerHTML = '';
+
+  if (state.shows.length === 0) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'No shows yet';
+    option.disabled = true;
+    els.showSelect.append(option);
+    return;
+  }
 
   for (const show of state.shows) {
     const option = document.createElement('option');
@@ -165,7 +266,9 @@ function renderProfiles() {
   if (state.profiles.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = 'No source profiles found.';
+    empty.textContent = state.selectedShowSlug
+      ? 'No story sources yet. Create one during show setup or add a story source through the API, then add search queries or RSS feeds.'
+      : 'No show selected. Create a show first, then add story sources.';
     els.profileList.append(empty);
     return;
   }
@@ -188,7 +291,9 @@ function renderProfiles() {
 
 function renderShowSetup() {
   els.showSetupForm.hidden = !state.showSetupOpen;
-  els.showSetupMeta.textContent = state.showSetupOpen ? 'Draft setups stay visible in the show list.' : '';
+  els.showSetupMeta.textContent = state.showSetupOpen
+    ? 'Set the show identity, feed destination, starter story source, and default AI role settings. Draft shows can be finished later.'
+    : 'Set the show identity, feed destination, starter story source, and default AI role settings. Draft shows can be finished later.';
 }
 
 function renderProfileForm() {
@@ -221,7 +326,7 @@ function renderQueries() {
   if (state.queries.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = 'No queries configured for this source profile.';
+    empty.textContent = 'No search queries yet. Add a focused query or RSS feed URL, then run search or import RSS items to find candidate stories.';
     els.queryList.append(empty);
     return;
   }
@@ -238,7 +343,7 @@ function renderQueries() {
         <button class="danger" name="delete" type="button">Delete</button>
       </div>
       <label class="field">
-        <span>Query</span>
+        <span>Search query</span>
         <textarea name="query" rows="2" required></textarea>
       </label>
       <div class="query-grid">
@@ -247,7 +352,7 @@ function renderQueries() {
           <input name="weight" type="number" min="0" step="0.001" required>
         </label>
         <label class="field">
-          <span>Freshness</span>
+          <span>Freshness window</span>
           <input name="freshness" type="text">
         </label>
         <label class="field">
@@ -260,7 +365,7 @@ function renderQueries() {
         </label>
       </div>
       <div class="actions">
-        <button type="submit">Save Query</button>
+        <button type="submit">Save Search Query</button>
       </div>
     `;
 
@@ -284,12 +389,12 @@ function renderQueries() {
 
 function renderStoryCandidates() {
   els.candidateList.innerHTML = '';
-  els.candidateMeta.textContent = `${state.storyCandidates.length} recent candidate${state.storyCandidates.length === 1 ? '' : 's'}`;
+  els.candidateMeta.textContent = `${state.storyCandidates.length} recent candidate stor${state.storyCandidates.length === 1 ? 'y' : 'ies'}`;
 
   if (state.storyCandidates.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = 'No story candidates found.';
+    empty.textContent = 'No candidate stories yet. Add search queries, import RSS items, run a scheduled pipeline, or submit a manual story URL.';
     els.candidateList.append(empty);
     return;
   }
@@ -308,8 +413,70 @@ function renderStoryCandidates() {
     const summary = document.createElement('p');
     summary.textContent = candidate.summary || candidate.url || 'No summary recorded.';
 
-    row.append(title, meta, summary);
+    const createBrief = document.createElement('button');
+    createBrief.type = 'button';
+    createBrief.className = 'secondary';
+    createBrief.textContent = 'Create Research Brief';
+    createBrief.addEventListener('click', async () => {
+      await createResearchBrief(candidate.id, createBrief);
+    });
+
+    row.append(title, meta, summary, createBrief);
     els.candidateList.append(row);
+  }
+}
+
+function renderResearchBriefs() {
+  els.researchBriefList.innerHTML = '';
+  els.researchBriefMeta.textContent = `${state.researchPackets.length} research brief${state.researchPackets.length === 1 ? '' : 's'} for this show`;
+
+  if (state.researchPackets.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No research briefs yet. Create one from a candidate story after sources have been discovered or added manually.';
+    els.researchBriefList.append(empty);
+    return;
+  }
+
+  for (const packet of state.researchPackets) {
+    const row = document.createElement('article');
+    row.className = 'record-row';
+
+    const title = document.createElement('strong');
+    title.textContent = packet.title;
+
+    const warningCount = packet.warnings?.length || 0;
+    const meta = document.createElement('span');
+    meta.textContent = `${packet.status} | ${packet.citations?.length || 0} citation${packet.citations?.length === 1 ? '' : 's'} | ${warningCount} warning${warningCount === 1 ? '' : 's'}`;
+
+    const summary = document.createElement('p');
+    summary.textContent = warningCount > 0
+      ? 'Review warnings before drafting or approving production.'
+      : 'Ready for script drafting when the editor is comfortable with the source mix.';
+
+    const actions = document.createElement('div');
+    actions.className = 'actions inline row-actions';
+    const useForScript = document.createElement('button');
+    useForScript.type = 'button';
+    useForScript.className = 'secondary';
+    useForScript.textContent = 'Use for Script';
+    useForScript.addEventListener('click', () => {
+      els.scriptResearchPacketId.value = packet.id;
+      setStatus('Research brief selected for script drafting.');
+    });
+    actions.append(useForScript);
+
+    if (warningCount > 0) {
+      const details = document.createElement('details');
+      details.className = 'debug-details row-debug';
+      details.innerHTML = '<summary>Warning details</summary><pre></pre>';
+      details.querySelector('pre').textContent = JSON.stringify(packet.warnings, null, 2);
+      row.append(title, meta, summary, actions, details);
+    } else {
+      row.append(title, meta, summary, actions);
+    }
+
+    els.researchBriefList.append(row);
   }
 }
 
@@ -320,7 +487,7 @@ function renderEpisodes() {
   if (state.episodes.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = 'No episodes found.';
+    empty.textContent = 'No episodes yet. Approve a script for audio, create assets, complete the publishing checklist, then publish to RSS.';
     els.episodeList.append(empty);
     return;
   }
@@ -346,12 +513,12 @@ function renderEpisodes() {
 
 function renderModelProfiles() {
   els.modelProfileList.innerHTML = '';
-  els.modelMeta.textContent = `${state.modelProfiles.length} role profile${state.modelProfiles.length === 1 ? '' : 's'}`;
+  els.modelMeta.textContent = `${state.modelProfiles.length} AI role setting${state.modelProfiles.length === 1 ? '' : 's'}`;
 
   if (state.modelProfiles.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = 'No model profiles configured.';
+    empty.textContent = 'No AI role settings configured. Use New Show to seed defaults or create role settings through the API before using model-backed scoring, research, or writing.';
     els.modelProfileList.append(empty);
     return;
   }
@@ -361,14 +528,14 @@ function renderModelProfiles() {
     row.className = 'record-row';
 
     const title = document.createElement('strong');
-    title.textContent = profile.role;
+    title.textContent = profile.role.replaceAll('_', ' ');
 
     const meta = document.createElement('span');
     meta.textContent = `${profile.provider} | ${profile.model}`;
 
     const detail = document.createElement('p');
-    const params = profile.config?.params ? JSON.stringify(profile.config.params) : 'No params';
-    detail.textContent = `${profile.promptTemplateKey || 'default prompt'} | ${params}`;
+    const params = profile.config?.params ? JSON.stringify(profile.config.params) : 'No custom settings';
+    detail.textContent = `${profile.promptTemplateKey || 'default agent instructions'} | ${params}`;
 
     row.append(title, meta, detail);
     els.modelProfileList.append(row);
@@ -383,7 +550,7 @@ function renderScheduler() {
   if (state.scheduledPipelines.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = 'No scheduled pipelines configured.';
+    empty.textContent = 'No scheduled pipelines yet. Create one through the API to run recurring source discovery, research, script, audio, or publishing preparation.';
     els.schedulerList.append(empty);
   }
 
@@ -399,7 +566,7 @@ function renderScheduler() {
     meta.textContent = `${pipeline.enabled ? 'enabled' : 'disabled'} | ${pipeline.cron} | next ${nextRun}`;
 
     const detail = document.createElement('p');
-    detail.textContent = `${pipeline.workflow.join(' -> ')}${pipeline.autopublish ? ' | autopublish' : ' | approval required'}`;
+    detail.textContent = `${pipeline.workflow.join(' -> ')}${pipeline.autopublish ? ' | autopublish enabled' : ' | approval required before publishing'}`;
 
     const run = document.createElement('button');
     run.type = 'button';
@@ -418,7 +585,7 @@ function renderScheduler() {
   }
 
   const heading = document.createElement('h3');
-  heading.textContent = 'Failed Runs';
+  heading.textContent = 'Failed Scheduled Runs';
   els.failedScheduleRuns.append(heading);
 
   for (const job of state.failedScheduledRuns) {
@@ -429,7 +596,14 @@ function renderScheduler() {
     title.textContent = `${job.input.scheduledPipelineSlug || job.input.scheduledPipelineId} | ${job.status}`;
 
     const meta = document.createElement('span');
-    meta.textContent = job.error || `Updated ${new Date(job.updatedAt).toLocaleString()}`;
+    meta.textContent = job.error ? 'Run failed. Open details for the API error.' : `Updated ${new Date(job.updatedAt).toLocaleString()}`;
+    let details;
+    if (job.error) {
+      details = document.createElement('details');
+      details.className = 'debug-details row-debug';
+      details.innerHTML = '<summary>Technical details</summary><pre></pre>';
+      details.querySelector('pre').textContent = job.error;
+    }
 
     const retry = document.createElement('button');
     retry.type = 'button';
@@ -440,6 +614,9 @@ function renderScheduler() {
     });
 
     row.append(title, meta, retry);
+    if (details) {
+      row.append(details);
+    }
     els.failedScheduleRuns.append(row);
   }
 }
@@ -474,14 +651,14 @@ function renderProduction() {
   els.generateAudioPreview.disabled = !approved || audioRunning;
   els.generateCoverArt.disabled = !approved || artRunning;
   els.productionMeta.textContent = approved
-    ? (state.production.episode ? `Episode ${state.production.episode.slug}` : 'No production jobs yet.')
-    : 'Approve the selected revision before producing assets.';
+    ? (state.production.episode ? `Episode ${state.production.episode.slug}` : 'No audio or cover asset tasks yet.')
+    : 'Approval gate: approve the selected revision before creating audio or cover assets.';
 
   els.productionJobs.innerHTML = '';
   if (state.production.jobs.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = 'No production jobs yet.';
+    empty.textContent = 'No audio or cover asset tasks yet. Approve the script revision, then create a preview MP3 or cover art.';
     els.productionJobs.append(empty);
   }
 
@@ -491,7 +668,7 @@ function renderProduction() {
     const title = document.createElement('strong');
     title.textContent = `${job.type} | ${job.status}`;
     const meta = document.createElement('span');
-    meta.textContent = job.error || `Progress ${job.progress}%`;
+    meta.textContent = job.error ? 'Task failed. Open details for logs and provider metadata.' : `Progress ${job.progress}%`;
     const progress = document.createElement('div');
     progress.className = 'progress-track';
     const fill = document.createElement('div');
@@ -499,12 +676,23 @@ function renderProduction() {
     fill.style.width = `${Math.max(0, Math.min(100, job.progress))}%`;
     progress.append(fill);
     row.append(title, meta, progress);
+    if (job.error || job.logs?.length) {
+      const details = document.createElement('details');
+      details.className = 'debug-details row-debug';
+      details.innerHTML = '<summary>Technical details</summary><pre></pre>';
+      details.querySelector('pre').textContent = JSON.stringify({ error: job.error, logs: job.logs, output: job.output }, null, 2);
+      row.append(details);
+    }
     els.productionJobs.append(row);
   }
 
   els.productionAssets.innerHTML = '';
   const assets = [latestAsset('audio-preview'), latestAsset('cover-art')].filter(Boolean);
   if (assets.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No audio or cover assets recorded yet.';
+    els.productionAssets.append(empty);
     return;
   }
 
@@ -527,7 +715,7 @@ function renderScripts() {
   if (state.scripts.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = 'No scripts generated yet.';
+    empty.textContent = 'No scripts yet. Select a research brief, paste its ID into the draft form, and generate a script draft.';
     els.scriptList.append(empty);
   }
 
@@ -562,6 +750,7 @@ function render() {
   renderProfiles();
   renderProfileForm();
   renderStoryCandidates();
+  renderResearchBriefs();
   renderScheduler();
   renderEpisodes();
   renderModelProfiles();
@@ -645,6 +834,16 @@ async function loadStoryCandidates() {
   state.storyCandidates = body.storyCandidates;
 }
 
+async function loadResearchPackets() {
+  if (!state.selectedShowSlug) {
+    state.researchPackets = [];
+    return;
+  }
+
+  const body = await api(`/research-packets?showSlug=${encodeURIComponent(state.selectedShowSlug)}&limit=25`);
+  state.researchPackets = body.researchPackets;
+}
+
 async function loadScheduledPipelines() {
   if (!state.selectedShowSlug) {
     state.scheduledPipelines = [];
@@ -676,7 +875,7 @@ async function runScheduledPipeline(id, button) {
   } catch (error) {
     await loadScheduledPipelines();
     render();
-    setStatus(error.message);
+    reportError(error);
   } finally {
     button.disabled = false;
   }
@@ -694,11 +893,11 @@ async function retryScheduledRun(id, button) {
     await loadScheduledPipelines();
     await loadStoryCandidates();
     render();
-    setStatus(`Scheduled retry ${body.job.status}.`);
+    setStatus(`Scheduled run retry ${body.job.status}.`);
   } catch (error) {
     await loadScheduledPipelines();
     render();
-    setStatus(error.message);
+    reportError(error);
   } finally {
     button.disabled = false;
   }
@@ -739,19 +938,20 @@ async function loadProduction() {
 async function loadAll() {
   try {
     els.refresh.disabled = true;
-    setStatus('Loading sources...');
+    setStatus('Loading workspace...');
     await loadShows();
     await loadProfiles();
     await loadQueries();
     await loadModelProfiles();
     await loadStoryCandidates();
+    await loadResearchPackets();
     await loadScheduledPipelines();
     await loadEpisodes();
     await loadScripts();
     render();
-    setStatus('Source profiles loaded.');
+    setStatus('Workspace loaded.');
   } catch (error) {
-    setStatus(error.message);
+    reportError(error, 'Could not load the workspace. Open technical details for the API response.');
   } finally {
     els.refresh.disabled = false;
   }
@@ -817,7 +1017,7 @@ async function createShow(event) {
     await loadAll();
     setStatus(`Show created: ${body.show.title}`);
   } catch (error) {
-    setStatus(error.message);
+    reportError(error);
   }
 }
 
@@ -835,7 +1035,7 @@ async function importLegacyData() {
     render();
     setStatus(`Legacy import complete: ${body.summary.candidates.inserted} candidates inserted, ${body.summary.candidates.updated} updated.`);
   } catch (error) {
-    setStatus(error.message);
+    reportError(error);
   } finally {
     els.importLegacy.disabled = false;
   }
@@ -860,14 +1060,18 @@ async function saveProfile(event) {
     excludeDomains: linesToList(els.profileExcludeDomains.value),
   };
 
-  const body = await api(`/source-profiles/${profile.id}`, {
-    method: 'PATCH',
-    body: JSON.stringify(payload),
-  });
-  const index = state.profiles.findIndex((candidate) => candidate.id === profile.id);
-  state.profiles[index] = body.sourceProfile;
-  render();
-  setStatus('Profile saved.');
+  try {
+    const body = await api(`/source-profiles/${profile.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    const index = state.profiles.findIndex((candidate) => candidate.id === profile.id);
+    state.profiles[index] = body.sourceProfile;
+    render();
+    setStatus('Story source saved.');
+  } catch (error) {
+    reportError(error);
+  }
 }
 
 async function ingestSelectedProfile() {
@@ -884,9 +1088,9 @@ async function ingestSelectedProfile() {
     const body = await api(`/source-profiles/${profile.id}/ingest`, { method: 'POST' });
     await loadStoryCandidates();
     render();
-    setStatus(`RSS ingest complete: ${body.inserted} inserted, ${body.skipped} skipped.`);
+    setStatus(`RSS import complete: ${body.inserted} inserted, ${body.skipped} skipped.`);
   } catch (error) {
-    setStatus(error.message);
+    reportError(error);
   } finally {
     els.ingestProfile.disabled = false;
   }
@@ -915,17 +1119,16 @@ async function submitManualUrl(event) {
 
     if (body.inserted) {
       els.manualForm.reset();
-      els.manualResult.textContent = `Created candidate: ${body.candidate.title}`;
+      els.manualResult.textContent = `Created candidate story: ${body.candidate.title}`;
       await loadStoryCandidates();
       render();
       setStatus('Manual URL submitted.');
     } else {
       els.manualResult.textContent = `Skipped: ${body.reason}`;
-      setStatus('Manual URL matched an existing candidate.');
+      setStatus('Manual URL matched an existing candidate story.');
     }
   } catch (error) {
-    els.manualResult.textContent = error.message;
-    setStatus(error.message);
+    els.manualResult.textContent = reportError(error);
   }
 }
 
@@ -938,14 +1141,18 @@ async function saveQuery(id, form) {
     includeDomains: linesToList(form.elements.includeDomains.value),
     excludeDomains: linesToList(form.elements.excludeDomains.value),
   };
-  const body = await api(`/source-queries/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify(payload),
-  });
-  const index = state.queries.findIndex((query) => query.id === id);
-  state.queries[index] = body.sourceQuery;
-  render();
-  setStatus('Query saved.');
+  try {
+    const body = await api(`/source-queries/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    const index = state.queries.findIndex((query) => query.id === id);
+    state.queries[index] = body.sourceQuery;
+    render();
+    setStatus('Search query saved.');
+  } catch (error) {
+    reportError(error);
+  }
 }
 
 async function createQuery(event) {
@@ -955,28 +1162,56 @@ async function createQuery(event) {
     return;
   }
 
-  const body = await api(`/source-profiles/${state.selectedProfileId}/queries`, {
-    method: 'POST',
-    body: JSON.stringify({
-      query: els.newQueryText.value.trim(),
-      enabled: true,
-      weight: 1,
-      freshness: selectedProfile()?.freshness || null,
-      includeDomains: [],
-      excludeDomains: [],
-    }),
-  });
-  state.queries.push(body.sourceQuery);
-  els.newQueryText.value = '';
-  render();
-  setStatus('Query created.');
+  try {
+    const body = await api(`/source-profiles/${state.selectedProfileId}/queries`, {
+      method: 'POST',
+      body: JSON.stringify({
+        query: els.newQueryText.value.trim(),
+        enabled: true,
+        weight: 1,
+        freshness: selectedProfile()?.freshness || null,
+        includeDomains: [],
+        excludeDomains: [],
+      }),
+    });
+    state.queries.push(body.sourceQuery);
+    els.newQueryText.value = '';
+    render();
+    setStatus('Search query created.');
+  } catch (error) {
+    reportError(error);
+  }
 }
 
 async function deleteQuery(id) {
-  await api(`/source-queries/${id}`, { method: 'DELETE' });
-  state.queries = state.queries.filter((query) => query.id !== id);
-  render();
-  setStatus('Query deleted.');
+  try {
+    await api(`/source-queries/${id}`, { method: 'DELETE' });
+    state.queries = state.queries.filter((query) => query.id !== id);
+    render();
+    setStatus('Search query deleted.');
+  } catch (error) {
+    reportError(error);
+  }
+}
+
+async function createResearchBrief(candidateId, button) {
+  button.disabled = true;
+  setStatus('Creating research brief...');
+
+  try {
+    const body = await api(`/story-candidates/${candidateId}/research-packet`, {
+      method: 'POST',
+      body: JSON.stringify({ extraUrls: [] }),
+    });
+    await loadResearchPackets();
+    render();
+    els.scriptResearchPacketId.value = body.researchPacket.id;
+    setStatus(`Research brief created: ${body.researchPacket.status}.`);
+  } catch (error) {
+    reportError(error);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function generateScript(event) {
@@ -987,21 +1222,25 @@ async function generateScript(event) {
     return;
   }
 
-  const body = await api(`/research-packets/${researchPacketId}/script`, {
-    method: 'POST',
-    body: JSON.stringify({
-      format: els.scriptFormat.value.trim() || undefined,
-      actor: 'local-user',
-    }),
-  });
-  state.scripts = [body.script, ...state.scripts.filter((script) => script.id !== body.script.id)];
-  state.selectedScriptId = body.script.id;
-  state.selectedScript = body.script;
-  state.selectedRevision = body.revision;
-  state.production = { episode: null, assets: [], jobs: [] };
-  els.scriptResearchPacketId.value = '';
-  render();
-  setStatus(`Generated script revision ${body.revision.version}.`);
+  try {
+    const body = await api(`/research-packets/${researchPacketId}/script`, {
+      method: 'POST',
+      body: JSON.stringify({
+        format: els.scriptFormat.value.trim() || undefined,
+        actor: 'local-user',
+      }),
+    });
+    state.scripts = [body.script, ...state.scripts.filter((script) => script.id !== body.script.id)];
+    state.selectedScriptId = body.script.id;
+    state.selectedScript = body.script;
+    state.selectedRevision = body.revision;
+    state.production = { episode: null, assets: [], jobs: [] };
+    els.scriptResearchPacketId.value = '';
+    render();
+    setStatus(`Generated script revision ${body.revision.version}.`);
+  } catch (error) {
+    reportError(error);
+  }
 }
 
 async function saveScriptRevision(event) {
@@ -1011,21 +1250,25 @@ async function saveScriptRevision(event) {
     return;
   }
 
-  const body = await api(`/scripts/${state.selectedScript.id}/revisions`, {
-    method: 'POST',
-    body: JSON.stringify({
-      title: els.scriptTitle.value.trim(),
-      body: els.scriptBody.value.trim(),
-      actor: 'local-user',
-      changeSummary: 'Edited in local UI.',
-    }),
-  });
-  state.scripts = [body.script, ...state.scripts.filter((script) => script.id !== body.script.id)];
-  state.selectedScript = body.script;
-  state.selectedRevision = body.revision;
-  await loadProduction();
-  render();
-  setStatus(`Saved script revision ${body.revision.version}.`);
+  try {
+    const body = await api(`/scripts/${state.selectedScript.id}/revisions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: els.scriptTitle.value.trim(),
+        body: els.scriptBody.value.trim(),
+        actor: 'local-user',
+        changeSummary: 'Edited in local UI.',
+      }),
+    });
+    state.scripts = [body.script, ...state.scripts.filter((script) => script.id !== body.script.id)];
+    state.selectedScript = body.script;
+    state.selectedRevision = body.revision;
+    await loadProduction();
+    render();
+    setStatus(`Saved script revision ${body.revision.version}.`);
+  } catch (error) {
+    reportError(error);
+  }
 }
 
 async function approveSelectedScript() {
@@ -1033,18 +1276,22 @@ async function approveSelectedScript() {
     return;
   }
 
-  const body = await api(`/scripts/${state.selectedScript.id}/revisions/${state.selectedRevision.id}/approve-for-audio`, {
-    method: 'POST',
-    body: JSON.stringify({
-      actor: 'local-user',
-      reason: 'Approved in local UI.',
-    }),
-  });
-  state.scripts = state.scripts.map((script) => script.id === body.script.id ? body.script : script);
-  state.selectedScript = body.script;
-  await loadProduction();
-  render();
-  setStatus('Script approved for audio.');
+  try {
+    const body = await api(`/scripts/${state.selectedScript.id}/revisions/${state.selectedRevision.id}/approve-for-audio`, {
+      method: 'POST',
+      body: JSON.stringify({
+        actor: 'local-user',
+        reason: 'Approved in local UI.',
+      }),
+    });
+    state.scripts = state.scripts.map((script) => script.id === body.script.id ? body.script : script);
+    state.selectedScript = body.script;
+    await loadProduction();
+    render();
+    setStatus('Review decision saved: script approved for audio.');
+  } catch (error) {
+    reportError(error);
+  }
 }
 
 async function refreshProductionUntilSettled() {
@@ -1067,7 +1314,7 @@ async function refreshProductionUntilSettled() {
             state.productionPoll = null;
           }
         } catch (error) {
-          setStatus(error.message);
+          reportError(error);
         }
       }, 1500);
     }
@@ -1092,7 +1339,7 @@ async function startAudioPreview() {
   } catch (error) {
     await loadProduction();
     render();
-    setStatus(error.message);
+    reportError(error);
   }
 }
 
@@ -1114,7 +1361,7 @@ async function startCoverArt() {
   } catch (error) {
     await loadProduction();
     render();
-    setStatus(error.message);
+    reportError(error);
   }
 }
 
@@ -1152,6 +1399,7 @@ els.showSelect.addEventListener('change', async () => {
   await loadQueries();
   await loadModelProfiles();
   await loadStoryCandidates();
+  await loadResearchPackets();
   await loadScheduledPipelines();
   await loadEpisodes();
   await loadScripts();

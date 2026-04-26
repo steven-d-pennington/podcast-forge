@@ -62,9 +62,44 @@ button:disabled {
 }
 
 .topbar p,
-.panel p {
+.panel p,
+.section-title p {
   color: #586575;
   margin: 0.25rem 0 0;
+}
+
+.help,
+.field small {
+  color: #687486;
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
+.field small {
+  display: block;
+}
+
+.debug-details {
+  color: #3f4b5a;
+  font-size: 0.85rem;
+  margin-top: 0.45rem;
+  max-width: min(720px, 100%);
+}
+
+.debug-details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.debug-details pre {
+  background: #111827;
+  border-radius: 6px;
+  color: #e5e7eb;
+  margin: 0.5rem 0 0;
+  max-height: 18rem;
+  overflow: auto;
+  padding: 0.75rem;
+  white-space: pre-wrap;
 }
 
 .layout {
@@ -218,6 +253,10 @@ textarea {
   margin-top: 0;
 }
 
+.row-actions {
+  justify-content: flex-start;
+}
+
 .new-query {
   display: grid;
   gap: 0.75rem;
@@ -307,6 +346,10 @@ textarea {
   padding: 0.75rem;
 }
 
+.record-row > button {
+  justify-self: start;
+}
+
 .record-row strong,
 .record-row span,
 .record-row p {
@@ -347,6 +390,10 @@ textarea {
 
 .scheduler-failures h3 {
   margin: 0;
+}
+
+.row-debug {
+  grid-column: 1 / -1;
 }
 
 .production-row.failed {

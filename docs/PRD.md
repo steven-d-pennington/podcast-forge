@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-Podcast Forge is an agent-powered podcast building tool for producing research-backed episodes from configurable source profiles. It combines news/search ingestion, source fetching, evidence clustering, research agents, script-writing agents, TTS/art production, human approval gates, RSS publishing, and analytics tracking in one packaged app.
+Podcast Forge is an agent-powered podcast building tool for producing research-backed episodes from configurable story sources. It combines news/search ingestion, source fetching, evidence clustering, research agents, script-writing agents, TTS/art production, human approval gates, RSS publishing, and analytics tracking in one packaged app.
 
 The first production target is **The Synthetic Lens** workflow currently running through the local TSL Command Center and Byte Sized scripts. The product should be designed as multi-show and configurable from the start.
 
@@ -34,8 +34,8 @@ Creators need a configurable system that can repeatedly turn source material int
 ## 4. Core use cases
 
 1. Configure a show: title, feed, voice cast, tone, runtime targets, publishing destination.
-2. Configure source profiles: Brave/news queries, RSS feeds, domains, blocked domains, source freshness, scoring weights.
-3. Run a fresh search and ingest story candidates.
+2. Configure story sources/search recipes: Brave/news queries, RSS feeds, domains, blocked domains, source freshness, scoring weights.
+3. Run a fresh search and ingest candidate stories.
 4. Cluster related stories into episode candidates.
 5. Fetch and snapshot source documents.
 6. Build a research packet with claims, citations, and warnings.
@@ -197,7 +197,7 @@ Each role should support:
 MVP should productize the existing TSL flow:
 
 1. Postgres schema and migrations.
-2. Configurable show/source/model profiles.
+2. Configurable shows, story sources, and AI role settings.
 3. Brave search + RSS/manual URL ingestion.
 4. Candidate scoring and story list UI.
 5. Research packet creation with source snapshots.

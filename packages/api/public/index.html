@@ -3,14 +3,18 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Podcast Forge Sources</title>
+    <title>Podcast Forge Command Center</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <header class="topbar">
       <div>
         <h1>Podcast Forge</h1>
-        <p id="status">Loading sources...</p>
+        <p id="status">Loading workspace...</p>
+        <details id="errorDetails" class="debug-details" hidden>
+          <summary>Technical details</summary>
+          <pre id="errorDetailsBody"></pre>
+        </details>
       </div>
       <div class="actions inline">
         <button id="importLegacy" class="secondary" type="button">Import Legacy</button>
@@ -29,7 +33,8 @@
         </div>
         <section>
           <div class="section-title">
-            <h2>Source Profiles</h2>
+            <h2>Story Sources</h2>
+            <p class="help">Search recipes and RSS feeds that discover possible stories.</p>
           </div>
           <div id="profileList" class="list"></div>
         </section>
@@ -40,7 +45,7 @@
           <div class="panel-heading">
             <div>
               <h2>New Show Setup</h2>
-              <p id="showSetupMeta"></p>
+              <p id="showSetupMeta">Set the show identity, feed destination, starter story source, and default AI role settings. Draft shows can be finished later.</p>
             </div>
             <label class="field compact-field">
               <span>Status</span>
@@ -92,7 +97,7 @@
               <input id="showFeedUrl" type="url">
             </label>
             <label class="field">
-              <span>Public asset base</span>
+              <span>Public asset base URL</span>
               <input id="showPublicBase" type="url">
             </label>
           </div>
@@ -103,29 +108,30 @@
               <input id="showOutputPath" type="text" placeholder="feeds/show.xml">
             </label>
             <label class="field">
-              <span>Starter source query</span>
+              <span>Starter search query</span>
               <input id="showSourceQuery" type="text">
+              <small>Creates the first story source search recipe for this show.</small>
             </label>
             <label class="field">
               <span>Publishing mode</span>
               <select id="showPublishingMode">
-                <option value="approval-gated">approval-gated</option>
-                <option value="autopublish-later">autopublish-later</option>
+                <option value="approval-gated">Approval required</option>
+                <option value="autopublish-later">Autopublish later</option>
               </select>
             </label>
           </div>
 
           <div class="grid">
             <label class="field">
-              <span>Model provider</span>
+              <span>Default AI provider</span>
               <input id="showModelProvider" type="text" value="openai" required>
             </label>
             <label class="field">
-              <span>Model</span>
+              <span>Default model</span>
               <input id="showModelName" type="text" value="gpt-5.5" required>
             </label>
             <label class="field">
-              <span>Reasoning</span>
+              <span>Reasoning setting</span>
               <input id="showReasoningEffort" type="text" value="high">
             </label>
           </div>
@@ -139,8 +145,9 @@
         <form id="profileForm" class="panel" hidden>
           <div class="panel-heading">
             <div>
-              <h2 id="profileTitle">Source profile</h2>
+              <h2 id="profileTitle">Story Source</h2>
               <p id="profileMeta"></p>
+              <p class="help">Use story sources to decide where candidates come from, how fresh results should be, and which domains are trusted or blocked.</p>
             </div>
             <label class="toggle">
               <input id="profileEnabled" type="checkbox">
@@ -171,8 +178,9 @@
               <input id="profileWeight" type="number" min="0" step="0.001" required>
             </label>
             <label class="field">
-              <span>Freshness</span>
+              <span>Freshness window</span>
               <input id="profileFreshness" type="text" placeholder="pd, pw, pm">
+              <small>Provider codes such as pd, pw, or pm keep search results recent.</small>
             </label>
           </div>
 
@@ -188,16 +196,16 @@
           </div>
 
           <div class="actions">
-            <button id="ingestProfile" class="secondary" type="button" hidden>Ingest RSS</button>
-            <button type="submit">Save Profile</button>
+            <button id="ingestProfile" class="secondary" type="button" hidden>Import RSS Items</button>
+            <button type="submit">Save Story Source</button>
           </div>
         </form>
 
         <section class="panel">
           <div class="panel-heading">
             <div>
-              <h2>Manual URL</h2>
-              <p id="manualResult"></p>
+              <h2>Add Manual Story</h2>
+              <p id="manualResult">Paste a source URL when a story should be tracked even if search did not find it.</p>
             </div>
           </div>
           <form id="manualForm" class="manual-form">
@@ -226,8 +234,9 @@
         <section class="panel">
           <div class="panel-heading">
             <div>
-              <h2>Model Profiles</h2>
+              <h2>AI Role Settings</h2>
               <p id="modelMeta"></p>
+              <p class="help">Each role controls which model and prompt template handles scoring, research, writing, or cover prompts.</p>
             </div>
           </div>
           <div id="modelProfileList" class="model-grid"></div>
@@ -236,8 +245,9 @@
         <section class="panel">
           <div class="panel-heading">
             <div>
-              <h2>Story Candidates</h2>
+              <h2>Candidate Stories</h2>
               <p id="candidateMeta"></p>
+              <p class="help">Scores rank fit, significance, novelty, and source quality. Create a research brief from a candidate before script drafting.</p>
             </div>
           </div>
           <div id="candidateList" class="record-list"></div>
@@ -246,8 +256,20 @@
         <section class="panel">
           <div class="panel-heading">
             <div>
+              <h2>Research Briefs</h2>
+              <p id="researchBriefMeta"></p>
+              <p class="help">Briefs collect fetched sources, cited claims, and warnings so editors can see what is known and what needs review.</p>
+            </div>
+          </div>
+          <div id="researchBriefList" class="record-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
               <h2>Scheduled Pipelines</h2>
               <p id="schedulerMeta"></p>
+              <p class="help">Recurring runs can prepare ingest, research, scripts, audio, and publishing tasks. Publishing still waits for approval unless autopublish is explicitly enabled.</p>
             </div>
           </div>
           <div id="schedulerList" class="record-list"></div>
@@ -259,6 +281,7 @@
             <div>
               <h2>Episodes</h2>
               <p id="episodeMeta"></p>
+              <p class="help">Publishing checklist: approved script, audio and cover assets, configured feed, valid public URLs, and an explicit publish action. Published episodes keep feed GUIDs, public URLs, and publishing records for audit review.</p>
             </div>
           </div>
           <div id="episodeList" class="record-list"></div>
@@ -267,13 +290,14 @@
         <section id="queriesPanel" class="panel" hidden>
           <div class="panel-heading">
             <div>
-              <h2>Queries</h2>
+              <h2>Search Queries</h2>
               <p id="queryCount"></p>
+              <p class="help">Use focused queries and domain filters to keep candidate stories relevant to this show.</p>
             </div>
           </div>
           <form id="newQueryForm" class="new-query">
-            <textarea id="newQueryText" rows="2" placeholder="New query text" required></textarea>
-            <button type="submit">Create Query</button>
+            <textarea id="newQueryText" rows="2" placeholder="New search query" required></textarea>
+            <button type="submit">Create Search Query</button>
           </form>
           <div id="queryList" class="query-list"></div>
         </section>
@@ -283,18 +307,19 @@
             <div>
               <h2>Scripts</h2>
               <p id="scriptMeta"></p>
+              <p class="help">Draft scripts from approved research briefs, then save revisions and approve one revision before audio production.</p>
             </div>
           </div>
           <form id="scriptGenerateForm" class="script-generate">
             <label class="field">
-              <span>Research packet ID</span>
+              <span>Research brief ID</span>
               <input id="scriptResearchPacketId" type="text" required>
             </label>
             <label class="field">
               <span>Format</span>
               <input id="scriptFormat" type="text" placeholder="feature-analysis">
             </label>
-            <button type="submit">Generate Script</button>
+            <button type="submit">Generate Script Draft</button>
           </form>
           <div class="script-workspace">
             <div id="scriptList" class="list"></div>
@@ -314,12 +339,12 @@
               <section id="productionPanel" class="production-panel" hidden>
                 <div class="panel-heading compact">
                   <div>
-                    <h3>Production</h3>
+                    <h3>Audio and Cover Assets</h3>
                     <p id="productionMeta"></p>
                   </div>
                   <div class="actions inline">
-                    <button id="generateAudioPreview" class="secondary" type="button">Preview MP3</button>
-                    <button id="generateCoverArt" class="secondary" type="button">Cover Art</button>
+                    <button id="generateAudioPreview" class="secondary" type="button">Create Preview MP3</button>
+                    <button id="generateCoverArt" class="secondary" type="button">Create Cover Art</button>
                   </div>
                 </div>
                 <div id="productionJobs" class="production-jobs"></div>
