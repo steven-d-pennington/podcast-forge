@@ -1,4 +1,8 @@
 import type { ResolvedModelProfile } from '../models/resolver.js';
+import type { LlmInvocationMetadata, LlmRuntime } from '../llm/types.js';
+import { PROMPT_OUTPUT_SCHEMAS, type ScriptGenerationResult } from '../prompts/schemas.js';
+import { renderPromptTemplate } from '../prompts/renderer.js';
+import type { PromptRegistry } from '../prompts/types.js';
 import type { ResearchClaim, ResearchPacketRecord } from '../research/store.js';
 import type { ShowRecord } from '../sources/store.js';
 
@@ -9,6 +13,28 @@ export interface BuiltScriptDraft {
   speakers: string[];
   metadata: Record<string, unknown>;
 }
+
+export interface ScriptGenerationRuntimeOptions {
+  runtime: LlmRuntime;
+  promptRegistry: PromptRegistry;
+}
+
+export interface ScriptProvenanceWarning {
+  code: string;
+  severity: 'info' | 'warning' | 'error';
+  message: string;
+  sourceDocumentId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+type ProvenancePacket = {
+  id: string;
+  status: string;
+  sourceDocumentIds: string[];
+  claims: Array<Pick<ResearchClaim, 'id' | 'sourceDocumentIds' | 'citationUrls'>>;
+  citations: Array<{ sourceDocumentId: string; url: string }>;
+  content: Record<string, unknown>;
+};
 
 interface SpeakerPlan {
   host: string;
@@ -47,6 +73,153 @@ function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : [];
+}
+
+function packetReadiness(packet: Pick<ResearchPacketRecord, 'content'>): Record<string, unknown> {
+  const readiness = packet.content.readiness;
+  return readiness && typeof readiness === 'object' && !Array.isArray(readiness)
+    ? readiness as Record<string, unknown>
+    : {};
+}
+
+function claimById(packet: ResearchPacketRecord) {
+  return new Map(packet.claims.map((claim) => [claim.id, claim]));
+}
+
+function citationUrlByDocumentId(packet: ResearchPacketRecord) {
+  return new Map(packet.citations.map((citation) => [citation.sourceDocumentId, citation.url]));
+}
+
+function normalizeCitationMap(packet: ResearchPacketRecord, citationMap: ScriptGenerationResult['citationMap']) {
+  const claims = claimById(packet);
+  const urlsByDocumentId = citationUrlByDocumentId(packet);
+
+  return citationMap.map((entry) => {
+    const claim = entry.claimId ? claims.get(entry.claimId) : undefined;
+    const sourceDocumentIds = entry.sourceDocumentIds.length > 0 ? entry.sourceDocumentIds : claim?.sourceDocumentIds ?? [];
+
+    return {
+      line: entry.line,
+      claimId: entry.claimId,
+      sourceDocumentIds,
+      citationUrls: sourceDocumentIds.map((id) => urlsByDocumentId.get(id)).filter((url): url is string => Boolean(url)),
+    };
+  });
+}
+
+function promptWarningSeverity(severity: 'info' | 'warning' | 'critical'): ScriptProvenanceWarning['severity'] {
+  return severity === 'critical' ? 'error' : severity;
+}
+
+export function provenanceWarnings(
+  packet: ProvenancePacket,
+  citationMap: Array<{ claimId?: string; sourceDocumentIds: string[] }>,
+): ScriptProvenanceWarning[] {
+  const warnings: ScriptProvenanceWarning[] = [];
+  const knownSourceDocumentIds = new Set(packet.sourceDocumentIds);
+
+  if (citationMap.length === 0) {
+    warnings.push({
+      code: 'MISSING_SCRIPT_CITATION_MAP',
+      severity: 'warning',
+      message: 'The script draft did not include a citation map, so editors must verify every factual line before production.',
+      metadata: { researchPacketId: packet.id },
+    });
+  }
+
+  for (const claim of packet.claims) {
+    if (claim.sourceDocumentIds.length === 0 || claim.citationUrls.length === 0) {
+      warnings.push({
+        code: 'CLAIM_MISSING_PROVENANCE',
+        severity: 'warning',
+        message: `Research claim is missing source document or citation URL provenance: ${claim.id}`,
+        metadata: { claimId: claim.id },
+      });
+    }
+  }
+
+  for (const entry of citationMap) {
+    for (const sourceDocumentId of entry.sourceDocumentIds) {
+      if (!knownSourceDocumentIds.has(sourceDocumentId)) {
+        warnings.push({
+          code: 'UNKNOWN_SCRIPT_CITATION_SOURCE',
+          severity: 'warning',
+          message: `Script citation references a source document outside the research packet: ${sourceDocumentId}`,
+          sourceDocumentId,
+          metadata: { claimId: entry.claimId },
+        });
+      }
+    }
+  }
+
+  if (packet.status !== 'ready') {
+    warnings.push({
+      code: 'RESEARCH_PACKET_NOT_READY',
+      severity: packet.status === 'blocked' ? 'error' : 'warning',
+      message: `Research packet status is ${packet.status}; script requires editorial review before production.`,
+      metadata: {
+        researchPacketId: packet.id,
+        readiness: packetReadiness(packet),
+      },
+    });
+  }
+
+  return warnings;
+}
+
+function showContext(show: ShowRecord) {
+  return {
+    id: show.id,
+    slug: show.slug,
+    title: show.title,
+    description: show.description,
+    format: show.format,
+    defaultRuntimeMinutes: show.defaultRuntimeMinutes,
+    cast: show.cast.map((member) => ({ name: member.name, role: member.role })),
+    settings: show.settings,
+  };
+}
+
+function packetContext(packet: ResearchPacketRecord) {
+  return {
+    id: packet.id,
+    title: packet.title,
+    status: packet.status,
+    readiness: packetReadiness(packet),
+    sourceDocumentIds: packet.sourceDocumentIds,
+    claims: packet.claims,
+    citations: packet.citations,
+    warnings: packet.warnings,
+    summary: asString(packet.content.summary),
+    knownFacts: asStringArray(packet.content.knownFacts),
+    openQuestions: asStringArray(packet.content.openQuestions),
+    content: packet.content,
+  };
+}
+
+function validationMetadata(input: {
+  speakers: string[];
+  invalidSpeakers: string[];
+  provenanceWarnings: ScriptProvenanceWarning[];
+}) {
+  return {
+    speakerLabels: {
+      valid: input.invalidSpeakers.length === 0,
+      labels: input.speakers,
+      invalid: input.invalidSpeakers,
+    },
+    provenance: {
+      valid: input.provenanceWarnings.every((warning) => warning.severity !== 'error'),
+      warningCount: input.provenanceWarnings.length,
+      warnings: input.provenanceWarnings,
+    },
+    readyForAudio: input.invalidSpeakers.length === 0
+      && input.provenanceWarnings.every((warning) => warning.severity !== 'error'),
+  };
+}
+
 export function extractSpeakerLabels(body: string): string[] {
   const labels = new Set<string>();
   const matches = body.matchAll(/^([A-Za-z][A-Za-z0-9 _-]{0,63}):/gm);
@@ -61,6 +234,91 @@ export function extractSpeakerLabels(body: string): string[] {
 export function invalidSpeakerLabels(body: string, cast: ShowRecord['cast']): string[] {
   const allowed = new Set(cast.map((member) => member.name));
   return extractSpeakerLabels(body).filter((speaker) => !allowed.has(speaker));
+}
+
+export function invalidSpeakers(speakers: string[], cast: ShowRecord['cast']): string[] {
+  const allowed = new Set(cast.map((member) => member.name));
+  return speakers.filter((speaker) => !allowed.has(speaker));
+}
+
+export async function buildLlmScriptDraft(
+  show: ShowRecord,
+  packet: ResearchPacketRecord,
+  modelProfile: ResolvedModelProfile,
+  requestedFormat: string | undefined,
+  options: ScriptGenerationRuntimeOptions,
+): Promise<BuiltScriptDraft> {
+  const format = requestedFormat ?? show.format ?? 'feature-analysis';
+  const rendered = await renderPromptTemplate(options.promptRegistry, {
+    key: modelProfile.promptTemplateKey ?? undefined,
+    role: modelProfile.promptTemplateKey ? undefined : 'script_writer',
+    showId: show.id,
+    variables: {
+      show_context: showContext(show),
+      research_packet: packetContext(packet),
+      format_notes: {
+        requestedFormat: format,
+        showFormat: show.format,
+        defaultRuntimeMinutes: show.defaultRuntimeMinutes,
+      },
+    },
+  });
+  const schema = PROMPT_OUTPUT_SCHEMAS.script_generation_result;
+  const result = await options.runtime.generateJson<ScriptGenerationResult>({
+    profile: modelProfile,
+    messages: rendered.messages,
+    schemaName: rendered.responseFormat.schemaName ?? schema.name,
+    schemaHint: rendered.responseFormat.schemaHint ?? schema.schemaHint,
+    validate: (value) => schema.validate(value) as ScriptGenerationResult,
+    requestMetadata: {
+      purpose: 'script_generation',
+      researchPacketId: packet.id,
+      promptTemplateKey: rendered.template.key,
+      promptTemplateVersion: rendered.template.version,
+    },
+  });
+  const citationMap = normalizeCitationMap(packet, result.value.citationMap);
+  const promptWarnings: ScriptProvenanceWarning[] = result.value.warnings.map((warning) => ({
+    code: warning.code,
+    severity: promptWarningSeverity(warning.severity),
+    message: warning.message,
+    sourceDocumentId: warning.sourceDocumentId,
+    metadata: warning.metadata,
+  }));
+  const provenance = provenanceWarnings(packet, citationMap);
+  const speakers = result.value.speakers.length > 0 ? result.value.speakers : extractSpeakerLabels(result.value.body);
+  const invalid = [...new Set([...invalidSpeakerLabels(result.value.body, show.cast), ...invalidSpeakers(speakers, show.cast)])];
+
+  return {
+    title: result.value.title,
+    body: result.value.body,
+    format: result.value.format || format,
+    speakers,
+    metadata: {
+      template: result.value.format || format,
+      source: 'llm',
+      researchPacketId: packet.id,
+      promptTemplateKey: rendered.template.key,
+      promptTemplateVersion: rendered.template.version,
+      modelProfileId: modelProfile.id,
+      modelRole: modelProfile.role,
+      modelRuntime: result.metadata as LlmInvocationMetadata,
+      citationMap,
+      provenance: {
+        researchPacketId: packet.id,
+        sourceDocumentIds: packet.sourceDocumentIds,
+        claimIds: packet.claims.map((claim) => claim.id),
+        citationUrls: [...new Set(packet.claims.flatMap((claim) => claim.citationUrls))],
+        warnings: provenance,
+      },
+      warnings: [...promptWarnings, ...provenance],
+      validation: validationMetadata({
+        speakers,
+        invalidSpeakers: invalid,
+        provenanceWarnings: provenance,
+      }),
+    },
+  };
 }
 
 export function buildDeterministicScriptDraft(
@@ -115,6 +373,34 @@ export function buildDeterministicScriptDraft(
       researchPacketId: packet.id,
       modelProfileId: modelProfile?.id,
       modelRole: modelProfile?.role,
+      citationMap: claims.map((claim) => ({
+        line: claim.text,
+        claimId: claim.id,
+        sourceDocumentIds: claim.sourceDocumentIds,
+        citationUrls: claim.citationUrls,
+      })),
+      provenance: {
+        researchPacketId: packet.id,
+        sourceDocumentIds: packet.sourceDocumentIds,
+        claimIds: packet.claims.map((claim) => claim.id),
+        citationUrls: [...new Set(packet.claims.flatMap((claim) => claim.citationUrls))],
+        warnings: provenanceWarnings(packet, claims.map((claim) => ({
+          claimId: claim.id,
+          sourceDocumentIds: claim.sourceDocumentIds,
+        }))),
+      },
+      warnings: provenanceWarnings(packet, claims.map((claim) => ({
+        claimId: claim.id,
+        sourceDocumentIds: claim.sourceDocumentIds,
+      }))),
+      validation: validationMetadata({
+        speakers: extractSpeakerLabels(body),
+        invalidSpeakers: invalidSpeakerLabels(body, show.cast),
+        provenanceWarnings: provenanceWarnings(packet, claims.map((claim) => ({
+          claimId: claim.id,
+          sourceDocumentIds: claim.sourceDocumentIds,
+        }))),
+      }),
     },
   };
 }

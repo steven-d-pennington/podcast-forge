@@ -87,7 +87,7 @@ Open build wave:
 - #15 Prompt template registry and structured output schemas ✅ merged (#32)
 - #16 LLM candidate scoring and ranking ✅ merged (#33)
 - #17 Multi-candidate research packet builder
-- #18 LLM script generation and revision validation
+- #18 LLM script generation and revision validation ✅ implemented locally on `issue-18-script-generation`; `npm run check` passed. Commit/push may need recovery if sandbox `.git` permissions block writes.
 - #19 Real production adapters for audio, cover art, and publishing
 - #20 Guided episode pipeline UI
 - #21 Multi-select candidate clustering UI

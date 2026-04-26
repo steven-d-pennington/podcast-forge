@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { after, beforeEach, describe, it } from 'node:test';
 
 import { buildApp } from '../app.js';
+import { createFakeLlmProvider } from '../llm/providers.js';
+import { createLlmRuntime } from '../llm/runtime.js';
+import type { LlmProviderRequest, LlmProviderResult } from '../llm/types.js';
 import type { ModelRole } from '../models/roles.js';
 import type {
   CreateModelProfileInput,
@@ -760,6 +763,67 @@ let requestedResearchUrls: string[] = [];
 let uploadedPublishAssets: Array<{ feedId: string; episodeId: string; assetId: string; type: string }> = [];
 let rssEntries = new Map<string, RssEpisodeEntry>();
 let validatedPublishUrls: string[] = [];
+let scriptLlmMode: 'valid' | 'malformed' | 'unknown-speaker' = 'valid';
+
+function quotedValue(content: string, key: string): string | undefined {
+  const match = content.match(new RegExp(`"${key}"\\s*:\\s*"([^"]+)"`));
+  return match?.[1];
+}
+
+function scriptWriterResult(request: LlmProviderRequest): LlmProviderResult {
+  if (request.attempt.role !== 'script_writer') {
+    const text = JSON.stringify({ ok: true });
+    return { text, rawOutput: text, metadata: { adapter: 'test-fake' } };
+  }
+
+  if (scriptLlmMode === 'malformed') {
+    return { text: 'not json', rawOutput: 'not json', metadata: { adapter: 'test-fake' } };
+  }
+
+  const content = request.messages.map((message) => message.content).join('\n');
+  const title = quotedValue(content, 'title') ?? 'Generated Story';
+  const claimId = quotedValue(content, 'id') ?? 'claim-1';
+  const sourceDocumentId = quotedValue(content, 'sourceDocumentId') ?? 'source-document-1';
+  const body = scriptLlmMode === 'unknown-speaker'
+    ? 'BOGUS: This draft uses a speaker outside the configured show cast.'
+    : [
+      `DAVID: This is The Synthetic Lens. Today we are tracking ${title}.`,
+      'INGRID: The sourced packet points to a concrete development editors can trace back to captured source documents.',
+      'MARCUS: The context matters, but the script keeps uncertainty visible where the packet warns about source limits.',
+    ].join('\n');
+  const output = {
+    title: `${title} Script`,
+    format: 'feature-analysis',
+    body,
+    speakers: scriptLlmMode === 'unknown-speaker' ? ['BOGUS'] : ['DAVID', 'INGRID', 'MARCUS'],
+    citationMap: scriptLlmMode === 'unknown-speaker'
+      ? []
+      : [{
+        line: 'The sourced packet points to a concrete development editors can trace back to captured source documents.',
+        claimId,
+        sourceDocumentIds: [sourceDocumentId],
+      }],
+    warnings: [],
+  };
+  const text = JSON.stringify(output);
+
+  return {
+    text,
+    rawOutput: text,
+    metadata: { adapter: 'test-fake-script-writer' },
+    usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
+    cost: { usd: 0, currency: 'USD' },
+  };
+}
+
+const llmRuntime = createLlmRuntime({
+  adapters: [
+    createFakeLlmProvider({ provider: 'openai-codex', handler: scriptWriterResult }),
+    createFakeLlmProvider({ provider: 'google-vertex', handler: scriptWriterResult }),
+    createFakeLlmProvider({ provider: 'google-gemini-cli', handler: scriptWriterResult }),
+  ],
+});
+
 const publishStorageAdapterFactory = (): PublishStorageAdapter => ({
   async uploadAsset({ feed, episode, asset }) {
     uploadedPublishAssets.push({ feedId: feed.id, episodeId: episode.id, assetId: asset.id, type: asset.type });
@@ -941,6 +1005,7 @@ const app = buildApp({
   rssFetchImpl: rssFetch,
   researchFetchImpl: researchFetch,
   researchModelServices,
+  llmRuntime,
   publishStorageAdapterFactory,
   rssUpdateAdapter,
   publishUrlValidator,
@@ -969,6 +1034,7 @@ describe('source profile routes', () => {
     uploadedPublishAssets = [];
     rssEntries = new Map<string, RssEpisodeEntry>();
     validatedPublishUrls = [];
+    scriptLlmMode = 'valid';
   });
 
   after(async () => {
@@ -1609,7 +1675,12 @@ describe('source profile routes', () => {
     assert.equal(body.revision.version, 1);
     assert.deepEqual(body.revision.speakers, ['DAVID', 'INGRID', 'MARCUS']);
     assert.match(body.revision.body, /DAVID: This is The Synthetic Lens/);
-    assert.match(body.revision.body, /MARCUS: What remains uncertain/);
+    assert.match(body.revision.body, /MARCUS: The context matters/);
+    assert.equal(body.revision.metadata.source, 'llm');
+    assert.equal(body.revision.metadata.validation.speakerLabels.valid, true);
+    assert.ok(body.revision.metadata.citationMap.length > 0);
+    assert.ok(body.revision.metadata.provenance.citationUrls.length > 0);
+    assert.equal(body.job.output.validation.readyForAudio, true);
 
     const listResponse = await app.inject({
       method: 'GET',
@@ -1618,6 +1689,115 @@ describe('source profile routes', () => {
 
     assert.equal(listResponse.statusCode, 200);
     assert.equal(listResponse.json().scripts.length, 1);
+  });
+
+  it('blocks script generation for blocked research packets', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Blocked Packet Story',
+      status: 'blocked',
+      sourceDocumentIds: [],
+      claims: [],
+      citations: [],
+      warnings: [{
+        id: 'NO_SOURCES',
+        code: 'NO_SOURCES',
+        severity: 'error',
+        message: 'No usable sources are available.',
+      }],
+      content: {
+        summary: 'Blocked packet.',
+        readiness: { status: 'blocked', reasons: ['No usable sources are available.'] },
+      },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/research-packets/${packet.id}/script`,
+    });
+    const body = response.json();
+
+    assert.equal(response.statusCode, 409);
+    assert.equal(body.code, 'RESEARCH_PACKET_BLOCKED');
+    assert.equal(store.scripts.length, 0);
+    assert.equal(store.jobs.at(-1)?.type, 'script.generate');
+    assert.equal(store.jobs.at(-1)?.status, 'failed');
+  });
+
+  it('rejects generated scripts with speaker labels outside the show cast', async () => {
+    scriptLlmMode = 'unknown-speaker';
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Generated Speaker Validation Story',
+      status: 'ready',
+      sourceDocumentIds: ['source-document-1'],
+      claims: [{
+        id: 'claim-1',
+        text: 'A sourced claim exists.',
+        sourceDocumentIds: ['source-document-1'],
+        citationUrls: ['https://example.com/generated-speaker'],
+      }],
+      citations: [{
+        sourceDocumentId: 'source-document-1',
+        url: 'https://example.com/generated-speaker',
+        title: 'Generated speaker source',
+        fetchedAt: '2026-01-04T00:00:00.000Z',
+        status: 'fetched',
+      }],
+      warnings: [],
+      content: { summary: 'A packet summary.', readiness: { status: 'ready', reasons: [] } },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/research-packets/${packet.id}/script`,
+    });
+    const body = response.json();
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(body.code, 'INVALID_SCRIPT_SPEAKER');
+    assert.match(body.error, /BOGUS/);
+    assert.equal(store.scripts.length, 0);
+    assert.equal(store.jobs.at(-1)?.status, 'failed');
+  });
+
+  it('fails safely when the model returns malformed script output', async () => {
+    scriptLlmMode = 'malformed';
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Malformed Model Story',
+      status: 'ready',
+      sourceDocumentIds: ['source-document-1'],
+      claims: [{
+        id: 'claim-1',
+        text: 'A sourced malformed-output claim exists.',
+        sourceDocumentIds: ['source-document-1'],
+        citationUrls: ['https://example.com/malformed'],
+      }],
+      citations: [{
+        sourceDocumentId: 'source-document-1',
+        url: 'https://example.com/malformed',
+        title: 'Malformed source',
+        fetchedAt: '2026-01-04T00:00:00.000Z',
+        status: 'fetched',
+      }],
+      warnings: [],
+      content: { summary: 'A packet summary.', readiness: { status: 'ready', reasons: [] } },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/research-packets/${packet.id}/script`,
+    });
+    const body = response.json();
+
+    assert.equal(response.statusCode, 502);
+    assert.equal(body.code, 'MALFORMED_MODEL_OUTPUT');
+    assert.equal(store.scripts.length, 0);
+    assert.equal(store.jobs.at(-1)?.status, 'failed');
   });
 
   it('rejects human script edits with speaker labels outside the show cast', async () => {
@@ -1690,6 +1870,10 @@ describe('source profile routes', () => {
     assert.equal(edited.script.title, 'Edited Revision Story Script');
     assert.notEqual(edited.revision.id, initial.revision.id);
     assert.match(store.scriptRevisions[0].body, /This is The Synthetic Lens/);
+    assert.equal(edited.revision.metadata.source, 'human-edit');
+    assert.equal(edited.revision.metadata.inheritedProvenance, true);
+    assert.deepEqual(edited.revision.metadata.citationMap, initial.revision.metadata.citationMap);
+    assert.equal(edited.revision.metadata.validation.speakerLabels.valid, true);
 
     const approveResponse = await app.inject({
       method: 'POST',

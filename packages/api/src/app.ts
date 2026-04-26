@@ -233,6 +233,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       resolvedSourceStore ??= createDbSourceStore();
       return resolvedSourceStore;
     },
+    llmRuntime,
   });
 
   registerProductionRoutes(app, {
