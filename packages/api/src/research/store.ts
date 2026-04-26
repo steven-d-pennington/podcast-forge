@@ -38,6 +38,11 @@ export interface ResearchClaim {
   text: string;
   sourceDocumentIds: string[];
   citationUrls: string[];
+  claimType?: 'fact' | 'quote' | 'interpretation' | 'uncertain';
+  confidence?: 'low' | 'medium' | 'high';
+  supportLevel?: 'single_source' | 'corroborated' | 'uncorroborated' | 'contradicted' | 'unknown';
+  highStakes?: boolean;
+  caveat?: string;
 }
 
 export interface ResearchCitation {
@@ -96,10 +101,17 @@ export interface OverrideResearchWarningInput {
   reason: string;
 }
 
+export interface ResearchPacketListFilter {
+  showId?: string;
+  showSlug?: string;
+  limit?: number;
+}
+
 export interface ResearchStore {
   getStoryCandidate(id: string): Promise<StoryCandidateRecord | undefined>;
   createSourceDocument(input: CreateSourceDocumentInput): Promise<SourceDocumentRecord>;
   createResearchPacket(input: CreateResearchPacketInput): Promise<ResearchPacketRecord>;
   getResearchPacket(id: string): Promise<ResearchPacketRecord | undefined>;
+  listResearchPackets(filter?: ResearchPacketListFilter): Promise<ResearchPacketRecord[]>;
   overrideResearchWarning(id: string, input: OverrideResearchWarningInput): Promise<ResearchPacketRecord | undefined>;
 }

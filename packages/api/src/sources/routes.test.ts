@@ -35,10 +35,13 @@ import type {
   CreateResearchPacketInput,
   CreateSourceDocumentInput,
   OverrideResearchWarningInput,
+  ResearchPacketListFilter,
   ResearchPacketRecord,
   ResearchStore,
+  ResearchWarning,
   SourceDocumentRecord,
 } from '../research/store.js';
+import type { ResearchModelServices } from '../research/models.js';
 import type {
   ApproveScriptRevisionInput,
   CreateScriptRevisionInput,
@@ -569,6 +572,15 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
     return this.researchPackets.find((packet) => packet.id === id);
   }
 
+  async listResearchPackets(filter: ResearchPacketListFilter = {}) {
+    const showId = filter.showId
+      ?? (filter.showSlug ? this.shows.find((show) => show.slug === filter.showSlug)?.id : undefined);
+
+    return this.researchPackets
+      .filter((packet) => !showId || packet.showId === showId)
+      .slice(0, filter.limit ?? 50);
+  }
+
   async overrideResearchWarning(id: string, input: OverrideResearchWarningInput) {
     const packet = await this.getResearchPacket(id);
 
@@ -871,12 +883,64 @@ const researchFetch: ResearchFetch = async (url) => {
     },
   };
 };
+const researchModelServices: ResearchModelServices = {
+  async extractClaims(input) {
+    if (input.documents.some((document) => document.url.includes('model-failure'))) {
+      throw new Error('Fake claim extractor failed.');
+    }
+
+    const claims = input.documents
+      .filter((document) => document.fetchStatus === 'fetched')
+      .map((document, index) => ({
+        id: `model-claim-${index + 1}`,
+        text: `${document.title ?? document.url} supports the selected story cluster.`,
+        sourceDocumentIds: [document.id],
+        citationUrls: [document.canonicalUrl ?? document.url],
+        claimType: 'fact' as const,
+        confidence: 'high' as const,
+        supportLevel: 'single_source' as const,
+        highStakes: false,
+      }));
+
+    return {
+      claims,
+      warnings: [],
+      invocations: [],
+    };
+  },
+
+  async synthesize(input) {
+    const warnings: ResearchWarning[] = input.documents.some((document) => document.url.includes('model-warning'))
+      ? [{
+        id: 'MODEL_SYNTHESIS_WARNING:test',
+        code: 'MODEL_SYNTHESIS_WARNING',
+        severity: 'warning',
+        message: 'Fake synthesizer flagged a model warning for test coverage.',
+      }]
+      : [];
+
+    return {
+      synthesis: {
+        title: input.angle ?? input.candidates[0].title,
+        summary: `Synthesis for ${input.candidates.map((candidate) => candidate.title).join(' and ')}.`,
+        knownFacts: input.claims.map((claim) => claim.text),
+        openQuestions: warnings.map((warning) => warning.message),
+        sourceDocumentIds: input.documents.map((document) => document.id),
+        editorialAngle: input.angle ?? null,
+      },
+      claims: [],
+      warnings,
+      invocations: [],
+    };
+  },
+};
 const app = buildApp({
   sourceStore: store,
   braveApiKey: 'test-brave-key',
   fetchImpl: braveFetch,
   rssFetchImpl: rssFetch,
   researchFetchImpl: researchFetch,
+  researchModelServices,
   publishStorageAdapterFactory,
   rssUpdateAdapter,
   publishUrlValidator,
@@ -1299,6 +1363,189 @@ describe('source profile routes', () => {
     assert.equal(overrideResponse.statusCode, 200);
     assert.equal(overriddenWarning.override.actor, 'editor@example.com');
     assert.match(overriddenWarning.override.reason, /two independent sources/);
+  });
+
+  it('builds a research packet from multiple candidates with model warnings and readiness metadata', async () => {
+    const firstResponse = await app.inject({
+      method: 'POST',
+      url: '/story-candidates/manual',
+      payload: {
+        showSlug: 'the-synthetic-lens',
+        url: 'https://manual.example.com/news/multi-one',
+        title: 'Multi Candidate One',
+        summary: 'The first selected candidate has evidence.',
+      },
+    });
+    const secondResponse = await app.inject({
+      method: 'POST',
+      url: '/story-candidates/manual',
+      payload: {
+        showSlug: 'the-synthetic-lens',
+        url: 'https://independent.example.net/news/multi-two',
+        title: 'Multi Candidate Two',
+        summary: 'The second selected candidate is part of the same story cluster.',
+      },
+    });
+    const first = firstResponse.json().candidate as StoryCandidateRecord;
+    const second = secondResponse.json().candidate as StoryCandidateRecord;
+
+    const packetResponse = await app.inject({
+      method: 'POST',
+      url: '/research-packets',
+      payload: {
+        candidateIds: [first.id, second.id, first.id],
+        angle: 'Shared AI infrastructure story',
+        extraUrls: ['https://model-warning.example.org/source'],
+      },
+    });
+    const body = packetResponse.json();
+    const packet = body.researchPacket as ResearchPacketRecord;
+
+    assert.equal(packetResponse.statusCode, 201);
+    assert.equal(packet.title, 'Shared AI infrastructure story');
+    assert.equal(packet.status, 'ready');
+    assert.deepEqual(packet.content.candidateIds, [first.id, second.id]);
+    assert.equal(packet.content.selectedCandidateCount, 2);
+    assert.equal(packet.content.independentSourceCount, 3);
+    assert.equal((packet.content.readiness as { status: string }).status, 'ready');
+    assert.equal(body.sourceDocuments.length, 3);
+    assert.ok(packet.claims.some((claim) => claim.id.startsWith('model-claim-')));
+    assert.ok(packet.claims.every((claim) => claim.sourceDocumentIds.length > 0));
+    assert.ok(packet.claims.every((claim) => claim.citationUrls.length > 0));
+    assert.ok(packet.warnings.some((warning) => warning.code === 'DUPLICATE_CANDIDATE_ID'));
+    assert.ok(packet.warnings.some((warning) => warning.code === 'MODEL_SYNTHESIS_WARNING'));
+    assert.equal(body.job.output.warningCount, packet.warnings.length);
+    assert.deepEqual(body.job.output.failedSourceDocumentIds, []);
+
+    const listResponse = await app.inject({
+      method: 'GET',
+      url: '/research-packets?showSlug=the-synthetic-lens',
+    });
+
+    assert.equal(listResponse.statusCode, 200);
+    assert.ok(listResponse.json().researchPackets.some((item: ResearchPacketRecord) => item.id === packet.id));
+  });
+
+  it('records partial fetch failures in packet and job warnings without creating fake evidence', async () => {
+    const firstResponse = await app.inject({
+      method: 'POST',
+      url: '/story-candidates/manual',
+      payload: {
+        showSlug: 'the-synthetic-lens',
+        url: 'https://manual.example.com/news/partial-success',
+        title: 'Partial Success',
+      },
+    });
+    const secondResponse = await app.inject({
+      method: 'POST',
+      url: '/story-candidates/manual',
+      payload: {
+        showSlug: 'the-synthetic-lens',
+        url: 'https://unavailable.example.org/news/partial-failure',
+        title: 'Partial Failure',
+      },
+    });
+    const first = firstResponse.json().candidate as StoryCandidateRecord;
+    const second = secondResponse.json().candidate as StoryCandidateRecord;
+
+    const packetResponse = await app.inject({
+      method: 'POST',
+      url: '/research-packets',
+      payload: {
+        candidateIds: [first.id, second.id],
+      },
+    });
+    const body = packetResponse.json();
+    const packet = body.researchPacket as ResearchPacketRecord;
+    const failedDocument = body.sourceDocuments.find((document: SourceDocumentRecord) => document.fetchStatus === 'failed') as SourceDocumentRecord;
+
+    assert.equal(packetResponse.statusCode, 201);
+    assert.equal(packet.status, 'needs_more_sources');
+    assert.ok(failedDocument);
+    assert.ok(packet.warnings.some((warning) => warning.code === 'SOURCE_FETCH_FAILED'));
+    assert.ok(packet.warnings.some((warning) => warning.code === 'INSUFFICIENT_INDEPENDENT_SOURCES'));
+    assert.ok(body.job.output.failedSourceDocumentIds.includes(failedDocument.id));
+    assert.ok(body.job.output.warnings.some((warning: ResearchWarning) => warning.code === 'SOURCE_FETCH_FAILED'));
+    assert.ok(packet.claims.every((claim) => !claim.sourceDocumentIds.includes(failedDocument.id)));
+    assert.ok(packet.claims.every((claim) => !claim.citationUrls.includes(failedDocument.url)));
+  });
+
+  it('records model failures as warnings without inventing citations', async () => {
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/story-candidates/manual',
+      payload: {
+        showSlug: 'the-synthetic-lens',
+        url: 'https://model-failure.example.com/news/research-story',
+        title: 'Model Failure Story',
+      },
+    });
+    const candidate = createResponse.json().candidate as StoryCandidateRecord;
+
+    const packetResponse = await app.inject({
+      method: 'POST',
+      url: '/research-packets',
+      payload: {
+        candidateIds: [candidate.id],
+        extraUrls: ['https://independent.example.net/model-failure-backup'],
+      },
+    });
+    const body = packetResponse.json();
+    const packet = body.researchPacket as ResearchPacketRecord;
+    const fetchedDocumentIds = new Set(
+      (body.sourceDocuments as SourceDocumentRecord[])
+        .filter((document) => document.fetchStatus === 'fetched')
+        .map((document) => document.id),
+    );
+
+    assert.equal(packetResponse.statusCode, 201);
+    assert.ok(packet.warnings.some((warning) => warning.code === 'MODEL_CLAIM_EXTRACTION_FAILED'));
+    assert.ok(body.job.output.warnings.some((warning: ResearchWarning) => warning.code === 'MODEL_CLAIM_EXTRACTION_FAILED'));
+    assert.ok(packet.claims.length > 0);
+    assert.ok(packet.claims.every((claim) => claim.sourceDocumentIds.every((id) => fetchedDocumentIds.has(id))));
+    assert.ok(packet.claims.every((claim) => claim.citationUrls.length > 0));
+  });
+
+  it('rejects multi-candidate packets spanning multiple shows', async () => {
+    store.shows.push({
+      ...store.shows[0],
+      id: '99999999-9999-4999-8999-999999999999',
+      slug: 'second-show',
+      title: 'Second Show',
+    });
+    const firstResponse = await app.inject({
+      method: 'POST',
+      url: '/story-candidates/manual',
+      payload: {
+        showSlug: 'the-synthetic-lens',
+        url: 'https://manual.example.com/news/show-one',
+        title: 'Show One Candidate',
+      },
+    });
+    const secondResponse = await app.inject({
+      method: 'POST',
+      url: '/story-candidates/manual',
+      payload: {
+        showSlug: 'second-show',
+        url: 'https://manual.example.com/news/show-two',
+        title: 'Show Two Candidate',
+      },
+    });
+    const first = firstResponse.json().candidate as StoryCandidateRecord;
+    const second = secondResponse.json().candidate as StoryCandidateRecord;
+
+    const packetResponse = await app.inject({
+      method: 'POST',
+      url: '/research-packets',
+      payload: {
+        candidateIds: [first.id, second.id],
+      },
+    });
+    const body = packetResponse.json();
+
+    assert.equal(packetResponse.statusCode, 400);
+    assert.equal(body.code, 'CANDIDATE_SHOW_MISMATCH');
+    assert.equal(store.researchPackets.length, 0);
   });
 
   it('warns when a packet has fewer than two independent fetched sources', async () => {
