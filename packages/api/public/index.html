@@ -262,9 +262,40 @@
             <div>
               <h2>Candidate Stories</h2>
               <p id="candidateMeta"></p>
-              <p class="help">Scores rank fit, significance, novelty, and source quality. Create a research brief from a candidate before script drafting.</p>
+              <p class="help">Scores rank fit, significance, novelty, and source quality. Select related possible stories, review the source mix, then build a research brief.</p>
             </div>
           </div>
+          <form id="candidateClusterForm" class="cluster-panel">
+            <div class="cluster-summary">
+              <div>
+                <strong id="selectionCount">No candidate stories selected</strong>
+                <p id="selectedCandidateSummary">Select one or more possible stories to group them into an episode angle.</p>
+              </div>
+              <button id="clearCandidateSelection" class="secondary" type="button">Clear Selection</button>
+            </div>
+            <div id="selectionWarnings" class="warning-list"></div>
+            <div class="cluster-grid">
+              <label class="field">
+                <span>Episode angle/title</span>
+                <input id="clusterAngle" type="text" placeholder="What this brief should explain">
+              </label>
+              <label class="field">
+                <span>Target format</span>
+                <input id="clusterFormat" type="text" placeholder="feature-analysis">
+              </label>
+              <label class="field">
+                <span>Target runtime</span>
+                <input id="clusterRuntime" type="text" placeholder="8-10 minutes">
+              </label>
+              <label class="field wide">
+                <span>Notes for research agent</span>
+                <textarea id="clusterNotes" rows="2" placeholder="Questions to answer, claims to verify, or source concerns to preserve"></textarea>
+              </label>
+            </div>
+            <div class="actions">
+              <button id="launchClusterBrief" type="submit">Build Research Brief</button>
+            </div>
+          </form>
           <div id="candidateList" class="record-list"></div>
         </section>
 

@@ -39,6 +39,9 @@ const createMultiCandidatePacketSchema = z.object({
   candidateIds: z.array(z.string().trim().min(1)).min(1).max(20),
   extraUrls: z.array(z.string().trim().url()).max(10).default([]),
   angle: z.string().trim().min(1).max(500).nullable().optional(),
+  notes: z.string().trim().min(1).max(2_000).nullable().optional(),
+  targetFormat: z.string().trim().min(1).max(120).nullable().optional(),
+  targetRuntime: z.string().trim().min(1).max(120).nullable().optional(),
 });
 
 const overrideWarningSchema = z.object({
@@ -240,7 +243,14 @@ function modelFailureWarning(code: string, message: string): ResearchWarning {
 export function registerResearchRoutes(app: FastifyInstance, options: ResearchRoutesOptions) {
   async function createPacket(
     rawStore: Partial<ResearchStore> & Partial<SearchJobStore> & Partial<ModelProfileStore> & Partial<PromptTemplateStore>,
-    input: { candidateIds: string[]; extraUrls: string[]; angle?: string | null },
+    input: {
+      candidateIds: string[];
+      extraUrls: string[];
+      angle?: string | null;
+      notes?: string | null;
+      targetFormat?: string | null;
+      targetRuntime?: string | null;
+    },
   ) {
     let job: JobRecord | undefined;
     let jobStore: Pick<SearchJobStore, 'createJob' | 'updateJob'> | undefined;
@@ -285,6 +295,9 @@ export function registerResearchRoutes(app: FastifyInstance, options: ResearchRo
             duplicateCandidateIds: selection.duplicateIds,
             extraUrls: input.extraUrls,
             angle: input.angle ?? null,
+            notes: input.notes ?? null,
+            targetFormat: input.targetFormat ?? null,
+            targetRuntime: input.targetRuntime ?? null,
             modelProfiles,
           },
           logs,
@@ -332,6 +345,9 @@ export function registerResearchRoutes(app: FastifyInstance, options: ResearchRo
             claims: extracted.claims,
             warnings: [...warnings, ...extracted.warnings],
             angle: input.angle,
+            notes: input.notes,
+            targetFormat: input.targetFormat,
+            targetRuntime: input.targetRuntime,
             modelProfile: modelProfiles.research_synthesizer,
           });
         } catch (error) {
@@ -350,6 +366,9 @@ export function registerResearchRoutes(app: FastifyInstance, options: ResearchRo
         candidates,
         documents,
         angle: input.angle,
+        notes: input.notes,
+        targetFormat: input.targetFormat,
+        targetRuntime: input.targetRuntime,
         warnings: [...warnings, ...extracted.warnings, ...synthesized.warnings],
         claims: [...extracted.claims, ...synthesized.claims],
         synthesis: synthesized.synthesis,
@@ -425,6 +444,9 @@ export function registerResearchRoutes(app: FastifyInstance, options: ResearchRo
         candidateIds: body.candidateIds,
         extraUrls: body.extraUrls,
         angle: body.angle,
+        notes: body.notes,
+        targetFormat: body.targetFormat,
+        targetRuntime: body.targetRuntime,
       });
 
       return reply.code(201).send({ ok: true, ...result });

@@ -76,10 +76,11 @@ create or delete search queries.
 
 The same local UI now starts with a guided episode pipeline. It walks each show
 through choosing a story source/search recipe, finding candidate stories,
-selecting candidates, building a research brief, drafting a script, creating
-audio/cover previews, recording review decisions, and publishing to RSS. Wired
-stages call the existing API endpoints; unavailable source types or incomplete
-approval steps are shown as blocked/disabled instead of failing the page.
+selecting and grouping candidate stories, building a research brief, drafting a
+script, creating audio/cover previews, recording review decisions, and
+publishing to RSS. Wired stages call the existing API endpoints; unavailable
+source types or incomplete approval steps are shown as blocked/disabled instead
+of failing the page.
 
 ## New show onboarding
 
@@ -234,6 +235,7 @@ Search/job endpoints:
 - `POST /story-candidates/manual`
 - `GET /jobs/:id`
 - `GET /story-candidates?showSlug=the-synthetic-lens`
+- `POST /research-packets` accepts `{ candidateIds, extraUrls, angle, notes, targetFormat, targetRuntime }`
 
 `GET /story-candidates` defaults to `sort=score`, returning scored candidates
 highest first with unscored candidates last. Use `sort=discovered` to show the

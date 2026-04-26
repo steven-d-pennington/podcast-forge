@@ -1480,6 +1480,9 @@ describe('source profile routes', () => {
       payload: {
         candidateIds: [first.id, second.id, first.id],
         angle: 'Shared AI infrastructure story',
+        notes: 'Verify whether the sources describe the same infrastructure dependency.',
+        targetFormat: 'feature-analysis',
+        targetRuntime: '8-10 minutes',
         extraUrls: ['https://model-warning.example.org/source'],
       },
     });
@@ -1490,7 +1493,13 @@ describe('source profile routes', () => {
     assert.equal(packet.title, 'Shared AI infrastructure story');
     assert.equal(packet.status, 'ready');
     assert.deepEqual(packet.content.candidateIds, [first.id, second.id]);
+    assert.equal(packet.content.notes, 'Verify whether the sources describe the same infrastructure dependency.');
+    assert.equal(packet.content.targetFormat, 'feature-analysis');
+    assert.equal(packet.content.targetRuntime, '8-10 minutes');
     assert.equal(packet.content.selectedCandidateCount, 2);
+    assert.equal(body.job.input.notes, 'Verify whether the sources describe the same infrastructure dependency.');
+    assert.equal(body.job.input.targetFormat, 'feature-analysis');
+    assert.equal(body.job.input.targetRuntime, '8-10 minutes');
     assert.equal(packet.content.independentSourceCount, 3);
     assert.equal((packet.content.readiness as { status: string }).status, 'ready');
     assert.equal(body.sourceDocuments.length, 3);

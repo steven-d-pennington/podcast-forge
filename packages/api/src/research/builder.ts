@@ -167,6 +167,9 @@ export interface BuildResearchPacketInputOptions {
   candidates: StoryCandidateRecord[];
   documents: SourceDocumentRecord[];
   angle?: string | null;
+  notes?: string | null;
+  targetFormat?: string | null;
+  targetRuntime?: string | null;
   warnings?: ResearchWarning[];
   claims?: ResearchClaim[];
   synthesis?: Record<string, unknown> | null;
@@ -175,7 +178,7 @@ export interface BuildResearchPacketInputOptions {
 }
 
 export function buildResearchPacketInputFromCandidates(options: BuildResearchPacketInputOptions): CreateResearchPacketInput {
-  const { candidates, documents, angle, synthesis } = options;
+  const { candidates, documents, angle, notes, targetFormat, targetRuntime, synthesis } = options;
   const fetchedDocuments = documents.filter((document) => document.fetchStatus === 'fetched');
   const usableDocuments = fetchedDocuments.filter((document) => (document.textContent?.length ?? 0) >= MIN_TEXT_LENGTH);
   const independentHosts = new Set(
@@ -301,6 +304,9 @@ export function buildResearchPacketInputFromCandidates(options: BuildResearchPac
       candidateIds: candidates.map((candidate) => candidate.id),
       storyCandidateId: candidates.length === 1 ? candidates[0].id : undefined,
       angle: angle ?? null,
+      notes: notes ?? null,
+      targetFormat: targetFormat ?? null,
+      targetRuntime: targetRuntime ?? null,
       summary,
       synthesis: synthesis ?? null,
       knownFacts: Array.isArray(synthesis?.knownFacts) ? synthesis.knownFacts : claims.map((claim) => claim.text),

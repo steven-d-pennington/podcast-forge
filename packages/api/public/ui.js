@@ -19,6 +19,12 @@ const state = {
   },
   productionPoll: null,
   selectedCandidateIds: [],
+  clusterForm: {
+    angle: '',
+    notes: '',
+    targetFormat: '',
+    targetRuntime: '',
+  },
   selectedResearchPacketId: '',
   selectedEpisodeId: '',
   selectedAssetIds: [],
@@ -78,6 +84,16 @@ const els = {
   manualSummary: document.querySelector('#manualSummary'),
   manualResult: document.querySelector('#manualResult'),
   candidateMeta: document.querySelector('#candidateMeta'),
+  candidateClusterForm: document.querySelector('#candidateClusterForm'),
+  selectionCount: document.querySelector('#selectionCount'),
+  selectedCandidateSummary: document.querySelector('#selectedCandidateSummary'),
+  clearCandidateSelection: document.querySelector('#clearCandidateSelection'),
+  selectionWarnings: document.querySelector('#selectionWarnings'),
+  clusterAngle: document.querySelector('#clusterAngle'),
+  clusterNotes: document.querySelector('#clusterNotes'),
+  clusterFormat: document.querySelector('#clusterFormat'),
+  clusterRuntime: document.querySelector('#clusterRuntime'),
+  launchClusterBrief: document.querySelector('#launchClusterBrief'),
   candidateList: document.querySelector('#candidateList'),
   researchBriefMeta: document.querySelector('#researchBriefMeta'),
   researchBriefList: document.querySelector('#researchBriefList'),
@@ -198,6 +214,14 @@ function listToLines(value) {
   return (value || []).join('\n');
 }
 
+function asObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 function slugify(value) {
   return value
     .toLowerCase()
@@ -255,6 +279,185 @@ function selectedCandidates() {
   return state.storyCandidates.filter((candidate) => selected.has(candidate.id));
 }
 
+function candidateUrl(candidate) {
+  return candidate.canonicalUrl || candidate.url || '';
+}
+
+function hostnameFor(value) {
+  if (!value) {
+    return '';
+  }
+
+  try {
+    return new URL(value).hostname.replace(/^www\./i, '').toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function sourceProfileForCandidate(candidate) {
+  return state.profiles.find((profile) => profile.id === candidate.sourceProfileId) || null;
+}
+
+function sourceQueryText(candidate) {
+  const metadataQuery = asObject(candidate.metadata?.query);
+  const query = state.queries.find((item) => item.id === candidate.sourceQueryId);
+
+  if (typeof metadataQuery.text === 'string' && metadataQuery.text.trim()) {
+    return metadataQuery.text.trim();
+  }
+
+  if (query?.query) {
+    return query.query;
+  }
+
+  return candidate.sourceQueryId ? `Search query ${candidate.sourceQueryId.slice(0, 8)}` : 'Manual or imported story';
+}
+
+function scoreBreakdown(candidate) {
+  return asObject(candidate.scoreBreakdown);
+}
+
+function componentScore(candidate, key) {
+  const breakdown = scoreBreakdown(candidate);
+  const components = asObject(breakdown.components);
+  const value = typeof breakdown[key] === 'number' ? breakdown[key] : components[key];
+
+  return typeof value === 'number' ? value : null;
+}
+
+function candidateScoreText(candidate, index) {
+  const rank = `rank #${index + 1}`;
+
+  if (candidate.score === null || candidate.score === undefined) {
+    return `${rank}, unscored`;
+  }
+
+  return `${rank}, score ${candidate.score}`;
+}
+
+function candidateStatusWarnings(candidate) {
+  const warnings = [];
+  const breakdown = scoreBreakdown(candidate);
+  const scoring = asObject(candidate.metadata?.scoring);
+  const sourceQuality = componentScore(candidate, 'sourceQuality');
+
+  if (!candidateUrl(candidate)) {
+    warnings.push({ level: 'error', text: 'missing source URL' });
+  }
+
+  if (['ignored', 'merged'].includes(candidate.status)) {
+    warnings.push({ level: 'error', text: `${candidate.status} status` });
+  }
+
+  if (typeof candidate.score === 'number' && candidate.score < 50) {
+    warnings.push({ level: 'warning', text: `low score ${candidate.score}` });
+  }
+
+  if (typeof sourceQuality === 'number' && sourceQuality < 50) {
+    warnings.push({ level: 'warning', text: `weak source score ${sourceQuality}` });
+  }
+
+  for (const warning of asArray(breakdown.warnings).slice(0, 2)) {
+    if (typeof warning === 'string') {
+      warnings.push({ level: 'warning', text: warning });
+    } else if (warning?.message || warning?.code) {
+      warnings.push({ level: warning.severity === 'error' ? 'error' : 'warning', text: warning.message || warning.code });
+    }
+  }
+
+  if (scoring.status === 'failed') {
+    warnings.push({ level: 'warning', text: 'scoring used fallback after failure' });
+  } else if (scoring.status === 'fallback') {
+    warnings.push({ level: 'warning', text: 'fallback score' });
+  }
+
+  return warnings;
+}
+
+function normalizedTitleKeywords(title) {
+  const stop = new Set(['about', 'after', 'again', 'amid', 'from', 'have', 'into', 'over', 'that', 'their', 'this', 'with', 'will', 'your']);
+
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .split(/\s+/)
+    .filter((word) => word.length >= 4 && !stop.has(word))
+    .slice(0, 8);
+}
+
+function duplicateValues(values) {
+  const seen = new Set();
+  const duplicated = new Set();
+
+  for (const value of values.filter(Boolean)) {
+    if (seen.has(value)) {
+      duplicated.add(value);
+    }
+
+    seen.add(value);
+  }
+
+  return [...duplicated];
+}
+
+function selectedCandidateAnalysis() {
+  const candidates = selectedCandidates();
+  const selectedIds = new Set(candidates.map((candidate) => candidate.id));
+  const missingIds = state.selectedCandidateIds.filter((id) => !selectedIds.has(id));
+  const showIds = new Set(candidates.map((candidate) => candidate.showId).filter(Boolean));
+  const urls = candidates.map(candidateUrl).filter(Boolean);
+  const domains = urls.map(hostnameFor).filter(Boolean);
+  const duplicateUrls = duplicateValues(urls);
+  const duplicateDomains = duplicateValues(domains);
+  const missingUrls = candidates.filter((candidate) => !candidateUrl(candidate));
+  const invalidStatus = candidates.filter((candidate) => ['ignored', 'merged'].includes(candidate.status));
+  const weakCandidates = candidates.filter((candidate) => {
+    const sourceQuality = componentScore(candidate, 'sourceQuality');
+    return (typeof candidate.score === 'number' && candidate.score < 50)
+      || (typeof sourceQuality === 'number' && sourceQuality < 50);
+  });
+  const keywordCounts = new Map();
+
+  for (const candidate of candidates) {
+    for (const keyword of new Set(normalizedTitleKeywords(candidate.title))) {
+      keywordCounts.set(keyword, (keywordCounts.get(keyword) || 0) + 1);
+    }
+  }
+
+  const sharedKeywords = [...keywordCounts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([keyword]) => keyword)
+    .slice(0, 8);
+  const errors = [
+    ...missingIds.map((id) => `Selected candidate ${id.slice(0, 8)} is no longer loaded.`),
+    ...(showIds.size > 1 ? ['Selected candidate stories belong to different shows.'] : []),
+    ...invalidStatus.map((candidate) => `"${candidate.title}" has ${candidate.status} status.`),
+    ...(candidates.length > 0 && urls.length === 0 ? ['At least one selected candidate needs a source URL before a research brief can be built.'] : []),
+  ];
+  const warnings = [
+    ...missingUrls.map((candidate) => `"${candidate.title}" is missing a source URL.`),
+    ...duplicateUrls.map((url) => `Duplicate source URL selected: ${url}`),
+    ...duplicateDomains.map((domain) => `Multiple selected URLs use ${domain}; check for syndicated or circular coverage.`),
+    ...weakCandidates.map((candidate) => `"${candidate.title}" has a low score or weak source score.`),
+    ...(sharedKeywords.length > 0 ? [`Shared title keywords: ${sharedKeywords.join(', ')}`] : []),
+  ];
+
+  return {
+    candidates,
+    urls,
+    domains,
+    duplicateUrls,
+    duplicateDomains,
+    missingUrls,
+    weakCandidates,
+    sharedKeywords,
+    errors,
+    warnings,
+    canLaunch: candidates.length > 0 && errors.length === 0,
+  };
+}
+
 function selectedResearchPacket() {
   return state.researchPackets.find((packet) => packet.id === state.selectedResearchPacketId);
 }
@@ -286,12 +489,19 @@ function restorePipelineStateForShow() {
     const saved = JSON.parse(window.localStorage.getItem(key) || '{}');
     state.selectedProfileId = typeof saved.selectedProfileId === 'string' ? saved.selectedProfileId : state.selectedProfileId;
     state.selectedCandidateIds = Array.isArray(saved.selectedCandidateIds) ? saved.selectedCandidateIds.filter(Boolean) : [];
+    state.clusterForm = {
+      angle: typeof saved.clusterForm?.angle === 'string' ? saved.clusterForm.angle : '',
+      notes: typeof saved.clusterForm?.notes === 'string' ? saved.clusterForm.notes : '',
+      targetFormat: typeof saved.clusterForm?.targetFormat === 'string' ? saved.clusterForm.targetFormat : '',
+      targetRuntime: typeof saved.clusterForm?.targetRuntime === 'string' ? saved.clusterForm.targetRuntime : '',
+    };
     state.selectedResearchPacketId = typeof saved.selectedResearchPacketId === 'string' ? saved.selectedResearchPacketId : '';
     state.selectedScriptId = typeof saved.selectedScriptId === 'string' ? saved.selectedScriptId : '';
     state.selectedEpisodeId = typeof saved.selectedEpisodeId === 'string' ? saved.selectedEpisodeId : '';
     state.selectedAssetIds = Array.isArray(saved.selectedAssetIds) ? saved.selectedAssetIds.filter(Boolean) : [];
   } catch {
     state.selectedCandidateIds = [];
+    state.clusterForm = { angle: '', notes: '', targetFormat: '', targetRuntime: '' };
     state.selectedResearchPacketId = '';
     state.selectedEpisodeId = '';
     state.selectedAssetIds = [];
@@ -308,6 +518,7 @@ function savePipelineState() {
   window.localStorage.setItem(key, JSON.stringify({
     selectedProfileId: state.selectedProfileId,
     selectedCandidateIds: state.selectedCandidateIds,
+    clusterForm: state.clusterForm,
     selectedResearchPacketId: state.selectedResearchPacketId,
     selectedScriptId: state.selectedScriptId,
     selectedEpisodeId: state.selectedEpisodeId,
@@ -317,6 +528,7 @@ function savePipelineState() {
 
 function clearPipelineSelections() {
   state.selectedCandidateIds = [];
+  state.clusterForm = { angle: '', notes: '', targetFormat: '', targetRuntime: '' };
   state.selectedResearchPacketId = '';
   state.selectedScriptId = '';
   state.selectedScript = null;
@@ -536,6 +748,7 @@ function buildPipelineStages() {
   const show = selectedShow();
   const profile = selectedProfile();
   const candidates = selectedCandidates();
+  const candidateAnalysis = selectedCandidateAnalysis();
   const packet = selectedResearchPacket();
   const latestPacket = packet || state.researchPackets[0];
   const episode = selectedEpisode();
@@ -597,7 +810,9 @@ function buildPipelineStages() {
       status: state.storyCandidates.length === 0 ? 'blocked' : candidates.length > 0 ? 'done' : 'ready',
       artifact: latestCandidateText(),
       next: candidates.length > 0
-        ? `${candidates.length} candidate stor${candidates.length === 1 ? 'y is' : 'ies are'} selected for the brief.`
+        ? candidateAnalysis.canLaunch
+          ? `${candidates.length} candidate stor${candidates.length === 1 ? 'y is' : 'ies are'} selected for the brief.`
+          : 'Review the selected story warnings before building a research brief.'
         : 'Select one or more possible stories before building a research brief.',
       actionLabel: candidates.length > 0 ? 'Clear Selection' : 'Select Top Candidate',
       action: candidates.length > 0 ? clearCandidateSelection : selectTopCandidate,
@@ -614,7 +829,7 @@ function buildPipelineStages() {
         : state.researchPackets.length > 0 ? 'Select the latest research brief or build a new one from selected candidate stories.' : candidates.length > 0 ? 'Build a research brief from the selected candidate stories.' : 'Select candidate stories first.',
       actionLabel: packet ? 'Use Selected Brief' : state.researchPackets.length > 0 ? 'Select Latest Brief' : 'Build Research Brief',
       action: packet ? () => selectResearchPacket(packet) : state.researchPackets.length > 0 ? () => selectResearchPacket(state.researchPackets[0]) : buildResearchBriefFromSelected,
-      disabled: researchRunning || (!packet && state.researchPackets.length === 0 && candidates.length === 0),
+      disabled: researchRunning || (!packet && state.researchPackets.length === 0 && !candidateAnalysis.canLaunch),
       active: Boolean(packet),
     },
     {
@@ -689,6 +904,7 @@ function renderPipeline() {
     showSlug: state.selectedShowSlug,
     sourceProfileId: state.selectedProfileId,
     selectedCandidateIds: state.selectedCandidateIds,
+    clusterForm: state.clusterForm,
     selectedResearchPacketId: state.selectedResearchPacketId,
     selectedScriptId: state.selectedScriptId,
     selectedRevisionId: state.selectedRevision?.id ?? null,
@@ -765,9 +981,62 @@ function renderQueries() {
   }
 }
 
+function renderCandidateSelectionPanel() {
+  const analysis = selectedCandidateAnalysis();
+  const { candidates } = analysis;
+  const selectedCount = candidates.length;
+  const researchRunning = isActionRunning('research');
+
+  els.selectionCount.textContent = selectedCount === 0
+    ? 'No candidate stories selected'
+    : `${selectedCount} candidate stor${selectedCount === 1 ? 'y' : 'ies'} selected`;
+  els.selectedCandidateSummary.textContent = selectedCount === 0
+    ? 'Select one or more possible stories to group them into an episode angle.'
+    : candidates.map((candidate) => {
+      const domain = hostnameFor(candidateUrl(candidate)) || candidate.sourceName || 'unknown source';
+      return `${candidate.title} (${domain})`;
+    }).join(' | ');
+  els.clearCandidateSelection.disabled = selectedCount === 0 || researchRunning;
+  els.clusterAngle.value = state.clusterForm.angle;
+  els.clusterNotes.value = state.clusterForm.notes;
+  els.clusterFormat.value = state.clusterForm.targetFormat;
+  els.clusterRuntime.value = state.clusterForm.targetRuntime;
+  els.selectionWarnings.innerHTML = '';
+
+  const reviewItems = [
+    ...analysis.errors.map((text) => ({ level: 'error', text })),
+    ...analysis.warnings.map((text) => ({ level: 'warning', text })),
+  ];
+
+  if (selectedCount > 0 && analysis.urls.length > 0) {
+    reviewItems.unshift({
+      level: 'info',
+      text: `Selected evidence: ${analysis.urls.map((url) => hostnameFor(url) || url).join(', ')}`,
+    });
+  }
+
+  if (selectedCount > 1 && analysis.duplicateDomains.length === 0 && analysis.sharedKeywords.length === 0) {
+    reviewItems.push({
+      level: 'warning',
+      text: 'No obvious same-domain or shared-title cue found; confirm these stories belong in one brief.',
+    });
+  }
+
+  for (const item of reviewItems) {
+    const row = document.createElement('div');
+    row.className = `warning-item ${item.level === 'error' ? 'error' : ''}`;
+    row.textContent = item.text;
+    els.selectionWarnings.append(row);
+  }
+
+  els.launchClusterBrief.disabled = researchRunning || !analysis.canLaunch;
+  els.launchClusterBrief.textContent = researchRunning ? 'Building Research Brief...' : 'Build Research Brief';
+}
+
 function renderStoryCandidates() {
   els.candidateList.innerHTML = '';
   els.candidateMeta.textContent = `${state.storyCandidates.length} recent candidate stor${state.storyCandidates.length === 1 ? 'y' : 'ies'}`;
+  renderCandidateSelectionPanel();
 
   if (state.storyCandidates.length === 0) {
     const empty = document.createElement('div');
@@ -777,17 +1046,70 @@ function renderStoryCandidates() {
     return;
   }
 
-  for (const candidate of state.storyCandidates) {
+  for (const [index, candidate] of state.storyCandidates.entries()) {
     const row = document.createElement('article');
     const selected = state.selectedCandidateIds.includes(candidate.id);
-    row.className = `record-row${selected ? ' selected' : ''}`;
+    row.className = `record-row candidate-row${selected ? ' selected' : ''}`;
 
+    const checkbox = document.createElement('input');
+    checkbox.className = 'candidate-select';
+    checkbox.type = 'checkbox';
+    checkbox.checked = selected;
+    checkbox.setAttribute('aria-label', `Select ${candidate.title}`);
+    checkbox.addEventListener('change', () => {
+      toggleCandidateSelection(candidate.id);
+    });
+
+    const body = document.createElement('div');
+    body.className = 'candidate-body';
     const title = document.createElement('strong');
     title.textContent = candidate.title;
 
     const meta = document.createElement('span');
-    const score = candidate.score === null || candidate.score === undefined ? 'unscored' : `score ${candidate.score}`;
-    meta.textContent = `${candidate.sourceName || 'unknown source'} | ${score} | ${candidate.status}`;
+    const url = candidateUrl(candidate);
+    const domain = hostnameFor(url);
+    const sourceProfile = sourceProfileForCandidate(candidate);
+    const published = candidate.publishedAt
+      ? `published ${new Date(candidate.publishedAt).toLocaleString()}`
+      : `discovered ${new Date(candidate.discoveredAt).toLocaleString()}`;
+    meta.textContent = [
+      candidate.sourceName || domain || 'unknown source',
+      domain || 'no source URL',
+      candidateScoreText(candidate, index),
+      published,
+      candidate.status,
+    ].join(' | ');
+
+    const facts = document.createElement('div');
+    facts.className = 'candidate-facts';
+    const origin = document.createElement('span');
+    origin.className = 'candidate-chip';
+    origin.textContent = `origin: ${sourceProfile?.name || 'manual/imported'} | ${sourceQueryText(candidate)}`;
+    facts.append(origin);
+
+    const rationale = scoreBreakdown(candidate).rationale;
+    if (typeof rationale === 'string' && rationale.trim()) {
+      const chip = document.createElement('span');
+      chip.className = 'candidate-chip';
+      chip.textContent = rationale;
+      facts.append(chip);
+    }
+
+    if (scoreBreakdown(candidate).angle) {
+      const chip = document.createElement('span');
+      chip.className = 'candidate-chip';
+      chip.textContent = `suggested angle: ${scoreBreakdown(candidate).angle}`;
+      facts.append(chip);
+    }
+
+    const flags = document.createElement('div');
+    flags.className = 'candidate-flags';
+    for (const warning of candidateStatusWarnings(candidate)) {
+      const chip = document.createElement('span');
+      chip.className = `candidate-chip ${warning.level}`;
+      chip.textContent = warning.text;
+      flags.append(chip);
+    }
 
     const summary = document.createElement('p');
     summary.textContent = candidate.summary || candidate.url || 'No summary recorded.';
@@ -807,12 +1129,18 @@ function renderStoryCandidates() {
     createBrief.type = 'button';
     createBrief.className = 'secondary';
     createBrief.textContent = 'Create Research Brief';
+    createBrief.disabled = !candidateUrl(candidate) || candidate.status === 'ignored';
     createBrief.addEventListener('click', async () => {
       await createResearchBrief(candidate.id, createBrief);
     });
 
     actions.append(select, createBrief);
-    row.append(title, meta, summary, actions);
+    body.append(title, meta, facts);
+    if (flags.children.length > 0) {
+      body.append(flags);
+    }
+    body.append(summary, actions);
+    row.append(checkbox, body);
     els.candidateList.append(row);
   }
 }
@@ -1377,6 +1705,16 @@ function clearCandidateSelection() {
   setStatus('Candidate story selection cleared.');
 }
 
+function syncClusterFormFromInputs() {
+  state.clusterForm = {
+    angle: els.clusterAngle.value.trim(),
+    notes: els.clusterNotes.value.trim(),
+    targetFormat: els.clusterFormat.value.trim(),
+    targetRuntime: els.clusterRuntime.value.trim(),
+  };
+  savePipelineState();
+}
+
 async function runSelectedProfileDiscovery() {
   const profile = selectedProfile();
 
@@ -1404,9 +1742,12 @@ async function runSelectedProfileDiscovery() {
 }
 
 async function buildResearchBriefFromSelected() {
+  syncClusterFormFromInputs();
   const candidateIds = state.selectedCandidateIds.filter(Boolean);
+  const analysis = selectedCandidateAnalysis();
 
-  if (candidateIds.length === 0) {
+  if (candidateIds.length === 0 || !analysis.canLaunch) {
+    render();
     return;
   }
 
@@ -1414,15 +1755,17 @@ async function buildResearchBriefFromSelected() {
   setStatus('Creating research brief...');
 
   try {
-    const body = candidateIds.length === 1
-      ? await api(`/story-candidates/${candidateIds[0]}/research-packet`, {
-        method: 'POST',
-        body: JSON.stringify({ extraUrls: [] }),
-      })
-      : await api('/research-packets', {
-        method: 'POST',
-        body: JSON.stringify({ candidateIds, extraUrls: [] }),
-      });
+    const body = await api('/research-packets', {
+      method: 'POST',
+      body: JSON.stringify({
+        candidateIds,
+        extraUrls: [],
+        angle: state.clusterForm.angle || null,
+        notes: state.clusterForm.notes || null,
+        targetFormat: state.clusterForm.targetFormat || null,
+        targetRuntime: state.clusterForm.targetRuntime || null,
+      }),
+    });
     state.selectedResearchPacketId = body.researchPacket.id;
     els.scriptResearchPacketId.value = body.researchPacket.id;
     await loadResearchPackets();
@@ -2083,6 +2426,14 @@ els.showSelect.addEventListener('change', async () => {
 els.profileForm.addEventListener('submit', saveProfile);
 els.ingestProfile.addEventListener('click', ingestSelectedProfile);
 els.manualForm.addEventListener('submit', submitManualUrl);
+els.candidateClusterForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  await buildResearchBriefFromSelected();
+});
+els.clearCandidateSelection.addEventListener('click', clearCandidateSelection);
+for (const input of [els.clusterAngle, els.clusterNotes, els.clusterFormat, els.clusterRuntime]) {
+  input.addEventListener('input', syncClusterFormFromInputs);
+}
 els.newQueryForm.addEventListener('submit', createQuery);
 els.scriptGenerateForm.addEventListener('submit', generateScript);
 els.scriptEditForm.addEventListener('submit', saveScriptRevision);
