@@ -1,0 +1,41 @@
+name: Request Copilot review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to request/re-request Copilot review on
+        required: true
+        type: number
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  request-copilot-review:
+    name: Request Copilot review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Request Copilot as reviewer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pr || github.event.pull_request.number }}
+          PR_DRAFT: ${{ github.event.pull_request.draft || false }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ "${PR_DRAFT}" = "true" ]; then
+            echo "PR #${PR_NUMBER} is draft; skipping Copilot review request until ready_for_review."
+            exit 0
+          fi
+
+          echo "Requesting Copilot review for ${REPO} PR #${PR_NUMBER}..."
+          if gh pr edit "${PR_NUMBER}" --repo "${REPO}" --add-reviewer "@copilot"; then
+            echo "Requested Copilot review for PR #${PR_NUMBER}."
+          else
+            echo "::warning::Could not request Copilot review. Ensure Copilot code review is enabled for this account/repo, or enable the repository ruleset option manually if available."
+          fi
