@@ -160,6 +160,144 @@ button:disabled {
   min-width: 0;
 }
 
+.pipeline-panel {
+  border-color: #b8c7d9;
+}
+
+.pipeline-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.pipeline-card {
+  background: #f8fafc;
+  border: 1px solid #d8dde5;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0.85rem;
+}
+
+.pipeline-card.active {
+  border-color: #2468a8;
+  box-shadow: inset 3px 0 0 #2468a8;
+}
+
+.pipeline-card.blocked {
+  background: #fbf7f2;
+  border-color: #e2c391;
+}
+
+.pipeline-card.needs-review {
+  background: #fbfaf1;
+  border-color: #d8cf73;
+}
+
+.pipeline-card.done {
+  background: #f3faf6;
+  border-color: #9ac8aa;
+}
+
+.pipeline-card.running {
+  border-color: #7aa7d7;
+}
+
+.pipeline-card h3,
+.pipeline-card p {
+  margin: 0;
+}
+
+.pipeline-card h3 {
+  font-size: 1rem;
+}
+
+.pipeline-card p {
+  color: #586575;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.pipeline-top {
+  align-items: start;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.pipeline-step {
+  color: #687486;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.status-pill {
+  border: 1px solid #c9ced6;
+  border-radius: 999px;
+  color: #3f4b5a;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  white-space: nowrap;
+}
+
+.status-pill.not-started {
+  background: #edf0f4;
+}
+
+.status-pill.ready {
+  background: #eef6ff;
+  border-color: #9ec4ed;
+  color: #1f5b95;
+}
+
+.status-pill.running {
+  background: #eef6ff;
+  border-color: #7aa7d7;
+  color: #1f5b95;
+}
+
+.status-pill.needs-review {
+  background: #fff9d9;
+  border-color: #d8cf73;
+  color: #675b00;
+}
+
+.status-pill.blocked {
+  background: #fff1df;
+  border-color: #e2c391;
+  color: #70440f;
+}
+
+.status-pill.done {
+  background: #e9f7ee;
+  border-color: #9ac8aa;
+  color: #245b37;
+}
+
+.pipeline-artifacts,
+.pipeline-next {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.pipeline-label {
+  color: #3f4b5a;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.pipeline-card button {
+  justify-self: start;
+}
+
+.pipeline-debug {
+  margin-top: 0.85rem;
+}
+
 .panel {
   padding: 1rem;
 }
@@ -346,6 +484,11 @@ textarea {
   padding: 0.75rem;
 }
 
+.record-row.selected {
+  border-color: #2468a8;
+  box-shadow: inset 3px 0 0 #2468a8;
+}
+
 .record-row > button {
   justify-self: start;
 }
@@ -446,6 +589,7 @@ textarea {
   .layout,
   .grid,
   .grid.two,
+  .pipeline-grid,
   .model-grid,
   .manual-form,
   .script-generate,

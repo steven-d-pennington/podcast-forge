@@ -22,6 +22,17 @@ describe('api config endpoints', () => {
 
     assert.equal(response.statusCode, 200);
     assert.match(response.body, /Podcast Forge Command Center/);
+    assert.match(response.body, /Guided Episode Pipeline/);
+    assert.match(response.body, /story sources to candidate stories, research briefs, script drafts/);
+  });
+
+  it('serves guided pipeline client state helpers', async () => {
+    const response = await app.inject({ method: 'GET', url: '/ui.js' });
+
+    assert.equal(response.statusCode, 200);
+    assert.match(response.body, /selectedCandidateIds/);
+    assert.match(response.body, /selectedResearchPacketId/);
+    assert.match(response.body, /renderPipeline/);
   });
 
   it('returns the bundled example config', async () => {

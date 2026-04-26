@@ -89,7 +89,7 @@ Open build wave:
 - #17 Multi-candidate research packet builder
 - #18 LLM script generation and revision validation ✅ implemented locally on `issue-18-script-generation`; `npm run check` passed. Commit/push may need recovery if sandbox `.git` permissions block writes.
 - #19 Real production adapters for audio, cover art, and publishing ✅ implemented locally on `main` worktree because sandbox `.git/FETCH_HEAD` was read-only; `npm run check` passed. Commit/push may need recovery if sandbox `.git` permissions block writes.
-- #20 Guided episode pipeline UI
+- #20 Guided episode pipeline UI ✅ implemented locally on `issue-20-guided-pipeline-ui`; `npm run check` passed.
 - #21 Multi-select candidate clustering UI
 - #22 Settings/admin UI for shows, sources, models, prompts, publishing
 - #23 Job progress, logs, warnings, and retry UI
