@@ -13,6 +13,9 @@ Shared storage: local filesystem in dev; S3/R2-compatible object storage in prod
 
 ## Core entities
 
+See [UX glossary](UX_GLOSSARY.md) for how these backend entity names map to
+user-facing labels in the app.
+
 - `shows`
 - `feeds`
 - `source_profiles`

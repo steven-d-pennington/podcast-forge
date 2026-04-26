@@ -14,10 +14,11 @@ This repo is the productized successor to the local TSL Command Center + Byte Si
 
 ## Repo status
 
-Planning/scaffold phase. See:
+Active MVP build. See:
 
 - [PRD](docs/PRD.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [UX glossary](docs/UX_GLOSSARY.md)
 - [Configuration schema](schemas/podcast-forge.config.schema.json)
 - [Example config](config/examples/the-synthetic-lens.json)
 - [Development plan](docs/DEVELOPMENT_PLAN.md)
@@ -54,10 +55,11 @@ Available config endpoints:
   validates a config file path. Leading `~/` is expanded, and relative paths
   resolve from the API process working directory.
 
-## Source profile UI
+## Story sources UI
 
-Source profiles and search queries are persisted in Postgres through the
-`@podcast-forge/db` schema. To run the app locally:
+Story sources, called source profiles in backend/API code, and search queries
+are persisted in Postgres through the `@podcast-forge/db` schema. To run the app
+locally:
 
 ```sh
 cp .env.example .env
@@ -67,17 +69,17 @@ npm run db:seed --workspace @podcast-forge/db
 npm run dev --workspace @podcast-forge/api
 ```
 
-Open `http://localhost:3450/ui` to edit source profiles and queries for
-`the-synthetic-lens`. The UI can enable or disable profiles and individual
+Open `http://localhost:3450/ui` to edit story sources and search queries for
+`the-synthetic-lens`. The UI can enable or disable story sources and individual
 queries, edit query text, freshness, include/exclude domains, and weights, and
-create or delete query buckets.
+create or delete search queries.
 
 ## New show onboarding
 
 Shows can be added from the local UI with `New Show`. The onboarding form
 creates the show in `draft` or `active` setup state, adds a feed, creates a
-starter source profile and query, and seeds model profiles for each supported
-agent role. Draft shows are returned by `GET /shows`, so setup can be completed
+starter story source/search query, and seeds AI role settings for each supported
+model role. Draft shows are returned by `GET /shows`, so setup can be completed
 over time without editing seed data, config files, or the database directly.
 
 Show/feed endpoints:
@@ -103,7 +105,7 @@ Source profile endpoints:
 Use `enabledOnly=true` for search jobs so disabled profiles and queries are not
 included in source discovery.
 
-## Model profile routing
+## AI role routing
 
 Model choices are runtime configuration, not code constants. The supported
 roles are `candidate_scorer`, `source_summarizer`, `claim_extractor`,
@@ -112,8 +114,8 @@ and `cover_prompt_writer`.
 
 Seeded configs write each `models` entry into `model_profiles` with
 provider/model, params, fallbacks, prompt template key, and budget. Worker-style
-jobs resolve the active profile by show and role at runtime. `source.search`
-records the resolved `candidate_scorer`; research packet generation records
+tasks resolve the active profile by show and role at runtime. `source.search`
+records the resolved `candidate_scorer`; research brief generation records
 `source_summarizer`, `claim_extractor`, and `research_synthesizer` in both the
 job metadata and packet content.
 
@@ -369,9 +371,12 @@ The local UI at `http://localhost:3450/ui` includes a manual URL form. For RSS,
 create or edit a profile with type `rss`, add enabled query rows containing feed
 URLs, then use the `Ingest RSS` action shown for RSS profiles.
 
-## Research packets
+## Research briefs
 
-Selected story candidates can produce evidence-first research packets. The API
+The UI calls these records research briefs. Backend/API code and route paths
+still use `research_packets` and `/research-packets` for stable identifiers.
+
+Selected candidate stories can produce evidence-first research briefs. The API
 fetches readable source snapshots into `source_documents`, then writes a
 `research_packets` row with source document references, cited claims, citation
 URLs, warning objects, synthesis content, and readiness metadata. When injected
@@ -555,5 +560,5 @@ Publishing endpoints:
 - `POST /episodes/:id/publish/rss`
 
 The local UI at `http://localhost:3450/ui` includes a script review panel where
-editors can paste a research packet ID, generate a draft, edit the latest
-revision, and approve it for audio.
+editors can select or paste a research brief ID, generate a draft, edit the
+latest revision, and approve it for audio.
