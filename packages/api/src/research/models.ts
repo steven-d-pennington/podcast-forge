@@ -20,6 +20,9 @@ export interface ResearchModelServices {
     claims: ResearchClaim[];
     warnings: ResearchWarning[];
     angle?: string | null;
+    notes?: string | null;
+    targetFormat?: string | null;
+    targetRuntime?: string | null;
     modelProfile?: ResolvedModelProfile;
   }): Promise<ResearchModelSynthesisResult>;
 }
@@ -218,6 +221,9 @@ export function createLlmResearchModelServices(options: CreateLlmResearchModelSe
             candidate_json: {
               candidates: candidateContext(input.candidates),
               angle: input.angle ?? null,
+              notes: input.notes ?? null,
+              targetFormat: input.targetFormat ?? null,
+              targetRuntime: input.targetRuntime ?? null,
             },
             source_summaries: input.documents.map(sourceSummary),
             claims: input.claims,

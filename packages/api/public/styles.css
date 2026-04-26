@@ -395,6 +395,64 @@ textarea {
   justify-content: flex-start;
 }
 
+.cluster-panel {
+  background: #f8fafc;
+  border: 1px solid #d8dde5;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+  padding: 0.9rem;
+}
+
+.cluster-summary {
+  align-items: start;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.cluster-summary strong {
+  display: block;
+}
+
+.cluster-summary p {
+  margin: 0.25rem 0 0;
+}
+
+.cluster-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: minmax(180px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr);
+}
+
+.cluster-grid .wide {
+  grid-column: 1 / -1;
+}
+
+.warning-list {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.warning-list:empty {
+  display: none;
+}
+
+.warning-item {
+  background: #fff9d9;
+  border: 1px solid #d8cf73;
+  border-radius: 6px;
+  color: #3f4b5a;
+  font-size: 0.9rem;
+  padding: 0.45rem 0.6rem;
+}
+
+.warning-item.error {
+  background: #fff1df;
+  border-color: #e2c391;
+}
+
 .new-query {
   display: grid;
   gap: 0.75rem;
@@ -487,6 +545,52 @@ textarea {
 .record-row.selected {
   border-color: #2468a8;
   box-shadow: inset 3px 0 0 #2468a8;
+}
+
+.candidate-row {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.candidate-row .candidate-select {
+  align-self: start;
+  grid-row: 1 / 5;
+  height: 1.1rem;
+  margin-top: 0.2rem;
+  width: 1.1rem;
+}
+
+.candidate-row .candidate-body {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.candidate-facts,
+.candidate-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.candidate-chip {
+  background: white;
+  border: 1px solid #d8dde5;
+  border-radius: 999px;
+  color: #3f4b5a;
+  font-size: 0.8rem;
+  padding: 0.15rem 0.45rem;
+}
+
+.candidate-chip.warning {
+  background: #fff9d9;
+  border-color: #d8cf73;
+  color: #675b00;
+}
+
+.candidate-chip.error {
+  background: #fff1df;
+  border-color: #e2c391;
+  color: #70440f;
 }
 
 .record-row > button {
@@ -591,6 +695,7 @@ textarea {
   .grid.two,
   .pipeline-grid,
   .model-grid,
+  .cluster-grid,
   .manual-form,
   .script-generate,
   .script-workspace,
@@ -606,6 +711,10 @@ textarea {
   }
 
   .panel-heading {
+    display: grid;
+  }
+
+  .cluster-summary {
     display: grid;
   }
 }
