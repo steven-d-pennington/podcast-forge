@@ -19,6 +19,15 @@ jobs:
     name: Request Copilot review
     runs-on: ubuntu-latest
     steps:
+      - name: Verify GitHub CLI is available
+        run: |
+          set -euo pipefail
+          if ! command -v gh > /dev/null 2>&1; then
+            echo "::error::GitHub CLI (gh) is not available on this runner."
+            exit 1
+          fi
+          gh --version
+
       - name: Request Copilot as reviewer
         env:
           GH_TOKEN: ${{ github.token }}
