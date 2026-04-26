@@ -771,6 +771,24 @@ function quotedValue(content: string, key: string): string | undefined {
 }
 
 function scriptWriterResult(request: LlmProviderRequest): LlmProviderResult {
+  if (request.attempt.role === 'cover_prompt_writer') {
+    const output = {
+      prompt: 'A restrained editorial podcast cover with abstract newsroom light, no logos, no real people.',
+      negativePrompt: 'logos, real people, sensational disaster imagery',
+      altText: 'Abstract editorial cover art for a sourced AI news episode.',
+      safetyNotes: ['Avoids depicting real people or unsupported scenes.'],
+    };
+    const text = JSON.stringify(output);
+
+    return {
+      text,
+      rawOutput: text,
+      metadata: { adapter: 'test-fake-cover-prompt-writer' },
+      usage: { inputTokens: 5, outputTokens: 8, totalTokens: 13 },
+      cost: { usd: 0, currency: 'USD' },
+    };
+  }
+
   if (request.attempt.role !== 'script_writer') {
     const text = JSON.stringify({ ok: true });
     return { text, rawOutput: text, metadata: { adapter: 'test-fake' } };
@@ -819,6 +837,7 @@ function scriptWriterResult(request: LlmProviderRequest): LlmProviderResult {
 const llmRuntime = createLlmRuntime({
   adapters: [
     createFakeLlmProvider({ provider: 'openai-codex', handler: scriptWriterResult }),
+    createFakeLlmProvider({ provider: 'openai', handler: scriptWriterResult }),
     createFakeLlmProvider({ provider: 'google-vertex', handler: scriptWriterResult }),
     createFakeLlmProvider({ provider: 'google-gemini-cli', handler: scriptWriterResult }),
   ],
@@ -1932,6 +1951,11 @@ describe('source profile routes', () => {
     assert.equal(audioBody.asset.type, 'audio-preview');
     assert.equal(audioBody.asset.mimeType, 'audio/mpeg');
     assert.equal(audioBody.asset.metadata.provider, 'vertex-gemini-tts');
+    assert.equal(audioBody.asset.metadata.adapterKind, 'fake-local-audio-preview');
+    assert.match(audioBody.asset.localPath, /audio-preview\.mp3$/);
+    assert.equal(audioBody.job.output.stage, 'completed');
+    assert.equal(audioBody.job.output.byteSize, audioBody.asset.byteSize);
+    assert.equal(audioBody.job.output.mimeType, 'audio/mpeg');
     assert.equal(audioBody.episode.status, 'audio-ready');
     assert.equal(audioBody.episode.metadata.audioPreviewAssetId, audioBody.asset.id);
 
@@ -1946,9 +1970,13 @@ describe('source profile routes', () => {
     assert.equal(artBody.job.type, 'art.generate');
     assert.equal(artBody.job.status, 'succeeded');
     assert.equal(artBody.job.input.modelProfile.role, 'cover_prompt_writer');
+    assert.equal(artBody.job.input.promptMetadata.source, 'cover_prompt_writer');
+    assert.equal(artBody.job.output.promptResult.altText, 'Abstract editorial cover art for a sourced AI news episode.');
     assert.equal(artBody.asset.type, 'cover-art');
     assert.equal(artBody.asset.mimeType, 'image/png');
     assert.equal(artBody.asset.metadata.provider, 'openai-gpt-image');
+    assert.equal(artBody.asset.metadata.promptMetadata.source, 'cover_prompt_writer');
+    assert.match(artBody.asset.localPath, /cover\.png$/);
     assert.equal(artBody.episode.id, audioBody.episode.id);
     assert.equal(artBody.episode.metadata.coverArtAssetId, artBody.asset.id);
 
@@ -1981,9 +2009,50 @@ describe('source profile routes', () => {
     const body = response.json();
 
     assert.equal(response.statusCode, 409);
-    assert.equal(body.code, 'EPISODE_NOT_APPROVED_FOR_PUBLISH');
+    assert.equal(body.code, 'PUBLISH_BLOCKED');
+    assert.deepEqual(body.blockedReasons.map((reason: { code: string }) => reason.code), ['EPISODE_NOT_APPROVED_FOR_PUBLISH']);
     assert.equal(store.jobs.some((job) => job.type === 'publish.rss'), false);
     assert.equal(uploadedPublishAssets.length, 0);
+  });
+
+  it('uses a provided cover prompt without invoking the prompt writer', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Provided Prompt Story',
+      status: 'approved',
+      sourceDocumentIds: [],
+      claims: [{ id: 'claim-1', text: 'A provided prompt claim exists.', sourceDocumentIds: [], citationUrls: ['https://example.com/prompt'] }],
+      citations: [],
+      warnings: [],
+      content: { summary: 'A packet summary for provided prompt testing.' },
+    });
+    const scriptResponse = await app.inject({
+      method: 'POST',
+      url: `/research-packets/${packet.id}/script`,
+    });
+    const initial = scriptResponse.json();
+
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/approve-for-audio`,
+      payload: { actor: 'producer@example.com' },
+    });
+
+    const artResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/cover-art`,
+      payload: {
+        actor: 'producer@example.com',
+        prompt: 'Use a quiet newsroom desk with abstract waveform lines.',
+      },
+    });
+    const artBody = artResponse.json();
+
+    assert.equal(artResponse.statusCode, 201);
+    assert.equal(artBody.job.input.prompt, 'Use a quiet newsroom desk with abstract waveform lines.');
+    assert.equal(artBody.job.input.promptMetadata.source, 'provided');
+    assert.equal(artBody.asset.metadata.prompt, 'Use a quiet newsroom desk with abstract waveform lines.');
   });
 
   it('publishes approved episodes to RSS with uploaded assets, OP3 wrapping, and URL validation', async () => {
@@ -2046,11 +2115,56 @@ describe('source profile routes', () => {
     const secondBody = secondResponse.json();
 
     assert.equal(firstResponse.statusCode, 201);
-    assert.equal(secondResponse.statusCode, 201);
+    assert.equal(secondResponse.statusCode, 200);
     assert.equal(firstBody.episode.feedGuid, secondBody.episode.feedGuid);
     assert.equal(firstBody.job.output.rssInserted, true);
+    assert.equal(secondBody.idempotent, true);
+    assert.equal(secondBody.job.output.idempotent, true);
     assert.equal(secondBody.job.output.rssInserted, false);
     assert.equal(rssEntries.size, 1);
+    assert.equal(uploadedPublishAssets.length, 2);
+    assert.equal(store.publishEvents.filter((event) => event.status === 'succeeded').length, 1);
+  });
+
+  it('requires an explicit changelog to re-publish an already published episode', async () => {
+    const { episode } = await createProducedEpisode('Republish Changelog Story');
+
+    await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/approve-for-publish`,
+      payload: { actor: 'editor@example.com' },
+    });
+    await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/publish/rss`,
+      payload: { actor: 'publisher@example.com' },
+    });
+
+    const blockedResponse = await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/publish/rss`,
+      payload: { actor: 'publisher@example.com', republish: true },
+    });
+    const blockedBody = blockedResponse.json();
+
+    assert.equal(blockedResponse.statusCode, 409);
+    assert.equal(blockedBody.code, 'PUBLISH_BLOCKED');
+    assert.deepEqual(blockedBody.blockedReasons.map((reason: { code: string }) => reason.code), ['REPUBLISH_CHANGELOG_REQUIRED']);
+
+    const republishResponse = await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/publish/rss`,
+      payload: {
+        actor: 'publisher@example.com',
+        republish: true,
+        changelog: 'Corrected the episode description and regenerated feed metadata.',
+      },
+    });
+    const republishBody = republishResponse.json();
+
+    assert.equal(republishResponse.statusCode, 201);
+    assert.equal(republishBody.job.output.rssInserted, false);
+    assert.equal(republishBody.publishEvent.changelog, 'Corrected the episode description and regenerated feed metadata.');
     assert.equal(store.publishEvents.filter((event) => event.status === 'succeeded').length, 2);
   });
 
@@ -2099,6 +2213,8 @@ describe('source profile routes', () => {
     assert.equal(failedResponse.statusCode, 500);
     assert.equal(failedBody.job.status, 'failed');
     assert.equal(failedBody.job.error, 'Synthetic TTS failure');
+    assert.equal(failedBody.job.output.stage, 'rendering-audio');
+    assert.equal(failedBody.job.output.retryable, true);
 
     const retryResponse = await app.inject({
       method: 'POST',

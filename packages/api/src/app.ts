@@ -241,6 +241,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       resolvedSourceStore ??= createDbSourceStore();
       return resolvedSourceStore;
     },
+    llmRuntime,
     audioPreviewProvider,
     coverArtProvider,
     publishStorageAdapterFactory,
