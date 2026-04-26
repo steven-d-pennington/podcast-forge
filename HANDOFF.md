@@ -219,6 +219,19 @@ Before accepting an agent result:
 - [ ] README/docs updated if behavior/API changed.
 - [ ] LESSONS.md updated if a gotcha was discovered.
 - [ ] GitHub issue comment includes files changed + verification output.
+- [ ] Review gate is satisfied: Copilot review is clean, or `node scripts/local-pr-review.mjs <PR> --mode gemini` (fallback: `--mode codex`, final fallback: `--mode static`) produced a clean local review artifact.
+
+## Review fallback policy
+
+Copilot review is preferred, but it is not a single point of failure. If Copilot is unavailable, quota-exhausted, delayed, or insufficient, use the local review fallback before merge.
+
+Recommended order:
+
+1. `node scripts/local-pr-review.mjs <PR> --mode gemini` — independent semantic review.
+2. `node scripts/local-pr-review.mjs <PR> --mode codex` — Codex/GPT-5.5 high-thinking review-only fallback.
+3. `node scripts/local-pr-review.mjs <PR> --mode static` — deterministic safety-net review if model CLIs are unavailable.
+
+The implementation/fix shepherd must not be the only reviewer. Store review artifacts under `data/reviews/`. Post the review summary to the PR only from the orchestrator, clearly labeled as a local automated review fallback. If Copilot and local review disagree, prefer the stricter result or escalate to Steven.
 
 ## Known constraints / preferences
 
@@ -317,3 +330,23 @@ At the end, provide:
 ```
 
 This template is intentionally repetitive. ACPX sessions may start cold; make the workflow impossible to miss.
+
+## Local Review Fallback Checkpoint
+
+Podcast Forge now has a durable review fallback for when GitHub Copilot review is unavailable, quota-limited, delayed, or insufficient.
+
+Workflow:
+1. Open one feature branch + PR per issue.
+2. Run `npm run check` locally before PR/merge.
+3. Request Copilot review when available.
+4. If Copilot does not produce useful review signal, run local review:
+   - Preferred: `node scripts/local-pr-review.mjs <pr-number> --mode gemini`
+   - Fallback: `node scripts/local-pr-review.mjs <pr-number> --mode codex`
+   - Safety net: `node scripts/local-pr-review.mjs <pr-number> --mode static`
+5. Store/review the artifact under `data/reviews/`.
+6. The orchestrator may post a clearly labeled local automated review summary to the PR.
+7. Merge only when checks pass and the active review path is clean.
+
+Guardrail: fix/shepherd agents must not approve or self-review their own work. If Copilot and local review disagree, prefer the stricter result or escalate to Steven.
+
+Checkpoint reference: Issue #28 / PR #29 implemented this policy and merged successfully. Issue #28 is closed. Next build target after the fallback is Issue #14: LLM runtime/provider adapter layer and job logging.
