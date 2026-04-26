@@ -59,6 +59,12 @@ Before finishing:
 6. Commit and push changes when you have write access.
 7. Comment on/close the GitHub issue only after verification passes.
 
+Review gate:
+- Prefer GitHub Copilot review when available.
+- If Copilot is unavailable, delayed, quota-exhausted, or insufficient, run `node scripts/local-pr-review.mjs <PR> --mode gemini` from a separate review step. Fallbacks: `--mode codex`, then `--mode static`.
+- The same agent that implemented/fixed code must not be the only reviewer.
+- A PR may merge only when checks pass and either Copilot or local review is clean.
+
 ## Current Architecture Notes
 
 - Monorepo using npm workspaces.
