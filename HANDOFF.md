@@ -32,6 +32,7 @@ Before any coding task:
 ```sh
 git pull origin main
 cat AGENTS.md
+cat HANDOFF.md
 cat LESSONS.md
 ```
 
@@ -42,6 +43,25 @@ npm run check
 ```
 
 Critical: do **not** run `npx jest`. This repo uses Node test runner through package scripts.
+
+## ACPX / Codex execution contract
+
+Use Codex / GPT-5.5 high-thinking for ACPX coding sessions until Steven says Claude auth is fixed.
+
+Each ACPX session should receive **one GitHub issue only** unless Sam explicitly batches work. The agent must treat the issue acceptance criteria, `AGENTS.md`, this `HANDOFF.md`, and `LESSONS.md` as the complete work order.
+
+Required agent behavior:
+
+1. Start by reading `AGENTS.md`, `HANDOFF.md`, and `LESSONS.md`.
+2. Confirm which issue number/title it is implementing.
+3. Inspect the relevant existing code before editing.
+4. Keep the diff limited to that issue's scope.
+5. Add or update tests for meaningful behavior.
+6. Run `npm run check` before claiming completion.
+7. Update `HANDOFF.md` only if orchestration state, dependencies, issue ordering, local dev commands, or blockers changed.
+8. Update `LESSONS.md` only for durable repo gotchas, not routine implementation notes.
+9. Commit and push if the harness has write access; otherwise leave a clear diff summary and exact verification output.
+10. Never post PR reviews. Never self-review. Only comment on the GitHub issue with implementation + verification when appropriate.
 
 ## Current state snapshot
 
@@ -170,15 +190,20 @@ Every coding agent task should include:
 
 ```text
 CRITICAL:
-- Start with: git pull origin main && cat LESSONS.md
-- Read AGENTS.md before coding.
+- You are working in ~/clawd/projects/podcast-forge on exactly one GitHub issue unless told otherwise.
+- Start with: git pull origin main && cat AGENTS.md && cat HANDOFF.md && cat LESSONS.md
+- Confirm the issue number/title and acceptance criteria before editing.
 - Skip npx jest. Use npm run check only.
 - Do not make live network/model/provider calls in tests; inject fakes.
 - Do not hardcode The Synthetic Lens behavior into generic code.
 - Do not commit secrets, local credential paths, or private account details.
 - Preserve source provenance, warnings, and approval gates.
-- Before finishing, run npm run check.
+- Keep the diff scoped to the issue; avoid drive-by rewrites.
+- Update README/docs if behavior or API changes.
+- Update HANDOFF.md only if orchestration/dependencies/status/blockers changed.
 - If you discover a repo gotcha, append it to LESSONS.md.
+- Before finishing, run npm run check.
+- Finish with: files changed, verification result, commit SHA if committed, and any follow-up issue dependencies.
 ```
 
 ## Merge/review checklist per issue
@@ -265,3 +290,30 @@ curl http://localhost:3450/health
 ## Standing open question
 
 Decide whether to keep all work directly on `main` for speed or switch to PR branches for each issue. Current repo has been moving fast on `main`; if multiple agents run concurrently, branches become safer.
+
+## Cold-start prompt template for ACPX/Codex
+
+Use this shape when launching a coding session:
+
+```text
+You are implementing Podcast Forge GitHub issue #<number>: <title>.
+
+Repo: /home/steven/clawd/projects/podcast-forge
+Branch: main unless instructed otherwise.
+
+Start by running:
+git pull origin main && cat AGENTS.md && cat HANDOFF.md && cat LESSONS.md
+
+Then inspect the issue acceptance criteria and relevant code. Implement only this issue. Keep tests fake/injected; no live network/model/provider calls in tests. Do not run npx jest. Run npm run check before finishing.
+
+If you change orchestration/dependencies/status/blockers, update HANDOFF.md. If you discover a durable repo gotcha, update LESSONS.md.
+
+At the end, provide:
+- summary of implementation
+- files changed
+- tests/verification output
+- commit SHA if committed
+- any follow-up dependencies or blockers
+```
+
+This template is intentionally repetitive. ACPX sessions may start cold; make the workflow impossible to miss.
