@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { linkedIssueNumber, normalizeVerdict, parseChangedFiles, staticReview } from './local-pr-review.mjs';
+import { linkedIssueNumber, normalizeVerdict, parseChangedFiles, possibleSecretLines, staticReview } from './local-pr-review.mjs';
 
 test('normalizes local review verdicts', () => {
   assert.equal(normalizeVerdict('needs changes'), 'needs_changes');
@@ -13,10 +13,15 @@ test('parses changed files from git patches', () => {
   assert.deepEqual(files, ['scripts/a.mjs', 'HANDOFF.md']);
 });
 
+test('possible secret detection ignores bare keywords but flags assigned literals', () => {
+  assert.deepEqual(possibleSecretLines('diff --git a/x b/x\n+Do not paste API keys here'), []);
+  assert.equal(possibleSecretLines('diff --git a/x b/x\n+API_KEY=abcdefghijklmnopqrstuvwxyz123456').length, 1);
+});
+
 test('static review blocks empty diffs and possible secrets', () => {
   const result = staticReview({
     pr: { number: 1 },
-    diff: 'diff --git a/x b/x\n+API_KEY=abc',
+    diff: 'diff --git a/x b/x\n+API_KEY=abcdefghijklmnopqrstuvwxyz123456',
     issueBody: 'Acceptance criteria',
     checkOutput: 'npm run check success',
   });

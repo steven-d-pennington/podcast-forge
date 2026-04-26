@@ -32,6 +32,7 @@ export function normalizeVerdict(raw = '') {
 export function staticReview({ pr, diff, issueBody, checkOutput }) {
   const findings = [];
   const changedFiles = parseChangedFiles(diff);
+  const secretLines = possibleSecretLines(diff);
 
   if (!diff.trim()) {
     findings.push({ severity: 'high', message: 'PR diff is empty; nothing can be reviewed.' });
@@ -39,8 +40,8 @@ export function staticReview({ pr, diff, issueBody, checkOutput }) {
   if (!issueBody?.trim()) {
     findings.push({ severity: 'medium', message: 'Linked issue body or acceptance criteria were not found.' });
   }
-  if (/SECRET|API[_-]?KEY|TOKEN|PASSWORD|PRIVATE KEY/i.test(diff)) {
-    findings.push({ severity: 'high', message: 'Diff contains possible secret/credential terms; inspect before merge.' });
+  if (secretLines.length) {
+    findings.push({ severity: 'high', message: `Diff contains possible secret/credential material in added lines; inspect before merge (${secretLines.length} line(s)).` });
   }
   if (/publish|rss|r2|production/i.test(diff) && !/approval|gate|approved/i.test(diff)) {
     findings.push({ severity: 'medium', message: 'Production/publishing-related changes should explicitly preserve approval gates.' });
@@ -60,6 +61,19 @@ export function staticReview({ pr, diff, issueBody, checkOutput }) {
     findings,
     changedFiles,
   };
+}
+
+export function possibleSecretLines(diff = '') {
+  return diff
+    .split('\n')
+    .filter((line) => line.startsWith('+') && !line.startsWith('+++'))
+    .filter((line) => {
+      const added = line.slice(1).trim();
+      if (/BEGIN [A-Z ]*PRIVATE KEY/.test(added)) return true;
+      if (!/(api[_-]?key|token|password|secret|private[_-]?key)/i.test(added)) return false;
+      // Keywords in docs/tests are not secrets unless paired with a plausible literal value.
+      return /[:=]\s*['\"]?[A-Za-z0-9_\-./+=]{20,}['\"]?/.test(added);
+    });
 }
 
 export function parseChangedFiles(diff = '') {
@@ -97,7 +111,9 @@ function collectContext(prNumber) {
   const issueNumber = linkedIssueNumber(prJson.body);
   const issue = issueNumber ? readIssue(issueNumber) : null;
   const issueBody = issue?.body || '';
-  const checkOutput = tryRun('gh', ['pr', 'checks', prNumber, '--watch=false'], 'No check output available.');
+  const remoteCheckOutput = tryRun('gh', ['pr', 'checks', prNumber, '--watch=false'], 'No remote check output available.');
+  const localCheckOutput = tryRun('npm', ['run', 'check'], 'No local check output available.');
+  const checkOutput = `${remoteCheckOutput}\n\n--- local npm run check ---\n${localCheckOutput}`;
   const handoff = existsSync(join(repoRoot, 'HANDOFF.md')) ? readFileSync(join(repoRoot, 'HANDOFF.md'), 'utf8') : '';
   const agents = existsSync(join(repoRoot, 'AGENTS.md')) ? readFileSync(join(repoRoot, 'AGENTS.md'), 'utf8') : '';
   const lessons = existsSync(join(repoRoot, 'LESSONS.md')) ? readFileSync(join(repoRoot, 'LESSONS.md'), 'utf8') : '';
