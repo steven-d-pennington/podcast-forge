@@ -74,6 +74,13 @@ Open `http://localhost:3450/ui` to edit story sources and search queries for
 queries, edit query text, freshness, include/exclude domains, and weights, and
 create or delete search queries.
 
+The same local UI now starts with a guided episode pipeline. It walks each show
+through choosing a story source/search recipe, finding candidate stories,
+selecting candidates, building a research brief, drafting a script, creating
+audio/cover previews, recording review decisions, and publishing to RSS. Wired
+stages call the existing API endpoints; unavailable source types or incomplete
+approval steps are shown as blocked/disabled instead of failing the page.
+
 ## New show onboarding
 
 Shows can be added from the local UI with `New Show`. The onboarding form

@@ -18,9 +18,14 @@ const state = {
     jobs: [],
   },
   productionPoll: null,
+  selectedCandidateIds: [],
+  selectedResearchPacketId: '',
+  selectedEpisodeId: '',
+  selectedAssetIds: [],
   selectedShowSlug: '',
   selectedProfileId: '',
   showSetupOpen: false,
+  runningActions: {},
 };
 
 const els = {
@@ -50,6 +55,9 @@ const els = {
   showModelName: document.querySelector('#showModelName'),
   showReasoningEffort: document.querySelector('#showReasoningEffort'),
   cancelShowSetup: document.querySelector('#cancelShowSetup'),
+  pipelineMeta: document.querySelector('#pipelineMeta'),
+  pipelineStages: document.querySelector('#pipelineStages'),
+  pipelineDebug: document.querySelector('#pipelineDebug'),
   profileList: document.querySelector('#profileList'),
   profileForm: document.querySelector('#profileForm'),
   profileTitle: document.querySelector('#profileTitle'),
@@ -238,6 +246,117 @@ function selectedProfile() {
   return state.profiles.find((profile) => profile.id === state.selectedProfileId);
 }
 
+function selectedShow() {
+  return state.shows.find((show) => show.slug === state.selectedShowSlug);
+}
+
+function selectedCandidates() {
+  const selected = new Set(state.selectedCandidateIds);
+  return state.storyCandidates.filter((candidate) => selected.has(candidate.id));
+}
+
+function selectedResearchPacket() {
+  return state.researchPackets.find((packet) => packet.id === state.selectedResearchPacketId);
+}
+
+function selectedEpisode() {
+  return state.production.episode
+    || state.episodes.find((episode) => episode.id === state.selectedEpisodeId)
+    || null;
+}
+
+function selectedAssets() {
+  const selected = new Set(state.selectedAssetIds);
+  const assets = state.production.assets.filter((asset) => selected.has(asset.id));
+  return assets.length > 0 ? assets : state.production.assets;
+}
+
+function pipelineStorageKey(showSlug = state.selectedShowSlug) {
+  return showSlug ? `podcast-forge:pipeline:${showSlug}` : '';
+}
+
+function restorePipelineStateForShow() {
+  const key = pipelineStorageKey();
+
+  if (!key) {
+    return;
+  }
+
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(key) || '{}');
+    state.selectedProfileId = typeof saved.selectedProfileId === 'string' ? saved.selectedProfileId : state.selectedProfileId;
+    state.selectedCandidateIds = Array.isArray(saved.selectedCandidateIds) ? saved.selectedCandidateIds.filter(Boolean) : [];
+    state.selectedResearchPacketId = typeof saved.selectedResearchPacketId === 'string' ? saved.selectedResearchPacketId : '';
+    state.selectedScriptId = typeof saved.selectedScriptId === 'string' ? saved.selectedScriptId : '';
+    state.selectedEpisodeId = typeof saved.selectedEpisodeId === 'string' ? saved.selectedEpisodeId : '';
+    state.selectedAssetIds = Array.isArray(saved.selectedAssetIds) ? saved.selectedAssetIds.filter(Boolean) : [];
+  } catch {
+    state.selectedCandidateIds = [];
+    state.selectedResearchPacketId = '';
+    state.selectedEpisodeId = '';
+    state.selectedAssetIds = [];
+  }
+}
+
+function savePipelineState() {
+  const key = pipelineStorageKey();
+
+  if (!key) {
+    return;
+  }
+
+  window.localStorage.setItem(key, JSON.stringify({
+    selectedProfileId: state.selectedProfileId,
+    selectedCandidateIds: state.selectedCandidateIds,
+    selectedResearchPacketId: state.selectedResearchPacketId,
+    selectedScriptId: state.selectedScriptId,
+    selectedEpisodeId: state.selectedEpisodeId,
+    selectedAssetIds: state.selectedAssetIds,
+  }));
+}
+
+function clearPipelineSelections() {
+  state.selectedCandidateIds = [];
+  state.selectedResearchPacketId = '';
+  state.selectedScriptId = '';
+  state.selectedScript = null;
+  state.selectedRevision = null;
+  state.selectedEpisodeId = '';
+  state.selectedAssetIds = [];
+  state.production = { episode: null, assets: [], jobs: [] };
+}
+
+function setActionRunning(action, running) {
+  state.runningActions = {
+    ...state.runningActions,
+    [action]: running,
+  };
+  render();
+}
+
+function isActionRunning(action) {
+  return Boolean(state.runningActions[action]);
+}
+
+function toggleCandidateSelection(candidateId) {
+  if (state.selectedCandidateIds.includes(candidateId)) {
+    state.selectedCandidateIds = state.selectedCandidateIds.filter((id) => id !== candidateId);
+  } else {
+    state.selectedCandidateIds = [...state.selectedCandidateIds, candidateId];
+  }
+
+  savePipelineState();
+  render();
+}
+
+function selectResearchPacket(packet) {
+  state.selectedResearchPacketId = packet.id;
+  els.scriptResearchPacketId.value = packet.id;
+  savePipelineState();
+  setStatus('Research brief selected for script drafting.');
+  render();
+}
+
 function renderShows() {
   els.showSelect.innerHTML = '';
 
@@ -282,6 +401,7 @@ function renderProfiles() {
     button.querySelector('span').textContent = `${profile.type} | ${profile.enabled ? 'enabled' : 'disabled'} | weight ${profile.weight}`;
     button.addEventListener('click', async () => {
       state.selectedProfileId = profile.id;
+      savePipelineState();
       await loadQueries();
       render();
     });
@@ -317,6 +437,264 @@ function renderProfileForm() {
   els.profileIncludeDomains.value = listToLines(profile.includeDomains);
   els.profileExcludeDomains.value = listToLines(profile.excludeDomains);
   els.ingestProfile.hidden = profile.type !== 'rss';
+}
+
+function statusClass(status) {
+  return status.replaceAll(' ', '-');
+}
+
+function stageCard(stage) {
+  const card = document.createElement('article');
+  card.className = `pipeline-card ${statusClass(stage.status)}${stage.active ? ' active' : ''}`;
+
+  const top = document.createElement('div');
+  top.className = 'pipeline-top';
+  const heading = document.createElement('div');
+  const step = document.createElement('div');
+  step.className = 'pipeline-step';
+  step.textContent = `Stage ${stage.number}`;
+  const title = document.createElement('h3');
+  title.textContent = stage.title;
+  heading.append(step, title);
+  const status = document.createElement('span');
+  status.className = `status-pill ${statusClass(stage.status)}`;
+  status.textContent = stage.status;
+  top.append(heading, status);
+
+  const artifacts = document.createElement('div');
+  artifacts.className = 'pipeline-artifacts';
+  const artifactLabel = document.createElement('span');
+  artifactLabel.className = 'pipeline-label';
+  artifactLabel.textContent = 'Latest artifact';
+  const artifactText = document.createElement('p');
+  artifactText.textContent = stage.artifact;
+  artifacts.append(artifactLabel, artifactText);
+
+  const next = document.createElement('div');
+  next.className = 'pipeline-next';
+  const nextLabel = document.createElement('span');
+  nextLabel.className = 'pipeline-label';
+  nextLabel.textContent = stage.status === 'blocked' ? 'Blocked reason' : 'Next step';
+  const nextText = document.createElement('p');
+  nextText.textContent = stage.next;
+  next.append(nextLabel, nextText);
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = stage.primary ? '' : 'secondary';
+  button.textContent = stage.actionLabel;
+  button.disabled = stage.disabled;
+  if (stage.action) {
+    button.addEventListener('click', stage.action);
+  }
+
+  card.append(top, artifacts, next, button);
+  return card;
+}
+
+function latestCandidateText() {
+  const candidates = selectedCandidates();
+
+  if (candidates.length > 0) {
+    return candidates.map((candidate) => candidate.title).join('; ');
+  }
+
+  return state.storyCandidates[0]?.title || 'No candidate stories selected yet.';
+}
+
+function latestResearchText(packet) {
+  if (!packet) {
+    return state.researchPackets[0]?.title || 'No research brief selected yet.';
+  }
+
+  const warningCount = packet.warnings?.length || 0;
+  return `${packet.title} (${packet.status}, ${warningCount} warning${warningCount === 1 ? '' : 's'})`;
+}
+
+function latestScriptText() {
+  if (!state.selectedScript || !state.selectedRevision) {
+    return state.scripts[0]?.title || 'No script draft selected yet.';
+  }
+
+  return `${state.selectedScript.title} (revision ${state.selectedRevision.version}, ${state.selectedScript.status})`;
+}
+
+function latestProductionText() {
+  const episode = selectedEpisode();
+  const assets = selectedAssets();
+  const audio = assets.find((asset) => asset.type === 'audio-preview' || asset.type === 'audio-final');
+  const art = assets.find((asset) => asset.type === 'cover-art');
+
+  if (!episode) {
+    return 'No episode or production assets selected yet.';
+  }
+
+  return `${episode.title} (${episode.status}) | audio ${audio ? 'ready' : 'missing'} | cover ${art ? 'ready' : 'missing'}`;
+}
+
+function buildPipelineStages() {
+  const show = selectedShow();
+  const profile = selectedProfile();
+  const candidates = selectedCandidates();
+  const packet = selectedResearchPacket();
+  const latestPacket = packet || state.researchPackets[0];
+  const episode = selectedEpisode();
+  const assets = selectedAssets();
+  const audioAsset = assets.find((asset) => asset.type === 'audio-preview' || asset.type === 'audio-final');
+  const coverAsset = assets.find((asset) => asset.type === 'cover-art');
+  const scriptApproved = state.selectedScript?.status === 'approved-for-audio'
+    && state.selectedScript?.approvedRevisionId === state.selectedRevision?.id;
+  const productionRunning = state.production.jobs.some((job) => !isTerminalJob(job));
+  const discoverRunning = isActionRunning('discover');
+  const researchRunning = isActionRunning('research');
+  const scriptRunning = isActionRunning('script');
+  const approvalsRunning = isActionRunning('approval');
+  const publishRunning = isActionRunning('publish');
+  const productionActionRunning = productionRunning || isActionRunning('production');
+  const packetWarningCount = packet?.warnings?.length || 0;
+  const packetBlocked = packet?.status === 'blocked';
+  const profileSupportsDiscovery = profile && ['brave', 'rss'].includes(profile.type);
+
+  return [
+    {
+      number: 1,
+      title: 'Choose show and story source',
+      status: show && profile ? 'done' : show ? 'blocked' : 'not started',
+      artifact: show ? `${show.title}${profile ? ` | ${profile.name}` : ''}` : 'No show selected.',
+      next: show
+        ? (profile ? 'Use this show and source recipe for the next discovery run.' : 'Add or seed a story source/search recipe for this show.')
+        : 'Create or select a show before building an episode.',
+      actionLabel: show ? 'Open Show Setup' : 'New Show',
+      action: () => {
+        state.showSetupOpen = true;
+        render();
+      },
+      disabled: false,
+      active: Boolean(show && profile),
+    },
+    {
+      number: 2,
+      title: 'Find or ingest candidate stories',
+      status: discoverRunning ? 'running' : !profile ? 'blocked' : state.storyCandidates.length > 0 ? 'done' : profileSupportsDiscovery ? 'ready' : 'ready',
+      artifact: state.storyCandidates.length > 0
+        ? `${state.storyCandidates.length} candidate stor${state.storyCandidates.length === 1 ? 'y' : 'ies'} loaded. Latest: ${state.storyCandidates[0].title}`
+        : 'No candidate stories loaded yet.',
+      next: !profile
+        ? 'Choose a story source/search recipe first.'
+        : profile.type === 'manual'
+          ? 'Paste a manual source URL below to add a possible story.'
+          : profileSupportsDiscovery
+            ? `Run ${profile.type === 'rss' ? 'RSS import' : 'source search'} for the selected story source.`
+            : 'This source type is not wired for browser-triggered discovery yet.',
+      actionLabel: !profile ? 'Choose Story Source' : profile.type === 'rss' ? 'Import RSS Items' : profile.type === 'brave' ? 'Run Source Search' : 'Add Manual Story',
+      action: !profile ? undefined : profileSupportsDiscovery ? runSelectedProfileDiscovery : focusManualStoryForm,
+      disabled: discoverRunning || !profile || (!profileSupportsDiscovery && profile.type !== 'manual'),
+      active: state.storyCandidates.length > 0,
+    },
+    {
+      number: 3,
+      title: 'Select or cluster candidate stories',
+      status: state.storyCandidates.length === 0 ? 'blocked' : candidates.length > 0 ? 'done' : 'ready',
+      artifact: latestCandidateText(),
+      next: candidates.length > 0
+        ? `${candidates.length} candidate stor${candidates.length === 1 ? 'y is' : 'ies are'} selected for the brief.`
+        : 'Select one or more possible stories before building a research brief.',
+      actionLabel: candidates.length > 0 ? 'Clear Selection' : 'Select Top Candidate',
+      action: candidates.length > 0 ? clearCandidateSelection : selectTopCandidate,
+      disabled: state.storyCandidates.length === 0,
+      active: candidates.length > 0,
+    },
+    {
+      number: 4,
+      title: 'Build research brief',
+      status: researchRunning ? 'running' : packetBlocked ? 'blocked' : packet && packetWarningCount > 0 ? 'needs review' : packet ? 'done' : state.researchPackets.length > 0 || candidates.length > 0 ? 'ready' : 'blocked',
+      artifact: latestResearchText(latestPacket),
+      next: packet
+        ? (packetWarningCount > 0 ? 'Review warnings before drafting or approving production.' : 'Use this research brief to draft the episode.')
+        : state.researchPackets.length > 0 ? 'Select the latest research brief or build a new one from selected candidate stories.' : candidates.length > 0 ? 'Build a research brief from the selected candidate stories.' : 'Select candidate stories first.',
+      actionLabel: packet ? 'Use Selected Brief' : state.researchPackets.length > 0 ? 'Select Latest Brief' : 'Build Research Brief',
+      action: packet ? () => selectResearchPacket(packet) : state.researchPackets.length > 0 ? () => selectResearchPacket(state.researchPackets[0]) : buildResearchBriefFromSelected,
+      disabled: researchRunning || (!packet && state.researchPackets.length === 0 && candidates.length === 0),
+      active: Boolean(packet),
+    },
+    {
+      number: 5,
+      title: 'Generate or revise script draft',
+      status: scriptRunning ? 'running' : state.selectedScript && scriptApproved ? 'done' : state.selectedScript ? 'needs review' : packet && !packetBlocked ? 'ready' : 'blocked',
+      artifact: latestScriptText(),
+      next: state.selectedScript
+        ? (scriptApproved ? 'Approved script draft can move into audio and cover production.' : 'Review and approve the selected script revision before audio.')
+        : packet && !packetBlocked ? 'Generate an episode draft from the selected research brief.' : 'Select a ready research brief first.',
+      actionLabel: state.selectedScript ? 'Review Draft' : 'Generate Script Draft',
+      action: state.selectedScript ? focusScriptEditor : generateScriptFromSelectedResearch,
+      disabled: scriptRunning || (!state.selectedScript && (!packet || packetBlocked)),
+      active: Boolean(state.selectedScript),
+    },
+    {
+      number: 6,
+      title: 'Generate audio and cover preview',
+      status: productionActionRunning ? 'running' : audioAsset && coverAsset ? 'done' : scriptApproved ? 'ready' : 'blocked',
+      artifact: latestProductionText(),
+      next: audioAsset && coverAsset
+        ? 'Preview audio and cover art are ready for publish review.'
+        : scriptApproved ? 'Create the missing preview audio and cover art assets.' : 'Approve a script revision for audio first.',
+      actionLabel: audioAsset && coverAsset ? 'Refresh Assets' : 'Create Missing Assets',
+      action: audioAsset && coverAsset ? refreshProductionUntilSettled : createMissingProductionAssets,
+      disabled: productionActionRunning || (!scriptApproved && !(audioAsset && coverAsset)),
+      active: Boolean(audioAsset || coverAsset),
+    },
+    {
+      number: 7,
+      title: 'Review approvals',
+      status: approvalsRunning ? 'running' : episode?.status === 'approved-for-publish' || episode?.status === 'published' ? 'done' : episode?.status === 'audio-ready' ? 'ready' : state.selectedScript && !scriptApproved ? 'needs review' : 'blocked',
+      artifact: episode ? `${episode.title} (${episode.status})` : latestScriptText(),
+      next: episode?.status === 'audio-ready'
+        ? 'Approve the episode for publishing after reviewing assets.'
+        : state.selectedScript && !scriptApproved ? 'Approve the script revision before production can run.' : 'Finish script approval and production assets first.',
+      actionLabel: episode?.status === 'audio-ready' ? 'Approve for Publishing' : 'Approve Script for Audio',
+      action: episode?.status === 'audio-ready' ? approveEpisodeForPublishing : approveSelectedScript,
+      disabled: approvalsRunning || !(episode?.status === 'audio-ready' || (state.selectedScript && state.selectedRevision && !scriptApproved)),
+      active: Boolean(episode?.status === 'approved-for-publish' || episode?.status === 'published'),
+    },
+    {
+      number: 8,
+      title: 'Publish',
+      status: publishRunning ? 'running' : episode?.status === 'published' ? 'done' : episode?.status === 'approved-for-publish' ? 'ready' : 'blocked',
+      artifact: episode?.feedGuid || episode?.metadata?.publish?.rssUrl || 'No publishing record yet.',
+      next: episode?.status === 'published'
+        ? 'RSS publishing has a recorded feed GUID or publish result.'
+        : episode?.status === 'approved-for-publish' ? 'Publish to the configured RSS feed.' : 'Approval for publishing is required before RSS output.',
+      actionLabel: episode?.status === 'published' ? 'Already Published' : 'Publish to RSS',
+      action: publishSelectedEpisode,
+      disabled: publishRunning || episode?.status !== 'approved-for-publish',
+      active: episode?.status === 'published',
+      primary: true,
+    },
+  ];
+}
+
+function renderPipeline() {
+  const show = selectedShow();
+  const profile = selectedProfile();
+  els.pipelineMeta.textContent = show
+    ? `${show.title}${profile ? ` | Story source: ${profile.name}` : ' | Choose a story source/search recipe'}`
+    : 'Choose a show to start an evidence-first episode workflow.';
+  els.pipelineStages.innerHTML = '';
+
+  for (const stage of buildPipelineStages()) {
+    els.pipelineStages.append(stageCard(stage));
+  }
+
+  els.pipelineDebug.textContent = JSON.stringify({
+    showSlug: state.selectedShowSlug,
+    sourceProfileId: state.selectedProfileId,
+    selectedCandidateIds: state.selectedCandidateIds,
+    selectedResearchPacketId: state.selectedResearchPacketId,
+    selectedScriptId: state.selectedScriptId,
+    selectedRevisionId: state.selectedRevision?.id ?? null,
+    selectedEpisodeId: state.selectedEpisodeId || state.production.episode?.id || null,
+    selectedAssetIds: state.selectedAssetIds,
+  }, null, 2);
 }
 
 function renderQueries() {
@@ -401,7 +779,8 @@ function renderStoryCandidates() {
 
   for (const candidate of state.storyCandidates) {
     const row = document.createElement('article');
-    row.className = 'record-row';
+    const selected = state.selectedCandidateIds.includes(candidate.id);
+    row.className = `record-row${selected ? ' selected' : ''}`;
 
     const title = document.createElement('strong');
     title.textContent = candidate.title;
@@ -413,6 +792,17 @@ function renderStoryCandidates() {
     const summary = document.createElement('p');
     summary.textContent = candidate.summary || candidate.url || 'No summary recorded.';
 
+    const actions = document.createElement('div');
+    actions.className = 'actions inline row-actions';
+
+    const select = document.createElement('button');
+    select.type = 'button';
+    select.className = 'secondary';
+    select.textContent = selected ? 'Selected for Brief' : 'Select for Brief';
+    select.addEventListener('click', () => {
+      toggleCandidateSelection(candidate.id);
+    });
+
     const createBrief = document.createElement('button');
     createBrief.type = 'button';
     createBrief.className = 'secondary';
@@ -421,7 +811,8 @@ function renderStoryCandidates() {
       await createResearchBrief(candidate.id, createBrief);
     });
 
-    row.append(title, meta, summary, createBrief);
+    actions.append(select, createBrief);
+    row.append(title, meta, summary, actions);
     els.candidateList.append(row);
   }
 }
@@ -440,7 +831,7 @@ function renderResearchBriefs() {
 
   for (const packet of state.researchPackets) {
     const row = document.createElement('article');
-    row.className = 'record-row';
+    row.className = `record-row${packet.id === state.selectedResearchPacketId ? ' selected' : ''}`;
 
     const title = document.createElement('strong');
     title.textContent = packet.title;
@@ -459,10 +850,9 @@ function renderResearchBriefs() {
     const useForScript = document.createElement('button');
     useForScript.type = 'button';
     useForScript.className = 'secondary';
-    useForScript.textContent = 'Use for Script';
+    useForScript.textContent = packet.id === state.selectedResearchPacketId ? 'Selected for Script' : 'Use for Script';
     useForScript.addEventListener('click', () => {
-      els.scriptResearchPacketId.value = packet.id;
-      setStatus('Research brief selected for script drafting.');
+      selectResearchPacket(packet);
     });
     actions.append(useForScript);
 
@@ -494,7 +884,7 @@ function renderEpisodes() {
 
   for (const episode of state.episodes) {
     const row = document.createElement('article');
-    row.className = 'record-row';
+    row.className = `record-row${episode.id === state.selectedEpisodeId ? ' selected' : ''}`;
 
     const title = document.createElement('strong');
     title.textContent = episode.episodeNumber ? `EP${episode.episodeNumber}: ${episode.title}` : episode.title;
@@ -506,7 +896,18 @@ function renderEpisodes() {
     const summary = document.createElement('p');
     summary.textContent = episode.feedGuid || episode.metadata?.publicAudioUrl || episode.description || 'No publish metadata recorded.';
 
-    row.append(title, meta, summary);
+    const select = document.createElement('button');
+    select.type = 'button';
+    select.className = 'secondary';
+    select.textContent = episode.id === state.selectedEpisodeId ? 'Selected Episode' : 'Select Episode';
+    select.addEventListener('click', () => {
+      state.selectedEpisodeId = episode.id;
+      savePipelineState();
+      render();
+      setStatus('Episode selected for pipeline review.');
+    });
+
+    row.append(title, meta, summary, select);
     els.episodeList.append(row);
   }
 }
@@ -728,6 +1129,7 @@ function renderScripts() {
     button.querySelector('span').textContent = `${script.format} | ${script.status} | updated ${new Date(script.updatedAt).toLocaleString()}`;
     button.addEventListener('click', async () => {
       await loadScript(script.id);
+      savePipelineState();
       render();
     });
     els.scriptList.append(button);
@@ -746,6 +1148,7 @@ function renderScripts() {
 
 function render() {
   renderShows();
+  renderPipeline();
   renderShowSetup();
   renderProfiles();
   renderProfileForm();
@@ -762,6 +1165,7 @@ async function loadShows() {
   const body = await api('/shows');
   state.shows = body.shows;
   state.selectedShowSlug ||= state.shows[0]?.slug || '';
+  restorePipelineStateForShow();
 }
 
 async function loadProfiles() {
@@ -911,6 +1315,9 @@ async function loadEpisodes() {
 
   const body = await api(`/episodes?showSlug=${encodeURIComponent(state.selectedShowSlug)}&limit=25`);
   state.episodes = body.episodes;
+  if (!state.selectedEpisodeId && state.episodes[0]) {
+    state.selectedEpisodeId = state.episodes[0].id;
+  }
 }
 
 async function loadScript(id) {
@@ -933,6 +1340,218 @@ async function loadProduction() {
     assets: body.assets || [],
     jobs: body.jobs || [],
   };
+  state.selectedEpisodeId = body.episode?.id || state.selectedEpisodeId || '';
+  state.selectedAssetIds = (body.assets || []).map((asset) => asset.id);
+  savePipelineState();
+}
+
+function focusManualStoryForm() {
+  els.manualUrl.focus();
+  setStatus('Paste a source URL in Add Manual Story to create a candidate story.');
+}
+
+function focusScriptEditor() {
+  if (state.selectedScript && state.selectedRevision) {
+    els.scriptTitle.focus();
+    setStatus('Review the selected script draft and save a revision or approve it for audio.');
+  }
+}
+
+function selectTopCandidate() {
+  const candidate = state.storyCandidates[0];
+
+  if (!candidate) {
+    return;
+  }
+
+  state.selectedCandidateIds = [candidate.id];
+  savePipelineState();
+  render();
+  setStatus('Top candidate story selected for the research brief.');
+}
+
+function clearCandidateSelection() {
+  state.selectedCandidateIds = [];
+  savePipelineState();
+  render();
+  setStatus('Candidate story selection cleared.');
+}
+
+async function runSelectedProfileDiscovery() {
+  const profile = selectedProfile();
+
+  if (!profile || !['brave', 'rss'].includes(profile.type)) {
+    focusManualStoryForm();
+    return;
+  }
+
+  setActionRunning('discover', true);
+  setStatus(profile.type === 'rss' ? 'Importing RSS items...' : 'Running source search...');
+
+  try {
+    const path = profile.type === 'rss'
+      ? `/source-profiles/${profile.id}/ingest`
+      : `/source-profiles/${profile.id}/search`;
+    const body = await api(path, { method: 'POST' });
+    await loadStoryCandidates();
+    render();
+    setStatus(`${profile.type === 'rss' ? 'RSS import' : 'Source search'} complete: ${body.inserted} inserted, ${body.skipped} skipped.`);
+  } catch (error) {
+    reportError(error);
+  } finally {
+    setActionRunning('discover', false);
+  }
+}
+
+async function buildResearchBriefFromSelected() {
+  const candidateIds = state.selectedCandidateIds.filter(Boolean);
+
+  if (candidateIds.length === 0) {
+    return;
+  }
+
+  setActionRunning('research', true);
+  setStatus('Creating research brief...');
+
+  try {
+    const body = candidateIds.length === 1
+      ? await api(`/story-candidates/${candidateIds[0]}/research-packet`, {
+        method: 'POST',
+        body: JSON.stringify({ extraUrls: [] }),
+      })
+      : await api('/research-packets', {
+        method: 'POST',
+        body: JSON.stringify({ candidateIds, extraUrls: [] }),
+      });
+    state.selectedResearchPacketId = body.researchPacket.id;
+    els.scriptResearchPacketId.value = body.researchPacket.id;
+    await loadResearchPackets();
+    savePipelineState();
+    render();
+    setStatus(`Research brief created: ${body.researchPacket.status}.`);
+  } catch (error) {
+    reportError(error);
+  } finally {
+    setActionRunning('research', false);
+  }
+}
+
+async function generateScriptFromSelectedResearch() {
+  const researchPacketId = state.selectedResearchPacketId || els.scriptResearchPacketId.value.trim();
+
+  if (!researchPacketId) {
+    return;
+  }
+
+  setActionRunning('script', true);
+  setStatus('Generating script draft...');
+
+  try {
+    await generateScriptDraft(researchPacketId, els.scriptFormat.value.trim() || undefined);
+  } finally {
+    setActionRunning('script', false);
+  }
+}
+
+async function createMissingProductionAssets() {
+  if (!state.selectedScript || !state.selectedRevision) {
+    return;
+  }
+
+  setActionRunning('production', true);
+  setStatus('Creating missing audio and cover assets...');
+
+  try {
+    let assets = selectedAssets();
+    const hasAudio = assets.some((asset) => asset.type === 'audio-preview' || asset.type === 'audio-final');
+    const hasCover = assets.some((asset) => asset.type === 'cover-art');
+
+    if (!hasAudio) {
+      await api(`/scripts/${state.selectedScript.id}/production/audio-preview`, {
+        method: 'POST',
+        body: JSON.stringify({ actor: 'local-user' }),
+      });
+      await loadProduction();
+      assets = selectedAssets();
+    }
+
+    if (!hasCover && !assets.some((asset) => asset.type === 'cover-art')) {
+      await api(`/scripts/${state.selectedScript.id}/production/cover-art`, {
+        method: 'POST',
+        body: JSON.stringify({ actor: 'local-user' }),
+      });
+      await loadProduction();
+    }
+
+    await loadEpisodes();
+    render();
+    setStatus('Audio and cover asset tasks updated.');
+  } catch (error) {
+    await loadProduction();
+    render();
+    reportError(error);
+  } finally {
+    setActionRunning('production', false);
+  }
+}
+
+async function approveEpisodeForPublishing() {
+  const episode = selectedEpisode();
+
+  if (!episode) {
+    return;
+  }
+
+  setActionRunning('approval', true);
+  setStatus('Saving publish approval...');
+
+  try {
+    const body = await api(`/episodes/${episode.id}/approve-for-publish`, {
+      method: 'POST',
+      body: JSON.stringify({
+        actor: 'local-user',
+        reason: 'Approved in local UI.',
+      }),
+    });
+    state.selectedEpisodeId = body.episode.id;
+    await loadEpisodes();
+    await loadProduction();
+    savePipelineState();
+    render();
+    setStatus('Review decision saved: episode approved for publishing.');
+  } catch (error) {
+    reportError(error);
+  } finally {
+    setActionRunning('approval', false);
+  }
+}
+
+async function publishSelectedEpisode() {
+  const episode = selectedEpisode();
+
+  if (!episode || episode.status !== 'approved-for-publish') {
+    return;
+  }
+
+  setActionRunning('publish', true);
+  setStatus('Publishing to RSS...');
+
+  try {
+    const body = await api(`/episodes/${episode.id}/publish/rss`, {
+      method: 'POST',
+      body: JSON.stringify({ actor: 'local-user' }),
+    });
+    state.selectedEpisodeId = body.episode.id;
+    await loadEpisodes();
+    await loadProduction();
+    savePipelineState();
+    render();
+    setStatus(body.idempotent ? 'Episode was already published.' : 'Episode published to RSS.');
+  } catch (error) {
+    reportError(error);
+  } finally {
+    setActionRunning('publish', false);
+  }
 }
 
 async function loadAll() {
@@ -940,16 +1559,56 @@ async function loadAll() {
     els.refresh.disabled = true;
     setStatus('Loading workspace...');
     await loadShows();
-    await loadProfiles();
-    await loadQueries();
-    await loadModelProfiles();
-    await loadStoryCandidates();
-    await loadResearchPackets();
-    await loadScheduledPipelines();
-    await loadEpisodes();
-    await loadScripts();
+    const loadErrors = [];
+    const safeLoad = async (label, loader, fallback) => {
+      try {
+        await loader();
+      } catch (error) {
+        fallback();
+        loadErrors.push({
+          label,
+          message: error instanceof Error ? error.message : 'Section failed to load.',
+          details: error instanceof ApiRequestError ? error.debugDetails : debugText(error),
+        });
+      }
+    };
+
+    await safeLoad('story sources', loadProfiles, () => {
+      state.profiles = [];
+      state.selectedProfileId = '';
+    });
+    await safeLoad('search queries', loadQueries, () => {
+      state.queries = [];
+    });
+    await safeLoad('AI role settings', loadModelProfiles, () => {
+      state.modelProfiles = [];
+    });
+    await safeLoad('candidate stories', loadStoryCandidates, () => {
+      state.storyCandidates = [];
+    });
+    await safeLoad('research briefs', loadResearchPackets, () => {
+      state.researchPackets = [];
+    });
+    await safeLoad('scheduled pipelines', loadScheduledPipelines, () => {
+      state.scheduledPipelines = [];
+      state.failedScheduledRuns = [];
+    });
+    await safeLoad('episodes', loadEpisodes, () => {
+      state.episodes = [];
+    });
+    await safeLoad('script drafts', loadScripts, () => {
+      state.scripts = [];
+      state.selectedScriptId = '';
+      state.selectedScript = null;
+      state.selectedRevision = null;
+      state.production = { episode: null, assets: [], jobs: [] };
+    });
     render();
-    setStatus('Workspace loaded.');
+    if (loadErrors.length > 0) {
+      setStatus('Workspace loaded with some unavailable sections. Open technical details for API responses.', loadErrors);
+    } else {
+      setStatus('Workspace loaded.');
+    }
   } catch (error) {
     reportError(error, 'Could not load the workspace. Open technical details for the API response.');
   } finally {
@@ -1008,7 +1667,7 @@ async function createShow(event) {
     });
     state.selectedShowSlug = body.show.slug;
     state.selectedProfileId = '';
-    state.selectedScriptId = '';
+    clearPipelineSelections();
     state.showSetupOpen = false;
     els.showSetupForm.reset();
     els.showModelProvider.value = 'openai';
@@ -1203,9 +1862,12 @@ async function createResearchBrief(candidateId, button) {
       method: 'POST',
       body: JSON.stringify({ extraUrls: [] }),
     });
+    state.selectedCandidateIds = [candidateId];
+    state.selectedResearchPacketId = body.researchPacket.id;
     await loadResearchPackets();
     render();
     els.scriptResearchPacketId.value = body.researchPacket.id;
+    savePipelineState();
     setStatus(`Research brief created: ${body.researchPacket.status}.`);
   } catch (error) {
     reportError(error);
@@ -1222,11 +1884,15 @@ async function generateScript(event) {
     return;
   }
 
+  await generateScriptDraft(researchPacketId, els.scriptFormat.value.trim() || undefined);
+}
+
+async function generateScriptDraft(researchPacketId, format) {
   try {
     const body = await api(`/research-packets/${researchPacketId}/script`, {
       method: 'POST',
       body: JSON.stringify({
-        format: els.scriptFormat.value.trim() || undefined,
+        format,
         actor: 'local-user',
       }),
     });
@@ -1234,8 +1900,10 @@ async function generateScript(event) {
     state.selectedScriptId = body.script.id;
     state.selectedScript = body.script;
     state.selectedRevision = body.revision;
+    state.selectedResearchPacketId = researchPacketId;
     state.production = { episode: null, assets: [], jobs: [] };
     els.scriptResearchPacketId.value = '';
+    savePipelineState();
     render();
     setStatus(`Generated script revision ${body.revision.version}.`);
   } catch (error) {
@@ -1276,6 +1944,9 @@ async function approveSelectedScript() {
     return;
   }
 
+  setActionRunning('approval', true);
+  setStatus('Saving script approval...');
+
   try {
     const body = await api(`/scripts/${state.selectedScript.id}/revisions/${state.selectedRevision.id}/approve-for-audio`, {
       method: 'POST',
@@ -1287,10 +1958,13 @@ async function approveSelectedScript() {
     state.scripts = state.scripts.map((script) => script.id === body.script.id ? body.script : script);
     state.selectedScript = body.script;
     await loadProduction();
+    savePipelineState();
     render();
     setStatus('Review decision saved: script approved for audio.');
   } catch (error) {
     reportError(error);
+  } finally {
+    setActionRunning('approval', false);
   }
 }
 
@@ -1394,7 +2068,8 @@ els.showSetupForm.addEventListener('submit', createShow);
 els.showSelect.addEventListener('change', async () => {
   state.selectedShowSlug = els.showSelect.value;
   state.selectedProfileId = '';
-  state.selectedScriptId = '';
+  clearPipelineSelections();
+  restorePipelineStateForShow();
   await loadProfiles();
   await loadQueries();
   await loadModelProfiles();
