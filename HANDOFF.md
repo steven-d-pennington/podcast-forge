@@ -83,9 +83,9 @@ Already shipped/closed:
 
 Open build wave:
 
-- #14 LLM runtime: provider adapter layer and job logging
-- #15 Prompt template registry and structured output schemas
-- #16 LLM candidate scoring and ranking
+- #14 LLM runtime: provider adapter layer and job logging ✅ merged (#31)
+- #15 Prompt template registry and structured output schemas ✅ merged (#32)
+- #16 LLM candidate scoring and ranking ✅ merged (#33)
 - #17 Multi-candidate research packet builder
 - #18 LLM script generation and revision validation
 - #19 Real production adapters for audio, cover art, and publishing
@@ -205,6 +205,34 @@ CRITICAL:
 - Before finishing, run npm run check.
 - Finish with: files changed, verification result, commit SHA if committed, and any follow-up issue dependencies.
 ```
+
+
+## Durable orchestration loop
+
+Podcast Forge is an active managed sprint. Do **not** rely on session memory to keep it moving. Use these durable anchors:
+
+- Sprint state: `~/clawd/data/podcast-forge-sprint-state.json`
+- Repo handoff: this `HANDOFF.md`
+- Repo agent rules: `AGENTS.md`
+- Repo gotchas: `LESSONS.md`
+- Review/comment shepherd state: `~/clawd/data/pr-comment-shepherd/` and `~/clawd/data/pr-shepherd/`
+
+Every heartbeat or resume should:
+
+1. Check GitHub PRs/issues first; GitHub is truth.
+2. If an agent finished but could not commit/push, Sam must copy/recover the diff into the canonical repo, run `npm run check`, open a PR, review, and merge if clean.
+3. If a PR is open, finish that PR's review/shepherd/merge loop before starting the next issue.
+4. If no PR/agent is active, start the next unblocked issue from the sprint state queue.
+5. Update this file and sprint state whenever issue ordering, blockers, or escalation status changes.
+
+Escalate to Steven only for:
+
+- publication approval or external public posting,
+- ambiguous product/editorial direction,
+- repeated failing checks after a focused fix attempt,
+- conflicting reviews where the stricter path is not obvious,
+- credentials/auth/account access that cannot be safely handled locally,
+- scope changes that materially alter the product direction.
 
 ## Merge/review checklist per issue
 
