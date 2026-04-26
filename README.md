@@ -433,11 +433,21 @@ or warning-bearing packets for editorial review before production.
 
 ## Script generation workflow
 
-Research packets can produce deterministic editable script drafts. The
-`script.generate` job resolves the show-specific `script_writer` model profile
-and records that routing in the job input/output and initial script revision,
-but it does not call an external LLM yet. Drafts are generated from packet
-claims, citations, warnings, the show format, and the configured show cast.
+Research packets can produce LLM-backed editable script drafts. The
+`script.generate` job resolves the show-specific `script_writer` model profile,
+renders the configured prompt template, validates the structured model output,
+and records routing/runtime metadata in the job output and initial script
+revision. Tests and local development can inject the deterministic `fake` LLM
+runtime; if no runtime/profile is available, generation falls back to the
+deterministic draft builder.
+
+Generated revisions store `metadata.citationMap`, `metadata.provenance`, and
+`metadata.validation` so reviewers can see which research packet, claim IDs,
+source document IDs, citation URLs, model runtime, and warning state produced
+the draft. If a model omits citation metadata or the packet contains claims
+without usable provenance, the revision records explicit missing-provenance
+warnings. Packets with `status: "blocked"` or `content.readiness.status:
+"blocked"` are rejected before a script is persisted.
 
 Generate a script from a research packet:
 
@@ -448,8 +458,10 @@ curl -X POST http://localhost:3450/research-packets/:id/script \
 ```
 
 Human edits are saved as new immutable revisions instead of silently
-overwriting the previous body. Speaker labels such as `DAVID:` must match a
-configured cast member for the show.
+overwriting the previous body. Human edit revisions preserve the previous
+revision's citation/provenance metadata and add fresh validation metadata.
+Speaker labels such as `DAVID:` must match a configured cast member for the
+show; unknown model-generated or human-entered speaker labels are rejected.
 
 ```sh
 curl -X POST http://localhost:3450/scripts/:id/revisions \

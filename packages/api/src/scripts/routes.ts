@@ -1,12 +1,22 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z, ZodError } from 'zod';
 
+import { LlmJsonOutputError, LlmRuntimeError, type LlmRuntime } from '../llm/types.js';
 import { hasModelProfileStore, resolveModelProfile } from '../models/resolver.js';
 import type { ModelProfileStore } from '../models/store.js';
+import { createPromptRegistry } from '../prompts/registry.js';
+import { PromptRenderError } from '../prompts/renderer.js';
+import type { PromptTemplateStore } from '../prompts/types.js';
 import type { ResearchStore } from '../research/store.js';
 import type { CreateJobInput, JobRecord, SearchJobStore, UpdateJobInput } from '../search/store.js';
 import type { SourceStore, ShowRecord } from '../sources/store.js';
-import { buildDeterministicScriptDraft, extractSpeakerLabels, invalidSpeakerLabels } from './builder.js';
+import {
+  buildDeterministicScriptDraft,
+  buildLlmScriptDraft,
+  extractSpeakerLabels,
+  invalidSpeakerLabels,
+  provenanceWarnings,
+} from './builder.js';
 import type { ScriptStore } from './store.js';
 
 class ApiError extends Error {
@@ -20,7 +30,13 @@ class ApiError extends Error {
 }
 
 export interface ScriptRoutesOptions {
-  getStore(): SourceStore & Partial<ResearchStore> & Partial<SearchJobStore> & Partial<ModelProfileStore> & Partial<ScriptStore>;
+  getStore(): SourceStore
+    & Partial<ResearchStore>
+    & Partial<SearchJobStore>
+    & Partial<ModelProfileStore>
+    & Partial<PromptTemplateStore>
+    & Partial<ScriptStore>;
+  llmRuntime?: LlmRuntime;
 }
 
 const generateScriptSchema = z.object({
@@ -56,6 +72,34 @@ function sendError(reply: FastifyReply, error: unknown) {
       ok: false,
       code: error.code,
       error: error.message,
+    });
+  }
+
+  if (error instanceof LlmJsonOutputError) {
+    return reply.code(502).send({
+      ok: false,
+      code: 'MALFORMED_MODEL_OUTPUT',
+      error: error.message,
+      details: error.details,
+      metadata: error.metadata,
+    });
+  }
+
+  if (error instanceof LlmRuntimeError) {
+    return reply.code(502).send({
+      ok: false,
+      code: 'MODEL_INVOCATION_FAILED',
+      error: error.message,
+      metadata: error.metadata,
+    });
+  }
+
+  if (error instanceof PromptRenderError) {
+    return reply.code(500).send({
+      ok: false,
+      code: error.code,
+      error: error.message,
+      details: error.details,
     });
   }
 
@@ -151,8 +195,55 @@ function assertValidSpeakers(body: string, show: ShowRecord) {
   }
 }
 
+function assertPacketCanGenerate(packet: { id: string; status: string; content: Record<string, unknown> }) {
+  const readiness = packet.content.readiness;
+  const readinessStatus = readiness && typeof readiness === 'object' && !Array.isArray(readiness)
+    ? (readiness as Record<string, unknown>).status
+    : undefined;
+
+  if (packet.status === 'blocked' || readinessStatus === 'blocked') {
+    throw new ApiError(
+      409,
+      'RESEARCH_PACKET_BLOCKED',
+      `Research packet is blocked and cannot generate a script until source or warning issues are resolved: ${packet.id}`,
+    );
+  }
+}
+
 function modelProfileRecord(profile: Awaited<ReturnType<typeof resolveModelProfile>>): Record<string, unknown> {
   return profile ? { ...profile } : {};
+}
+
+function validationMetadata(body: string, show: ShowRecord, packet: { id: string; status: string; sourceDocumentIds: string[]; claims: Array<{ id: string; sourceDocumentIds: string[]; citationUrls: string[] }>; citations: Array<{ sourceDocumentId: string; url: string }>; content: Record<string, unknown> }) {
+  const speakers = extractSpeakerLabels(body);
+  const invalid = invalidSpeakerLabels(body, show.cast);
+  const provenance = provenanceWarnings(packet, []);
+
+  return {
+    speakerLabels: {
+      valid: invalid.length === 0,
+      labels: speakers,
+      invalid,
+    },
+    provenance: {
+      valid: provenance.every((warning) => warning.severity !== 'error'),
+      warningCount: provenance.length,
+      warnings: provenance,
+    },
+    readyForAudio: invalid.length === 0 && provenance.every((warning) => warning.severity !== 'error'),
+  };
+}
+
+function inheritedRevisionMetadata(previous: Record<string, unknown> | undefined, body: string, show: ShowRecord, packet: Parameters<typeof validationMetadata>[2]) {
+  return {
+    source: 'human-edit',
+    previousSource: previous?.source,
+    previousApprovedRevisionId: null,
+    citationMap: previous?.citationMap,
+    provenance: previous?.provenance,
+    inheritedProvenance: Boolean(previous?.provenance || previous?.citationMap),
+    validation: validationMetadata(body, show, packet),
+  };
 }
 
 export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutesOptions) {
@@ -203,7 +294,13 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
         });
       }
 
-      const draft = buildDeterministicScriptDraft(show, packet, modelProfile, body.format);
+      assertPacketCanGenerate(packet);
+      const draft = options.llmRuntime && modelProfile
+        ? await buildLlmScriptDraft(show, packet, modelProfile, body.format, {
+          runtime: options.llmRuntime,
+          promptRegistry: createPromptRegistry({ store: rawStore }),
+        })
+        : buildDeterministicScriptDraft(show, packet, modelProfile, body.format);
       assertValidSpeakers(draft.body, show);
       const result = await scriptStore.createScriptWithRevision({
         showId: packet.showId,
@@ -238,6 +335,9 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
             revisionId: result.revision.id,
             version: result.revision.version,
             modelProfile,
+            validation: result.revision.metadata.validation,
+            provenance: result.revision.metadata.provenance,
+            citationMap: result.revision.metadata.citationMap,
           },
           finishedAt: new Date(),
         }) ?? job;
@@ -322,6 +422,15 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
       const show = await getShow(rawStore, script.showId);
       assertCast(show);
       assertValidSpeakers(body.body, show);
+      const researchStore = requireResearchStore(rawStore);
+      const packet = await researchStore.getResearchPacket(script.researchPacketId);
+
+      if (!packet) {
+        throw new ApiError(404, 'RESEARCH_PACKET_NOT_FOUND', `Research packet not found: ${script.researchPacketId}`);
+      }
+
+      const revisions = await scriptStore.listScriptRevisions(script.id);
+      const latestRevision = revisions[0];
       const result = await scriptStore.createScriptRevision(script.id, {
         title: body.title ?? script.title,
         body: body.body,
@@ -331,7 +440,7 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
         changeSummary: body.changeSummary ?? 'Human edit.',
         modelProfile: {},
         metadata: {
-          source: 'human-edit',
+          ...inheritedRevisionMetadata(latestRevision?.metadata, body.body, show, packet),
           previousApprovedRevisionId: script.approvedRevisionId,
         },
       });
