@@ -1,1 +1,15 @@
-{"name":"podcast-forge","version":"0.0.0","private":true,"type":"module","workspaces":["packages/*"],"scripts":{"check":"npm -ws run check --if-present"},"devDependencies":{"typescript":"latest"}}
+{
+  "name": "podcast-forge",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "check": "node --check scripts/local-pr-review.mjs && node --test scripts/*.test.mjs && npm -ws run check --if-present"
+  },
+  "devDependencies": {
+    "typescript": "latest"
+  }
+}
