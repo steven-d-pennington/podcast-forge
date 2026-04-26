@@ -330,3 +330,23 @@ At the end, provide:
 ```
 
 This template is intentionally repetitive. ACPX sessions may start cold; make the workflow impossible to miss.
+
+## Local Review Fallback Checkpoint
+
+Podcast Forge now has a durable review fallback for when GitHub Copilot review is unavailable, quota-limited, delayed, or insufficient.
+
+Workflow:
+1. Open one feature branch + PR per issue.
+2. Run `npm run check` locally before PR/merge.
+3. Request Copilot review when available.
+4. If Copilot does not produce useful review signal, run local review:
+   - Preferred: `node scripts/local-pr-review.mjs <pr-number> --mode gemini`
+   - Fallback: `node scripts/local-pr-review.mjs <pr-number> --mode codex`
+   - Safety net: `node scripts/local-pr-review.mjs <pr-number> --mode static`
+5. Store/review the artifact under `data/reviews/`.
+6. The orchestrator may post a clearly labeled local automated review summary to the PR.
+7. Merge only when checks pass and the active review path is clean.
+
+Guardrail: fix/shepherd agents must not approve or self-review their own work. If Copilot and local review disagree, prefer the stricter result or escalate to Steven.
+
+Checkpoint reference: Issue #28 / PR #29 implemented this policy and merged successfully. Issue #28 is closed. Next build target after the fallback is Issue #14: LLM runtime/provider adapter layer and job logging.
