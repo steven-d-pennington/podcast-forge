@@ -132,6 +132,25 @@ curl -X PATCH http://localhost:3450/model-profiles/:id \
   -d '{"provider":"openai","model":"gpt-5.5","params":{"reasoningEffort":"high"}}'
 ```
 
+## LLM runtime
+
+The API package exposes an internal `packages/api/src/llm` runtime for
+role-based text and JSON model calls. Callers pass a resolved `model_profiles`
+record, prompt messages, and optional JSON validation; the runtime selects the
+configured provider/model, tries configured fallbacks, and returns normalized
+text/JSON plus invocation metadata suitable for `jobs.output.llmInvocations`
+and `jobs.logs`.
+
+Available adapters:
+
+- `fake` is deterministic and intended for tests and local development.
+- `openai` / `openai-compatible` use a Chat Completions-compatible HTTP path
+  when `OPENAI_API_KEY` is set. `OPENAI_BASE_URL` can point at another
+  compatible endpoint. Tests inject fakes and do not make live provider calls.
+
+Fallback strings may be plain model names, which reuse the profile provider, or
+`provider/model` strings, which switch provider and model for that attempt.
+
 ## Brave source search
 
 Brave source profiles can be searched from the API using the enabled
