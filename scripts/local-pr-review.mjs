@@ -77,10 +77,25 @@ function tryRun(cmd, args, fallback = '') {
   try { return run(cmd, args); } catch { return fallback; }
 }
 
+
+export function linkedIssueNumber(body = '') {
+  const match = body.match(/(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)/i);
+  return match ? match[1] : null;
+}
+
+function readIssue(issueNumber) {
+  try {
+    return JSON.parse(run('gh', ['issue', 'view', String(issueNumber), '--json', 'number,title,url,body,state']));
+  } catch {
+    return null;
+  }
+}
+
 function collectContext(prNumber) {
-  const prJson = JSON.parse(run('gh', ['pr', 'view', prNumber, '--json', 'number,title,url,body,headRefName,baseRefName,state,isDraft,mergeStateStatus,reviewDecision,closingIssuesReferences']));
+  const prJson = JSON.parse(run('gh', ['pr', 'view', prNumber, '--json', 'number,title,url,body,headRefName,baseRefName,state,isDraft,mergeStateStatus,reviewDecision']));
   const diff = run('gh', ['pr', 'diff', prNumber, '--patch']);
-  const issue = prJson.closingIssuesReferences?.[0] || null;
+  const issueNumber = linkedIssueNumber(prJson.body);
+  const issue = issueNumber ? readIssue(issueNumber) : null;
   const issueBody = issue?.body || '';
   const checkOutput = tryRun('gh', ['pr', 'checks', prNumber, '--watch=false'], 'No check output available.');
   const handoff = existsSync(join(repoRoot, 'HANDOFF.md')) ? readFileSync(join(repoRoot, 'HANDOFF.md'), 'utf8') : '';

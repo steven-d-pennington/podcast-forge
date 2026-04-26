@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeVerdict, parseChangedFiles, staticReview } from './local-pr-review.mjs';
+import { linkedIssueNumber, normalizeVerdict, parseChangedFiles, staticReview } from './local-pr-review.mjs';
 
 test('normalizes local review verdicts', () => {
   assert.equal(normalizeVerdict('needs changes'), 'needs_changes');
@@ -22,4 +22,11 @@ test('static review blocks empty diffs and possible secrets', () => {
   });
   assert.equal(result.verdict, 'blocked');
   assert.ok(result.findings.some((f) => f.message.includes('secret')));
+});
+
+
+test('extracts linked issue numbers from PR bodies', () => {
+  assert.equal(linkedIssueNumber('Closes #28'), '28');
+  assert.equal(linkedIssueNumber('Fixes #123'), '123');
+  assert.equal(linkedIssueNumber('No linked issue'), null);
 });
