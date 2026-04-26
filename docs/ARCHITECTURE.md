@@ -62,6 +62,14 @@ Each agent role is an adapter over model providers:
 
 The app should not hardcode model names in business logic. It should resolve `show.defaultModelProfile[role]` at runtime.
 
+Prompt templates are a separate registry from model profiles. Model profiles may
+point at a `promptTemplateKey`, while the prompt registry resolves a
+show-specific DB template or a global default, validates required variables, and
+returns LLM runtime messages plus structured JSON response hints. Output
+validators live with the prompt domain so downstream workers can validate model
+JSON before persisting generated scoring, research, script, metadata, or art
+prompt records.
+
 ## Source adapters
 
 V1:

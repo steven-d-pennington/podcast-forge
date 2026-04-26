@@ -3,6 +3,7 @@ import { z, ZodError } from 'zod';
 
 import { MODEL_ROLES, isModelRole, type ModelRole } from '../models/roles.js';
 import type { CreateModelProfileInput, ModelProfileRecord, ModelProfileStore } from '../models/store.js';
+import { defaultPromptKey } from '../prompts/registry.js';
 import type { CreateFeedInput, FeedRecord, ProductionStore, UpdateFeedInput } from '../production/store.js';
 import type {
   CreateShowInput,
@@ -316,7 +317,7 @@ function modelProfileInputs(showId: string, defaults: Record<ModelRole, z.infer<
       maxTokens: input.maxTokens ?? null,
       budgetUsd: input.budgetUsd ?? null,
       fallbacks: input.fallbacks,
-      promptTemplateKey: input.promptTemplateKey ?? null,
+      promptTemplateKey: input.promptTemplateKey ?? defaultPromptKey(role),
       config: {
         ...input.config,
         params: input.params,
