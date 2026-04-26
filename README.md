@@ -151,6 +151,42 @@ Available adapters:
 Fallback strings may be plain model names, which reuse the profile provider, or
 `provider/model` strings, which switch provider and model for that attempt.
 
+## Prompt templates
+
+Prompt templates live under `packages/api/src/prompts`. Podcast Forge ships
+safe default templates for each supported model role, keyed as
+`<role>.default`, plus zod validators for the structured JSON outputs expected
+by candidate scoring, source summarization, claim extraction, research
+synthesis, script generation/revision, metadata, and cover prompts.
+
+Pipeline code can render a prompt before calling the LLM runtime:
+
+```ts
+const registry = createPromptRegistry({ store });
+const rendered = await renderPromptTemplate(registry, {
+  key: modelProfile.promptTemplateKey ?? 'script_writer.default',
+  variables: {
+    show_context: show,
+    research_packet: packet,
+    format_notes: show.format,
+  },
+});
+```
+
+`rendered.messages` and `rendered.responseFormat` are compatible with the LLM
+runtime. Missing required variables fail before any provider call.
+
+Prompt template endpoints for future settings/admin UI:
+
+- `GET /prompt-templates`
+- `GET /prompt-templates?role=script_writer`
+- `GET /prompt-templates/:key?version=1`
+- `POST /prompt-templates/render`
+
+The existing `prompt_templates` table can store show-specific or global
+overrides. Default code templates remain the fallback path so a fresh install
+can render prompts before editable DB prompts are added.
+
 ## Brave source search
 
 Brave source profiles can be searched from the API using the enabled

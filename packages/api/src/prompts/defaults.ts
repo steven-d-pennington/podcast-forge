@@ -1,0 +1,230 @@
+import { MODEL_ROLES, type ModelRole } from '../models/roles.js';
+import { PROMPT_OUTPUT_SCHEMAS } from './schemas.js';
+import type { PromptOutputSchemaName, PromptTemplate, PromptVariable } from './types.js';
+
+const baseVariables = {
+  show_context: 'Show title, audience, format, voice/cast, runtime target, and editorial constraints.',
+  source_profile: 'Source profile/query metadata that led to the candidate or packet.',
+  candidate_json: 'Serialized story candidate with title, URL, source, summary, timestamps, and raw provider metadata.',
+  story_context: 'Serialized story/candidate context for the source being summarized.',
+  source_document: 'Serialized fetched source document including id, URL, title, fetchedAt, and text content.',
+  source_summary: 'Previously generated source summary for one document.',
+  source_summaries: 'Serialized array of source summaries to synthesize.',
+  claims: 'Serialized extracted claims with source references.',
+  research_packet: 'Serialized research packet including claims, citations, warnings, and source document ids.',
+  format_notes: 'Target episode format, speaker/cast rules, runtime target, and style notes.',
+  script_draft: 'Current script draft to revise.',
+  revision_instructions: 'Human/editorial revision request and acceptance criteria.',
+  script_result: 'Generated or revised script result to summarize for publishing metadata.',
+  episode_metadata: 'Episode title, summary, show branding, and publishing metadata.',
+  script_excerpt: 'Short excerpt or synopsis to inform cover-art direction.',
+  art_direction: 'Visual style constraints, exclusions, and show-level art direction.',
+} as const;
+
+function variable(name: keyof typeof baseVariables, required = true): PromptVariable {
+  return {
+    name,
+    description: baseVariables[name],
+    required,
+  };
+}
+
+function template(
+  role: ModelRole,
+  title: string,
+  description: string,
+  inputVariables: PromptVariable[],
+  outputSchemaName: PromptOutputSchemaName,
+  body: string,
+): PromptTemplate {
+  return {
+    showId: null,
+    key: `${role}.default`,
+    role,
+    version: 1,
+    title,
+    description,
+    inputVariables,
+    outputFormat: PROMPT_OUTPUT_SCHEMAS[outputSchemaName].description,
+    outputSchemaName,
+    outputSchemaHint: PROMPT_OUTPUT_SCHEMAS[outputSchemaName].schemaHint,
+    body,
+    metadata: {
+      source: 'code-default',
+      editableVia: 'prompt_templates database rows can override or extend these defaults by key/version/show.',
+    },
+  };
+}
+
+export const DEFAULT_PROMPT_TEMPLATES: PromptTemplate[] = [
+  template(
+    'candidate_scorer',
+    'Default candidate scorer',
+    'Scores one story candidate for editorial fit, significance, novelty, and source quality.',
+    [variable('show_context'), variable('source_profile'), variable('candidate_json')],
+    'candidate_score_result',
+    [
+      'You are scoring a possible episode story for an evidence-first news podcast.',
+      'Prefer primary sources, independent corroboration, clear public impact, and stories that can be explained without speculation.',
+      'Separate what is known from what is inferred. Penalize thin sourcing, promotional claims, vague summaries, or stories that depend on one unverified source.',
+      '',
+      'Show context:',
+      '{{show_context}}',
+      '',
+      'Source profile:',
+      '{{source_profile}}',
+      '',
+      'Candidate:',
+      '{{candidate_json}}',
+    ].join('\n'),
+  ),
+  template(
+    'source_summarizer',
+    'Default source summarizer',
+    'Summarizes a fetched source document while preserving source identity and caveats.',
+    [variable('story_context'), variable('source_document')],
+    'source_summary',
+    [
+      'You are summarizing one fetched source document for later research synthesis.',
+      'Do not add facts that are not in the source. Mark the source type as primary, secondary, analysis, or unknown.',
+      'Call out missing text, paywalls, unclear attribution, or unsupported claims as warnings.',
+      '',
+      'Story context:',
+      '{{story_context}}',
+      '',
+      'Source document:',
+      '{{source_document}}',
+    ].join('\n'),
+  ),
+  template(
+    'claim_extractor',
+    'Default claim extractor',
+    'Extracts sourced claims with citation references and confidence labels.',
+    [variable('source_summary'), variable('source_document')],
+    'extracted_claims',
+    [
+      'Extract the concrete claims from this source that could matter in a podcast script.',
+      'Each claim must point back to sourceDocumentIds and citation references. Label interpretation or uncertainty instead of upgrading it to fact.',
+      'Prefer fewer, clearer claims over exhaustive paraphrase.',
+      '',
+      'Source summary:',
+      '{{source_summary}}',
+      '',
+      'Source document:',
+      '{{source_document}}',
+    ].join('\n'),
+  ),
+  template(
+    'research_synthesizer',
+    'Default research synthesizer',
+    'Synthesizes source summaries and extracted claims into a research packet draft.',
+    [variable('candidate_json'), variable('source_summaries'), variable('claims')],
+    'research_synthesis',
+    [
+      'Build an evidence-first research synthesis for an editor.',
+      'Represent source disagreement and uncertainty directly. Do not smooth conflicts away.',
+      'Identify known facts, open questions, source gaps, and any warnings that require human review before script generation.',
+      '',
+      'Candidate:',
+      '{{candidate_json}}',
+      '',
+      'Source summaries:',
+      '{{source_summaries}}',
+      '',
+      'Extracted claims:',
+      '{{claims}}',
+    ].join('\n'),
+  ),
+  template(
+    'script_writer',
+    'Default script writer',
+    'Drafts an attributed podcast script from an approved research packet.',
+    [variable('show_context'), variable('research_packet'), variable('format_notes')],
+    'script_generation_result',
+    [
+      'Write a podcast script using only the supplied research packet and show context.',
+      'Keep factual claims traceable through the citation map. Distinguish confirmed facts, source claims, analysis, and unknowns.',
+      'Avoid sensationalism, invented quotes, invented sourcing, and unsupported certainty.',
+      '',
+      'Show context:',
+      '{{show_context}}',
+      '',
+      'Research packet:',
+      '{{research_packet}}',
+      '',
+      'Format notes:',
+      '{{format_notes}}',
+    ].join('\n'),
+  ),
+  template(
+    'script_editor',
+    'Default script editor',
+    'Revises a script without weakening citation discipline or speaker constraints.',
+    [variable('script_draft'), variable('research_packet'), variable('revision_instructions')],
+    'script_revision_result',
+    [
+      'Revise the script according to the instructions while preserving the research packet boundaries.',
+      'Do not add unsourced factual claims. Keep speaker labels compatible with the show cast if provided in the packet or instructions.',
+      'Report what changed and which warnings remain unresolved.',
+      '',
+      'Script draft:',
+      '{{script_draft}}',
+      '',
+      'Research packet:',
+      '{{research_packet}}',
+      '',
+      'Revision instructions:',
+      '{{revision_instructions}}',
+    ].join('\n'),
+  ),
+  template(
+    'metadata_writer',
+    'Default metadata writer',
+    'Creates publishable episode metadata from script and research context.',
+    [variable('show_context'), variable('research_packet'), variable('script_result')],
+    'metadata_result',
+    [
+      'Create episode metadata that is accurate, concise, and not clickbait.',
+      'The title and description must not overstate certainty or include claims missing from the research packet.',
+      'Use a stable lowercase hyphenated slug.',
+      '',
+      'Show context:',
+      '{{show_context}}',
+      '',
+      'Research packet:',
+      '{{research_packet}}',
+      '',
+      'Script result:',
+      '{{script_result}}',
+    ].join('\n'),
+  ),
+  template(
+    'cover_prompt_writer',
+    'Default cover prompt writer',
+    'Creates a safe cover-art prompt and alt text for an episode.',
+    [variable('episode_metadata'), variable('script_excerpt'), variable('art_direction')],
+    'cover_prompt_result',
+    [
+      'Write a cover-art generation prompt that reflects the episode topic without misleading viewers.',
+      'Avoid depicting real people, logos, copyrighted characters, or unsupported dramatic scenes unless the provided art direction explicitly authorizes them.',
+      'Include concise alt text for accessibility.',
+      '',
+      'Episode metadata:',
+      '{{episode_metadata}}',
+      '',
+      'Script excerpt:',
+      '{{script_excerpt}}',
+      '',
+      'Art direction:',
+      '{{art_direction}}',
+    ].join('\n'),
+  ),
+];
+
+const defaultRoleSet = new Set(DEFAULT_PROMPT_TEMPLATES.map((prompt) => prompt.role));
+
+for (const role of MODEL_ROLES) {
+  if (!defaultRoleSet.has(role)) {
+    throw new Error(`Missing default prompt template for role: ${role}`);
+  }
+}

@@ -7,6 +7,7 @@ import {
   feeds,
   jobs,
   modelProfiles,
+  promptTemplates,
   publishEvents,
   researchPackets,
   scriptRevisions,
@@ -56,6 +57,8 @@ import type {
   ModelProfileStore,
   UpdateModelProfileInput,
 } from '../models/store.js';
+import { promptTemplateFromDbRow } from '../prompts/store.js';
+import type { PromptTemplateStore } from '../prompts/types.js';
 import type {
   CreateEpisodeAssetInput,
   CreateFeedInput,
@@ -470,7 +473,7 @@ function slugify(value: string) {
   return slug || 'episode';
 }
 
-export function createDbSourceStore(connectionString = process.env.DATABASE_URL): SourceStore & SearchJobStore & ResearchStore & ModelProfileStore & ScriptStore & ProductionStore & SchedulerStore {
+export function createDbSourceStore(connectionString = process.env.DATABASE_URL): SourceStore & SearchJobStore & ResearchStore & ModelProfileStore & PromptTemplateStore & ScriptStore & ProductionStore & SchedulerStore {
   const { db, pool } = createDb(connectionString);
 
   return {
@@ -581,6 +584,51 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
         .returning();
 
       return row ? mapModelProfile(row) : undefined;
+    },
+
+    async listPromptTemplates(filter = {}) {
+      let showId = filter.showId;
+
+      if (!showId && filter.showSlug) {
+        const [show] = await db.select().from(shows).where(eq(shows.slug, filter.showSlug)).limit(1);
+
+        if (!show) {
+          return [];
+        }
+
+        showId = show.id;
+      }
+
+      const keyWhere = filter.key ? eq(promptTemplates.key, filter.key) : undefined;
+      const roleWhere = filter.role ? eq(promptTemplates.role, filter.role) : undefined;
+      const showWhere = showId
+        ? filter.includeGlobal
+          ? or(eq(promptTemplates.showId, showId), isNull(promptTemplates.showId))
+          : eq(promptTemplates.showId, showId)
+        : undefined;
+      const where = and(keyWhere, roleWhere, showWhere);
+      const rows = where
+        ? await db.select().from(promptTemplates).where(where).orderBy(asc(promptTemplates.key), desc(promptTemplates.version), desc(promptTemplates.updatedAt))
+        : await db.select().from(promptTemplates).orderBy(asc(promptTemplates.key), desc(promptTemplates.version), desc(promptTemplates.updatedAt));
+
+      return rows.map(promptTemplateFromDbRow);
+    },
+
+    async getPromptTemplateByKey(key, lookup = {}) {
+      const templates = await this.listPromptTemplates({
+        key,
+        showId: lookup.showId,
+        showSlug: lookup.showSlug,
+        includeGlobal: lookup.includeGlobal ?? true,
+      });
+      const matching = templates
+        .filter((template) => lookup.version === undefined || template.version === lookup.version)
+        .sort((a, b) => {
+          const showScore = Number(b.showId !== null) - Number(a.showId !== null);
+          return showScore !== 0 ? showScore : b.version - a.version;
+        });
+
+      return matching[0];
     },
 
     async listSourceProfiles(filter = {}) {

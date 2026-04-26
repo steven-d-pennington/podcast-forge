@@ -15,6 +15,8 @@ import { registerSourceRoutes } from './sources/routes.js';
 import type { SourceStore } from './sources/store.js';
 import { registerModelRoutes } from './models/routes.js';
 import type { ModelProfileStore } from './models/store.js';
+import { registerPromptRoutes } from './prompts/routes.js';
+import type { PromptTemplateStore } from './prompts/types.js';
 import { registerResearchRoutes } from './research/routes.js';
 import type { ResearchFetch } from './research/fetch.js';
 import type { ResearchStore } from './research/store.js';
@@ -41,6 +43,7 @@ interface BuildAppOptions extends FastifyServerOptions {
     & Partial<SearchJobStore>
     & Partial<ResearchStore>
     & Partial<ModelProfileStore>
+    & Partial<PromptTemplateStore>
     & Partial<ScriptStore>
     & Partial<ProductionStore>
     & Partial<SchedulerStore>;
@@ -98,6 +101,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     & Partial<SearchJobStore>
     & Partial<ResearchStore>
     & Partial<ModelProfileStore>
+    & Partial<PromptTemplateStore>
     & Partial<ScriptStore>
     & Partial<ProductionStore>
     & Partial<SchedulerStore>
@@ -179,6 +183,13 @@ export function buildApp(options: BuildAppOptions = {}) {
   });
 
   registerModelRoutes(app, {
+    getStore() {
+      resolvedSourceStore ??= createDbSourceStore();
+      return resolvedSourceStore;
+    },
+  });
+
+  registerPromptRoutes(app, {
     getStore() {
       resolvedSourceStore ??= createDbSourceStore();
       return resolvedSourceStore;

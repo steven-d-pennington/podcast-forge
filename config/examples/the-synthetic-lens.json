@@ -38,6 +38,7 @@
       "model": "gemini-2.5-flash",
       "temperature": 0.2,
       "maxTokens": 1200,
+      "promptTemplate": "candidate_scorer.default",
       "budgetUsd": 0.25
     },
     "source_summarizer": {
@@ -45,6 +46,7 @@
       "model": "gemini-2.5-flash",
       "temperature": 0.1,
       "maxTokens": 3000,
+      "promptTemplate": "source_summarizer.default",
       "budgetUsd": 0.75
     },
     "claim_extractor": {
@@ -52,6 +54,7 @@
       "model": "gemini-2.5-flash",
       "temperature": 0,
       "maxTokens": 2500,
+      "promptTemplate": "claim_extractor.default",
       "budgetUsd": 0.75
     },
     "research_synthesizer": {
@@ -60,6 +63,7 @@
       "temperature": 0.3,
       "maxTokens": 8000,
       "fallbacks": ["gemini-2.5-pro"],
+      "promptTemplate": "research_synthesizer.default",
       "budgetUsd": 2.5
     },
     "script_writer": {
@@ -70,6 +74,7 @@
       "params": {
         "reasoningEffort": "high"
       },
+      "promptTemplate": "script_writer.default",
       "budgetUsd": 4
     },
     "script_editor": {
@@ -77,6 +82,7 @@
       "model": "gpt-5.3-codex",
       "temperature": 0.4,
       "maxTokens": 8000,
+      "promptTemplate": "script_editor.default",
       "budgetUsd": 2
     },
     "metadata_writer": {
@@ -84,6 +90,7 @@
       "model": "gpt-5.5",
       "temperature": 0.3,
       "maxTokens": 1500,
+      "promptTemplate": "metadata_writer.default",
       "budgetUsd": 0.5
     },
     "cover_prompt_writer": {
@@ -91,6 +98,7 @@
       "model": "gpt-5.5",
       "temperature": 0.7,
       "maxTokens": 1000,
+      "promptTemplate": "cover_prompt_writer.default",
       "budgetUsd": 1
     }
   },
