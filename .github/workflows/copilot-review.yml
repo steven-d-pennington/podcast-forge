@@ -19,16 +19,13 @@ jobs:
     name: Request Copilot review
     runs-on: ubuntu-latest
     steps:
-      - name: Install current GitHub CLI
+      - name: Verify GitHub CLI is available
         run: |
           set -euo pipefail
-          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
-            sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-          sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | \
-            sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-          sudo apt-get update
-          sudo apt-get install -y gh
+          if ! command -v gh > /dev/null 2>&1; then
+            echo "::error::GitHub CLI (gh) is not available on this runner."
+            exit 1
+          fi
           gh --version
 
       - name: Request Copilot as reviewer

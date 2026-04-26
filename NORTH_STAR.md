@@ -1,4 +1,4 @@
-# NORTH_STAR.md
+# North Star
 
 Podcast Forge exists to help create news and analysis podcasts that earn trust before they seek attention.
 
