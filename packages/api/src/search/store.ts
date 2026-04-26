@@ -89,6 +89,13 @@ export interface CreateStoryCandidateInput extends SourceCandidate {
 export interface StoryCandidateListFilter {
   showId: string;
   limit?: number;
+  sort?: 'score' | 'discovered';
+}
+
+export interface UpdateStoryCandidateScoringInput {
+  score: number | null;
+  scoreBreakdown: Record<string, unknown>;
+  metadata: Record<string, unknown>;
 }
 
 export interface SearchJobStore {
@@ -98,5 +105,6 @@ export interface SearchJobStore {
   listJobs(filter?: JobListFilter): Promise<JobRecord[]>;
   listStoryCandidateDedupeKeys(showId: string): Promise<CandidateDedupeKey[]>;
   insertStoryCandidate(input: CreateStoryCandidateInput): Promise<StoryCandidateRecord | undefined>;
+  updateStoryCandidateScoring(id: string, input: UpdateStoryCandidateScoringInput): Promise<StoryCandidateRecord | undefined>;
   listStoryCandidates(filter: StoryCandidateListFilter): Promise<StoryCandidateRecord[]>;
 }

@@ -501,6 +501,20 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
     return candidate;
   }
 
+  async updateStoryCandidateScoring(id: string, input: { score: number | null; scoreBreakdown: Record<string, unknown>; metadata: Record<string, unknown> }) {
+    const candidate = this.candidates.find((item) => item.id === id);
+
+    if (!candidate) {
+      return undefined;
+    }
+
+    candidate.score = input.score;
+    candidate.scoreBreakdown = input.scoreBreakdown;
+    candidate.metadata = input.metadata;
+    candidate.updatedAt = new Date();
+    return candidate;
+  }
+
   async listStoryCandidates(filter: StoryCandidateListFilter) {
     return this.candidates
       .filter((candidate) => candidate.showId === filter.showId)

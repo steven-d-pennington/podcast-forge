@@ -208,6 +208,16 @@ The endpoint runs a synchronous `source.search` job for now and writes new
 freshness, region/language, and simple rate-limit delay config from the source
 profile/query records where present.
 
+New candidates are scored synchronously as a pragmatic V1 pass, capped at 10
+candidates per source profile by default. Override the cap with
+`source_profiles.config.candidateScoringLimit`, `scoringLimit`, or
+`scoring.limit`. When a `candidate_scorer` model profile is configured, search
+renders the candidate scorer prompt and calls the LLM runtime for structured
+JSON scoring. If no scorer is configured, validation fails, or the scorer
+errors, ingestion still keeps the candidate and records deterministic fallback
+metadata with `metadata.scoringStatus`, `score`, `scoreBreakdown.rationale`,
+component scores, warnings, flags, and scorer/runtime metadata where available.
+
 Search/job endpoints:
 
 - `POST /source-profiles/:id/search`
@@ -215,6 +225,10 @@ Search/job endpoints:
 - `POST /story-candidates/manual`
 - `GET /jobs/:id`
 - `GET /story-candidates?showSlug=the-synthetic-lens`
+
+`GET /story-candidates` defaults to `sort=score`, returning scored candidates
+highest first with unscored candidates last. Use `sort=discovered` to show the
+newest discovered candidates first.
 
 ## Scheduled pipelines
 

@@ -29,7 +29,9 @@ import type { FeedRecord, ProductionStore } from './production/store.js';
 import { registerSearchRoutes } from './search/routes.js';
 import type { BraveFetch } from './search/brave.js';
 import type { RssFetch } from './search/rss.js';
+import type { CandidateScorer } from './search/scoring.js';
 import type { SearchJobStore } from './search/store.js';
+import type { LlmRuntime } from './llm/types.js';
 import { registerSchedulerRoutes } from './scheduler/routes.js';
 import type { SchedulerStore } from './scheduler/store.js';
 import { registerLegacyImportRoutes } from './import/routes.js';
@@ -50,6 +52,8 @@ interface BuildAppOptions extends FastifyServerOptions {
   braveApiKey?: string;
   fetchImpl?: BraveFetch;
   rssFetchImpl?: RssFetch;
+  candidateScorer?: CandidateScorer;
+  llmRuntime?: LlmRuntime;
   researchFetchImpl?: ResearchFetch;
   audioPreviewProvider?: AudioPreviewProvider;
   coverArtProvider?: CoverArtProvider;
@@ -87,6 +91,8 @@ export function buildApp(options: BuildAppOptions = {}) {
     braveApiKey,
     fetchImpl,
     rssFetchImpl,
+    candidateScorer,
+    llmRuntime,
     researchFetchImpl,
     audioPreviewProvider,
     coverArtProvider,
@@ -204,6 +210,8 @@ export function buildApp(options: BuildAppOptions = {}) {
     braveApiKey,
     fetchImpl,
     rssFetchImpl,
+    candidateScorer,
+    llmRuntime,
     sleep,
   });
 
