@@ -45,17 +45,19 @@ Agents must preserve editorial integrity over speed, novelty, or drama.
 
 Before coding:
 1. Run `git pull`.
-2. Read `LESSONS.md`.
-3. Read the relevant docs in `docs/` for the feature area.
-4. Check the GitHub issue acceptance criteria.
+2. Read `HANDOFF.md` for the current orchestration plan, dependencies, and issue sequencing.
+3. Read `LESSONS.md`.
+4. Read the relevant docs in `docs/` for the feature area.
+5. Check the GitHub issue acceptance criteria.
 
 Before finishing:
 1. Run `npm run check` from the repo root unless impossible.
 2. Add/update tests for meaningful behavior changes.
 3. Update README/docs if behavior or API changes.
-4. If you discover a repo-specific gotcha, append it to `LESSONS.md`.
-5. Commit and push changes when you have write access.
-6. Comment on/close the GitHub issue only after verification passes.
+4. Update `HANDOFF.md` if the orchestration plan, dependency graph, local dev commands, or issue status changed.
+5. If you discover a repo-specific gotcha, append it to `LESSONS.md`.
+6. Commit and push changes when you have write access.
+7. Comment on/close the GitHub issue only after verification passes.
 
 ## Current Architecture Notes
 
@@ -95,5 +97,7 @@ If a future user asks, “Why did the episode say that?”, the app should be ab
 ## Known Human Preference
 
 Steven wants agents to be able to continue this project overnight, sequentially, with verification between issues. Quality and integrity beat raw speed.
+
+`HANDOFF.md` is the master orchestration document for that overnight/multi-agent work. Keep it current when issue ordering, dependencies, batch plans, verification gates, or known blockers change.
 
 Claude account access may be expired; use Codex / GPT-5.5 high-thinking for coding agents until told otherwise.
