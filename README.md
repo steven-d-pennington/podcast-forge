@@ -486,8 +486,15 @@ Script endpoints:
 
 Approved script revisions can produce durable production jobs. The API creates
 or reuses an episode record for the script, writes `audio.preview` and
-`art.generate` jobs with logs/progress, and links output rows in
-`episode_assets`.
+`art.generate` jobs with stage/progress logs, provider metadata, retryable
+failure metadata, and links output rows in `episode_assets`.
+
+The default development adapters are fake/local and deterministic. They write
+placeholder audio and image files under `production.localAssetDir`,
+`production.outputDir`, or `/tmp/podcast-forge-production-assets`, then persist
+duration, byte size, MIME type, checksum, object key, local path, provider, and
+adapter metadata for review screens. Tests inject fake adapters and never call
+live audio, image, storage, or RSS providers.
 
 ```sh
 curl -X POST http://localhost:3450/scripts/:id/production/audio-preview \
@@ -496,10 +503,16 @@ curl -X POST http://localhost:3450/scripts/:id/production/audio-preview \
 
 curl -X POST http://localhost:3450/scripts/:id/production/cover-art \
   -H 'content-type: application/json' \
-  -d '{"actor":"producer@example.com"}'
+  -d '{"actor":"producer@example.com","prompt":"Quiet editorial cover art with abstract waveform lines."}'
 
 curl http://localhost:3450/scripts/:id/production
 ```
+
+If no cover prompt is provided and an LLM runtime plus `cover_prompt_writer`
+profile is configured, the cover-art job uses the prompt registry and stores the
+prompt-writer output and invocation metadata with the job and asset. Otherwise
+it falls back to a deterministic prompt from the show, script, and research
+packet context.
 
 Production endpoints:
 
@@ -510,10 +523,17 @@ Production endpoints:
 ## Approval-gated RSS publishing
 
 Episodes must reach `approved-for-publish` before `publish.rss` can update a
-feed. The publish job uploads the selected audio and cover art through the
-configured feed storage adapter, preserves the feed OP3 wrapping setting, upserts
-the RSS item by episode/feed GUID, validates the resulting public URLs, records a
+feed. The endpoint returns `PUBLISH_BLOCKED` with `blockedReasons` when approval,
+feed config, or required audio/cover assets are missing or unsafe. The publish
+job uploads the selected audio and cover art through the configured feed storage
+adapter, preserves the feed OP3 wrapping setting and metadata, upserts the RSS
+item by episode/feed GUID, validates the resulting public URLs, records a
 `publish_events` audit row, and marks the episode `published`.
+
+Publishing an already-published episode without `republish: true` is an
+idempotent no-op and returns the stored publish metadata without re-uploading
+assets or mutating RSS. Explicit re-publish requires `republish: true` and a
+non-empty `changelog`.
 
 ```sh
 curl -X POST http://localhost:3450/episodes/:id/approve-for-publish \
@@ -523,6 +543,10 @@ curl -X POST http://localhost:3450/episodes/:id/approve-for-publish \
 curl -X POST http://localhost:3450/episodes/:id/publish/rss \
   -H 'content-type: application/json' \
   -d '{"actor":"publisher@example.com"}'
+
+curl -X POST http://localhost:3450/episodes/:id/publish/rss \
+  -H 'content-type: application/json' \
+  -d '{"actor":"publisher@example.com","republish":true,"changelog":"Corrected feed metadata."}'
 ```
 
 Publishing endpoints:
