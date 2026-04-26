@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import {
   approvalEvents,
   createDb,
@@ -29,6 +29,7 @@ import type {
   StoryCandidateListFilter,
   StoryCandidateRecord,
   UpdateJobInput,
+  UpdateStoryCandidateScoringInput,
 } from '../search/store.js';
 import type {
   CreateResearchPacketInput,
@@ -936,11 +937,28 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
       return row ? mapStoryCandidate(row) : undefined;
     },
 
+    async updateStoryCandidateScoring(id: string, input: UpdateStoryCandidateScoringInput) {
+      const [row] = await db.update(storyCandidates)
+        .set({
+          score: input.score === null ? null : String(input.score),
+          scoreBreakdown: input.scoreBreakdown,
+          metadata: input.metadata,
+          updatedAt: new Date(),
+        })
+        .where(eq(storyCandidates.id, id))
+        .returning();
+
+      return row ? mapStoryCandidate(row) : undefined;
+    },
+
     async listStoryCandidates(filter: StoryCandidateListFilter) {
+      const orderBy = filter.sort === 'discovered'
+        ? [desc(storyCandidates.discoveredAt)]
+        : [sql`${storyCandidates.score} desc nulls last`, desc(storyCandidates.discoveredAt)];
       const rows = await db.select()
         .from(storyCandidates)
         .where(eq(storyCandidates.showId, filter.showId))
-        .orderBy(desc(storyCandidates.discoveredAt))
+        .orderBy(...orderBy)
         .limit(filter.limit ?? 50);
 
       return rows.map(mapStoryCandidate);

@@ -5,9 +5,14 @@ import type { BraveFetch } from './brave.js';
 import { runSourceIngest, runSourceSearch } from './job.js';
 import { submitManualCandidate } from './manual.js';
 import { resolveRssFeedRefs, type RssFetch } from './rss.js';
+import { createLlmCandidateScorer, type CandidateScorer } from './scoring.js';
 import type { SearchJobStore } from './store.js';
+import { createLlmRuntime } from '../llm/runtime.js';
+import type { LlmRuntime } from '../llm/types.js';
 import { hasModelProfileStore, resolveModelProfile } from '../models/resolver.js';
 import type { ModelProfileStore } from '../models/store.js';
+import { createPromptRegistry } from '../prompts/registry.js';
+import type { PromptTemplateStore } from '../prompts/types.js';
 import type { SourceStore } from '../sources/store.js';
 
 class ApiError extends Error {
@@ -21,10 +26,12 @@ class ApiError extends Error {
 }
 
 export interface SearchRoutesOptions {
-  getStore(): SourceStore & Partial<SearchJobStore> & Partial<ModelProfileStore>;
+  getStore(): SourceStore & Partial<SearchJobStore> & Partial<ModelProfileStore> & Partial<PromptTemplateStore>;
   braveApiKey?: string;
   fetchImpl?: BraveFetch;
   rssFetchImpl?: RssFetch;
+  candidateScorer?: CandidateScorer;
+  llmRuntime?: LlmRuntime;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -81,6 +88,7 @@ function requireSearchStore(store: SourceStore & Partial<SearchJobStore>): Sourc
     'listJobs',
     'listStoryCandidateDedupeKeys',
     'insertStoryCandidate',
+    'updateStoryCandidateScoring',
     'listStoryCandidates',
   ];
 
@@ -91,6 +99,25 @@ function requireSearchStore(store: SourceStore & Partial<SearchJobStore>): Sourc
   }
 
   return store as SourceStore & SearchJobStore;
+}
+
+function candidateScorerFor(
+  options: SearchRoutesOptions,
+  rawStore: SourceStore & Partial<SearchJobStore> & Partial<ModelProfileStore> & Partial<PromptTemplateStore>,
+  modelProfile: Awaited<ReturnType<typeof resolveModelProfile>>,
+): CandidateScorer | undefined {
+  if (options.candidateScorer) {
+    return options.candidateScorer;
+  }
+
+  if (!modelProfile) {
+    return undefined;
+  }
+
+  return createLlmCandidateScorer({
+    runtime: options.llmRuntime ?? createLlmRuntime(),
+    promptRegistry: createPromptRegistry({ store: rawStore }),
+  });
 }
 
 async function resolveShowId(store: SourceStore, showId?: string, showSlug?: string): Promise<string> {
@@ -151,6 +178,7 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
       const modelProfile = hasModelProfileStore(rawStore)
         ? await resolveModelProfile(rawStore, { showId: profile.showId, role: 'candidate_scorer' })
         : undefined;
+      const candidateScorer = candidateScorerFor(options, rawStore, modelProfile);
       const result = await runSourceSearch({
         apiKey,
         profile,
@@ -159,6 +187,7 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
         fetchImpl: options.fetchImpl,
         sleep: options.sleep,
         modelProfile,
+        candidateScorer,
       });
 
       return {
@@ -175,7 +204,8 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
 
   app.post<{ Params: { id: string } }>('/source-profiles/:id/ingest', async (request, reply) => {
     try {
-      const store = requireSearchStore(options.getStore());
+      const rawStore = options.getStore();
+      const store = requireSearchStore(rawStore);
       const profile = await store.getSourceProfile(request.params.id);
 
       if (!profile) {
@@ -196,11 +226,17 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
         throw new ApiError(400, 'NO_RSS_FEEDS', `RSS profile has no enabled feed URLs: ${profile.slug}`);
       }
 
+      const modelProfile = hasModelProfileStore(rawStore)
+        ? await resolveModelProfile(rawStore, { showId: profile.showId, role: 'candidate_scorer' })
+        : undefined;
+      const candidateScorer = candidateScorerFor(options, rawStore, modelProfile);
       const result = await runSourceIngest({
         profile,
         queries,
         store,
         fetchImpl: options.rssFetchImpl,
+        modelProfile,
+        candidateScorer,
       });
 
       return {
@@ -230,13 +266,19 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
     }
   });
 
-  app.get<{ Querystring: { showId?: string; showSlug?: string; limit?: string } }>('/story-candidates', async (request, reply) => {
+  app.get<{ Querystring: { showId?: string; showSlug?: string; limit?: string; sort?: string } }>('/story-candidates', async (request, reply) => {
     try {
       const store = requireSearchStore(options.getStore());
       const showId = await resolveShowId(store, request.query.showId, request.query.showSlug);
       const parsedLimit = request.query.limit ? Number(request.query.limit) : undefined;
       const limit = parsedLimit && Number.isInteger(parsedLimit) && parsedLimit > 0 ? parsedLimit : undefined;
-      const candidates = await store.listStoryCandidates({ showId, limit });
+      const sort = request.query.sort ?? 'score';
+
+      if (sort !== 'score' && sort !== 'discovered') {
+        throw new ApiError(400, 'INVALID_CANDIDATE_SORT', 'Sort must be "score" or "discovered".');
+      }
+
+      const candidates = await store.listStoryCandidates({ showId, limit, sort });
 
       return { ok: true, storyCandidates: candidates };
     } catch (error) {

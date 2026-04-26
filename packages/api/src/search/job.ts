@@ -1,6 +1,7 @@
 import { searchBraveNews, type BraveCandidate, type BraveFetch } from './brave.js';
 import { normalizeTitle, type SourceCandidate } from './candidate.js';
 import { fetchRssCandidates, type RssFetch } from './rss.js';
+import { scoreCandidateBatch, scoringLimitFromProfile, type CandidateScorer, type CandidateScoringBatchResult } from './scoring.js';
 import type { JobRecord, SearchJobStore, StoryCandidateRecord } from './store.js';
 import type { ResolvedModelProfile } from '../models/resolver.js';
 import type { SourceProfileRecord, SourceQueryRecord, SourceStore } from '../sources/store.js';
@@ -20,6 +21,7 @@ interface RunSourceSearchOptions {
   fetchImpl?: BraveFetch;
   sleep?: (ms: number) => Promise<void>;
   modelProfile?: ResolvedModelProfile;
+  candidateScorer?: CandidateScorer;
 }
 
 interface RunSourceIngestOptions {
@@ -27,6 +29,8 @@ interface RunSourceIngestOptions {
   queries: SourceQueryRecord[];
   store: SourceStore & SearchJobStore;
   fetchImpl?: RssFetch;
+  modelProfile?: ResolvedModelProfile;
+  candidateScorer?: CandidateScorer;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -78,6 +82,75 @@ function log(level: 'info' | 'warn' | 'error', message: string, metadata: JsonOb
     message,
     ...metadata,
   };
+}
+
+function scoringSummary(scoring?: CandidateScoringBatchResult) {
+  return scoring ? {
+    scored: scoring.scored,
+    fallback: scoring.fallback,
+    failed: scoring.failed,
+    skipped: scoring.skipped,
+  } : undefined;
+}
+
+function pushScoringEvents(logs: Array<Record<string, unknown>>, events: Array<Record<string, unknown>>) {
+  for (const event of events) {
+    const level = event.level === 'error' ? 'error' : event.level === 'warn' ? 'warn' : 'info';
+    logs.push(log(level, typeof event.message === 'string' ? event.message : 'Candidate scoring event.', {
+      ...event,
+      level: undefined,
+      message: undefined,
+    }));
+  }
+}
+
+async function maybeScoreCandidates(options: {
+  candidates: StoryCandidateRecord[];
+  profile: SourceProfileRecord;
+  queries: SourceQueryRecord[];
+  store: SourceStore & SearchJobStore;
+  modelProfile?: ResolvedModelProfile;
+  candidateScorer?: CandidateScorer;
+  logs: Array<Record<string, unknown>>;
+}): Promise<CandidateScoringBatchResult | undefined> {
+  if (options.candidates.length === 0) {
+    return undefined;
+  }
+
+  const show = (await options.store.listShows()).find((candidate) => candidate.id === options.profile.showId);
+
+  if (!show) {
+    options.logs.push(log('warn', 'Skipped candidate scoring because show context was not found.', {
+      showId: options.profile.showId,
+    }));
+    return undefined;
+  }
+
+  try {
+    options.logs.push(log('info', 'Starting candidate scoring.', {
+      candidateCount: options.candidates.length,
+      scoringLimit: scoringLimitFromProfile(options.profile),
+      modelProfileId: options.modelProfile?.id,
+      modelProfileVersion: options.modelProfile?.version,
+    }));
+    const result = await scoreCandidateBatch({
+      candidates: options.candidates,
+      show,
+      sourceProfile: options.profile,
+      queries: options.queries,
+      store: options.store,
+      scorer: options.candidateScorer,
+      modelProfile: options.modelProfile,
+    });
+    pushScoringEvents(options.logs, result.events);
+    options.logs.push(log('info', 'Completed candidate scoring.', scoringSummary(result)));
+    return result;
+  } catch (error) {
+    options.logs.push(log('error', 'Candidate scoring stage failed; candidates remain inserted.', {
+      reason: error instanceof Error ? error.message : 'Candidate scoring stage failed.',
+    }));
+    return undefined;
+  }
 }
 
 export async function runSourceSearch(options: RunSourceSearchOptions): Promise<SourceSearchResult> {
@@ -178,9 +251,22 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
       }
     }
 
+    const scoring = await maybeScoreCandidates({
+      candidates: insertedCandidates,
+      profile: options.profile,
+      queries: options.queries,
+      store: options.store,
+      modelProfile: options.modelProfile,
+      candidateScorer: options.candidateScorer,
+      logs,
+    });
+
+    const finalCandidates = scoring?.candidates ?? insertedCandidates;
+
     logs.push(log('info', 'Completed source.search job.', {
       inserted: insertedCandidates.length,
       skipped,
+      scoring: scoringSummary(scoring),
     }));
     job = await options.store.updateJob(job.id, {
       status: 'succeeded',
@@ -189,7 +275,8 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
       output: {
         inserted: insertedCandidates.length,
         skipped,
-        candidateIds: insertedCandidates.map((candidate) => candidate.id),
+        candidateIds: finalCandidates.map((candidate) => candidate.id),
+        scoring: scoringSummary(scoring),
         modelProfiles,
       },
       finishedAt: new Date(),
@@ -199,7 +286,7 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
       job,
       inserted: insertedCandidates.length,
       skipped,
-      candidates: insertedCandidates,
+      candidates: finalCandidates,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Source search failed.';
@@ -220,8 +307,11 @@ export async function runSourceIngest(options: RunSourceIngestOptions): Promise<
     log('info', 'Starting source.ingest job.', {
       sourceProfileId: options.profile.id,
       queryCount: options.queries.length,
+      modelProfileId: options.modelProfile?.id,
+      modelProfileVersion: options.modelProfile?.version,
     }),
   ];
+  const modelProfiles = options.modelProfile ? { candidate_scorer: options.modelProfile } : {};
   let job = await options.store.createJob({
     showId: options.profile.showId,
     type: 'source.ingest',
@@ -233,6 +323,7 @@ export async function runSourceIngest(options: RunSourceIngestOptions): Promise<
       sourceProfileSlug: options.profile.slug,
       sourceType: options.profile.type,
       queryIds: options.queries.map((query) => query.id),
+      modelProfiles,
     },
     logs,
     startedAt: new Date(),
@@ -283,9 +374,22 @@ export async function runSourceIngest(options: RunSourceIngestOptions): Promise<
       }
     }
 
+    const scoring = await maybeScoreCandidates({
+      candidates: insertedCandidates,
+      profile: options.profile,
+      queries: options.queries,
+      store: options.store,
+      modelProfile: options.modelProfile,
+      candidateScorer: options.candidateScorer,
+      logs,
+    });
+
+    const finalCandidates = scoring?.candidates ?? insertedCandidates;
+
     logs.push(log('info', 'Completed source.ingest job.', {
       inserted: insertedCandidates.length,
       skipped,
+      scoring: scoringSummary(scoring),
     }));
     job = await options.store.updateJob(job.id, {
       status: 'succeeded',
@@ -294,7 +398,9 @@ export async function runSourceIngest(options: RunSourceIngestOptions): Promise<
       output: {
         inserted: insertedCandidates.length,
         skipped,
-        candidateIds: insertedCandidates.map((candidate) => candidate.id),
+        candidateIds: finalCandidates.map((candidate) => candidate.id),
+        scoring: scoringSummary(scoring),
+        modelProfiles,
       },
       finishedAt: new Date(),
     }) ?? job;
@@ -303,7 +409,7 @@ export async function runSourceIngest(options: RunSourceIngestOptions): Promise<
       job,
       inserted: insertedCandidates.length,
       skipped,
-      candidates: insertedCandidates,
+      candidates: finalCandidates,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Source ingest failed.';

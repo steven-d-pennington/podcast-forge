@@ -224,6 +224,20 @@ class FakeSchedulerStore implements SourceStore, SearchJobStore, SchedulerStore 
     return candidate;
   }
 
+  async updateStoryCandidateScoring(id: string, input: { score: number | null; scoreBreakdown: Record<string, unknown>; metadata: Record<string, unknown> }) {
+    const candidate = this.candidates.find((item) => item.id === id);
+
+    if (!candidate) {
+      return undefined;
+    }
+
+    candidate.score = input.score;
+    candidate.scoreBreakdown = input.scoreBreakdown;
+    candidate.metadata = input.metadata;
+    candidate.updatedAt = new Date();
+    return candidate;
+  }
+
   async listStoryCandidates() {
     return this.candidates;
   }
