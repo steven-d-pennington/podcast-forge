@@ -4,6 +4,7 @@ const state = {
   profiles: [],
   queries: [],
   scripts: [],
+  scriptCoachingActions: [],
   researchPackets: [],
   modelProfiles: [],
   promptTemplates: [],
@@ -149,6 +150,7 @@ const els = {
   scriptEditForm: document.querySelector('#scriptEditForm'),
   scriptTitle: document.querySelector('#scriptTitle'),
   scriptBody: document.querySelector('#scriptBody'),
+  scriptCoachingActions: document.querySelector('#scriptCoachingActions'),
   approveScript: document.querySelector('#approveScript'),
   productionPanel: document.querySelector('#productionPanel'),
   productionMeta: document.querySelector('#productionMeta'),
@@ -281,6 +283,10 @@ function friendlyApiMessage(body, status) {
     SCHEDULED_RUN_NOT_FAILED: 'Only failed scheduled runs can be retried.',
     PUBLISH_BLOCKED: 'Publishing is blocked until the checklist items are complete.',
     PUBLISH_APPROVAL_BLOCKED: 'Publish approval is blocked until the checklist items are complete.',
+    SCRIPT_COACHING_RUNTIME_UNAVAILABLE: 'AI script coaching is unavailable because the local LLM runtime is not configured.',
+    SCRIPT_COACHING_MODEL_PROFILE_REQUIRED: 'Configure the script editor AI role before using coaching actions.',
+    MALFORMED_MODEL_OUTPUT: 'The AI returned an unreadable script revision. No approval or revision state changed.',
+    MODEL_INVOCATION_FAILED: 'The AI script editor failed. No approval or revision state changed.',
   };
 
   if (messages[code]) {
@@ -3369,7 +3375,48 @@ function renderScripts() {
     els.approveScript.disabled = state.selectedScript.approvedRevisionId === state.selectedRevision.id;
   }
 
+  renderScriptCoachingActions();
   renderProduction();
+}
+
+function renderScriptCoachingActions() {
+  els.scriptCoachingActions.innerHTML = '';
+
+  if (!state.selectedScript || !state.selectedRevision) {
+    return;
+  }
+
+  const heading = document.createElement('div');
+  heading.className = 'script-coaching-heading';
+  const title = document.createElement('h3');
+  title.textContent = 'AI coaching';
+  const help = document.createElement('p');
+  help.className = 'help';
+  help.textContent = 'Creates a new draft revision. It does not approve the script or carry review decisions forward.';
+  heading.append(title, help);
+
+  const actions = document.createElement('div');
+  actions.className = 'script-coaching-grid';
+  const running = isActionRunning('script');
+
+  for (const action of state.scriptCoachingActions) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'secondary coaching-action';
+    button.disabled = running;
+    button.innerHTML = '<strong></strong><span></span>';
+    button.querySelector('strong').textContent = action.label;
+    button.querySelector('span').textContent = action.description;
+    button.addEventListener('click', () => runScriptCoachingAction(action.action));
+    actions.append(button);
+  }
+
+  if (state.scriptCoachingActions.length === 0) {
+    els.scriptCoachingActions.append(heading, settingsEmpty('No coaching actions are available from the API.'));
+    return;
+  }
+
+  els.scriptCoachingActions.append(heading, actions);
 }
 
 function reviewSectionHeading(title, status, detail) {
@@ -3840,6 +3887,11 @@ async function loadScripts() {
     state.selectedCoverageSummary = null;
     state.production = { episode: null, assets: [], jobs: [] };
   }
+}
+
+async function loadScriptCoachingActions() {
+  const body = await api('/scripts/coaching-actions');
+  state.scriptCoachingActions = body.actions || [];
 }
 
 async function loadModelProfiles() {
@@ -4396,6 +4448,9 @@ async function loadAll() {
     });
     await safeLoad('AI role settings', loadModelProfiles, () => {
       state.modelProfiles = [];
+    });
+    await safeLoad('script coaching actions', loadScriptCoachingActions, () => {
+      state.scriptCoachingActions = [];
     });
     await safeLoad('prompt templates', loadPromptTemplates, () => {
       state.promptTemplates = [];
@@ -5021,6 +5076,39 @@ async function saveScriptRevision(event) {
     setStatus(`Saved script revision ${body.revision.version}.`);
   } catch (error) {
     reportError(error);
+  }
+}
+
+async function runScriptCoachingAction(action) {
+  if (!state.selectedScript || !state.selectedRevision) {
+    return;
+  }
+
+  setActionRunning('script', true);
+  setStatus('Creating coached script revision...');
+
+  try {
+    const body = await api(`/scripts/${state.selectedScript.id}/revisions/${state.selectedRevision.id}/coach`, {
+      method: 'POST',
+      body: JSON.stringify({
+        action,
+        actor: 'local-user',
+      }),
+    });
+    state.scripts = [body.script, ...state.scripts.filter((script) => script.id !== body.script.id)];
+    state.selectedScript = body.script;
+    state.selectedRevision = body.revision;
+    state.selectedRevisions = [body.revision, ...state.selectedRevisions.filter((revision) => revision.id !== body.revision.id)];
+    state.selectedCoverageSummary = body.coverageSummary ?? null;
+    await loadProduction();
+    await loadJobs();
+    savePipelineState();
+    render();
+    setStatus(`AI coaching created script revision ${body.revision.version}. Run integrity review before production.`);
+  } catch (error) {
+    reportError(error);
+  } finally {
+    setActionRunning('script', false);
   }
 }
 

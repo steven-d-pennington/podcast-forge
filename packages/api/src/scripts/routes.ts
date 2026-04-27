@@ -17,6 +17,11 @@ import {
   invalidSpeakerLabels,
   provenanceWarnings,
 } from './builder.js';
+import {
+  buildLlmScriptCoachingRevision,
+  listScriptCoachingActions,
+  SCRIPT_COACHING_ACTION_IDS,
+} from './coaching.js';
 import { buildClaimCoverageSummary } from './coverage.js';
 import { buildIntegrityReview } from './integrity.js';
 import type { ScriptStore } from './store.js';
@@ -52,6 +57,11 @@ const createRevisionSchema = z.object({
   format: z.string().trim().min(1).optional(),
   actor: z.string().trim().min(1).default('local-user'),
   changeSummary: z.string().trim().min(1).nullable().optional(),
+});
+
+const coachRevisionSchema = z.object({
+  action: z.enum(SCRIPT_COACHING_ACTION_IDS),
+  actor: z.string().trim().min(1).default('local-user'),
 });
 
 const approveSchema = z.object({
@@ -274,22 +284,30 @@ function inheritedRevisionMetadata(
   body: string,
   show: ShowRecord,
   packet: Parameters<typeof validationMetadata>[2],
+  options: {
+    source?: string;
+    reason?: string;
+    message?: string;
+    extra?: Record<string, unknown>;
+  } = {},
 ) {
   const previous = previousRevision?.metadata;
   const inheritedCitationMap = previous?.citationMap !== undefined;
   const inheritedProvenance = previous?.provenance !== undefined;
   const inheritedIntegrityReview = previous?.integrityReview !== undefined;
+  const reason = options.reason ?? 'human_edit';
 
   return {
-    source: 'human-edit',
+    ...(options.extra ?? {}),
+    source: options.source ?? 'human-edit',
     previousSource: previous?.source ?? null,
     previousRevisionId: previousRevision?.id ?? null,
     previousApprovedRevisionId,
     provenanceStatus: {
       status: 'stale',
       verified: false,
-      reason: 'human_edit',
-      message: 'Script text changed in a human edit; citation mapping and provenance must be reviewed or rebuilt for this revision.',
+      reason,
+      message: options.message ?? 'Script text changed in a human edit; citation mapping and provenance must be reviewed or rebuilt for this revision.',
       previousRevisionId: previousRevision?.id ?? null,
       previousApprovedRevisionId,
       previousSource: previous?.source ?? null,
@@ -306,6 +324,11 @@ function inheritedRevisionMetadata(
 }
 
 export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutesOptions) {
+  app.get('/scripts/coaching-actions', async () => ({
+    ok: true,
+    actions: listScriptCoachingActions().map(({ action, label, description }) => ({ action, label, description })),
+  }));
+
   app.post<{ Params: { id: string } }>('/research-packets/:id/script', async (request, reply) => {
     let job: JobRecord | undefined;
     let jobStore: Pick<SearchJobStore, 'createJob' | 'updateJob'> | undefined;
@@ -504,6 +527,82 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
         modelProfile: {},
         metadata: {
           ...inheritedRevisionMetadata(latestRevision, script.approvedRevisionId, body.body, show, packet),
+        },
+      });
+
+      if (!result) {
+        throw new ApiError(404, 'SCRIPT_NOT_FOUND', `Script not found: ${request.params.id}`);
+      }
+
+      const coverageSummary = buildClaimCoverageSummary(packet, result.revision);
+      return reply.code(201).send({ ok: true, script: result.script, revision: result.revision, coverageSummary });
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post<{ Params: { id: string; revisionId: string } }>('/scripts/:id/revisions/:revisionId/coach', async (request, reply) => {
+    try {
+      const rawStore = options.getStore();
+      const scriptStore = requireScriptStore(rawStore);
+      const researchStore = requireResearchStore(rawStore);
+      const body = coachRevisionSchema.parse(request.body ?? {});
+      const script = await scriptStore.getScript(request.params.id);
+
+      if (!script) {
+        throw new ApiError(404, 'SCRIPT_NOT_FOUND', `Script not found: ${request.params.id}`);
+      }
+
+      const revision = await scriptStore.getScriptRevision(request.params.revisionId);
+
+      if (!revision || revision.scriptId !== script.id) {
+        throw new ApiError(404, 'SCRIPT_REVISION_NOT_FOUND', `Script revision not found: ${request.params.revisionId}`);
+      }
+
+      const packet = await researchStore.getResearchPacket(script.researchPacketId);
+
+      if (!packet) {
+        throw new ApiError(404, 'RESEARCH_PACKET_NOT_FOUND', `Research packet not found: ${script.researchPacketId}`);
+      }
+      assertPacketCanGenerate(packet);
+
+      const show = await getShow(rawStore, script.showId);
+      assertCast(show);
+
+      if (!options.llmRuntime) {
+        throw new ApiError(503, 'SCRIPT_COACHING_RUNTIME_UNAVAILABLE', 'Script coaching requires an injected LLM runtime.');
+      }
+
+      const modelProfile = hasModelProfileStore(rawStore)
+        ? await resolveModelProfile(rawStore, { showId: script.showId, role: 'script_editor' })
+        : undefined;
+
+      if (!modelProfile) {
+        throw new ApiError(409, 'SCRIPT_COACHING_MODEL_PROFILE_REQUIRED', 'No script_editor model profile is configured for this show.');
+      }
+
+      const coached = await buildLlmScriptCoachingRevision(show, packet, script, revision, body.action, modelProfile, {
+        runtime: options.llmRuntime,
+        promptRegistry: createPromptRegistry({ store: rawStore }),
+      });
+      assertValidSpeakers(coached.body, show);
+      const coachedSpeakers = extractSpeakerLabels(coached.body);
+
+      const result = await scriptStore.createScriptRevision(script.id, {
+        title: coached.title,
+        body: coached.body,
+        format: revision.format || script.format,
+        speakers: coachedSpeakers,
+        author: body.actor,
+        changeSummary: coached.changeSummary,
+        modelProfile: modelProfileRecord(modelProfile),
+        metadata: {
+          ...inheritedRevisionMetadata(revision, script.approvedRevisionId, coached.body, show, packet, {
+            source: 'llm-coaching',
+            reason: 'ai_coaching',
+            message: 'AI coaching changed the script text; citation mapping, provenance, and integrity review must be checked again before production.',
+            extra: coached.metadata,
+          }),
         },
       });
 
