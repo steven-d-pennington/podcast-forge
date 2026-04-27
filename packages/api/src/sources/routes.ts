@@ -304,6 +304,15 @@ export function registerSourceRoutes(app: FastifyInstance, options: SourceRoutes
         throw new ApiError(404, 'SOURCE_PROFILE_NOT_FOUND', `Source profile not found: ${request.params.id}`);
       }
 
+      if (!supportsDiscoveryControls(profile.type)) {
+        const queries = await store.listSourceQueries(profile.id);
+        await Promise.all(queries.map((query) => store.updateSourceQuery(query.id, {
+          freshness: null,
+          includeDomains: [],
+          excludeDomains: [],
+        })));
+      }
+
       return { ok: true, sourceProfile: profile };
     } catch (error) {
       return sendError(reply, error);

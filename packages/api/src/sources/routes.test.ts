@@ -1348,6 +1348,17 @@ describe('source profile routes', () => {
   });
 
   it('clears source controls when a profile is changed to or already has an unsupported type', async () => {
+    const staleQueryResponse = await app.inject({
+      method: 'PATCH',
+      url: '/source-queries/33333333-3333-4333-8333-333333333333',
+      payload: {
+        freshness: 'pw',
+        includeDomains: ['openai.com'],
+        excludeDomains: ['example.com'],
+      },
+    });
+    assert.equal(staleQueryResponse.statusCode, 200);
+
     const response = await app.inject({
       method: 'PATCH',
       url: '/source-profiles/22222222-2222-4222-8222-222222222222',
@@ -1365,6 +1376,18 @@ describe('source profile routes', () => {
     assert.equal(body.sourceProfile.freshness, null);
     assert.deepEqual(body.sourceProfile.includeDomains, []);
     assert.deepEqual(body.sourceProfile.excludeDomains, []);
+
+    const clearedQueriesResponse = await app.inject({
+      method: 'GET',
+      url: '/source-profiles/22222222-2222-4222-8222-222222222222/queries',
+    });
+    const clearedQuery = clearedQueriesResponse.json().sourceQueries.find(
+      (query: SourceQueryRecord) => query.id === '33333333-3333-4333-8333-333333333333',
+    );
+    assert.equal(clearedQueriesResponse.statusCode, 200);
+    assert.equal(clearedQuery.freshness, null);
+    assert.deepEqual(clearedQuery.includeDomains, []);
+    assert.deepEqual(clearedQuery.excludeDomains, []);
 
     const followUpResponse = await app.inject({
       method: 'PATCH',
