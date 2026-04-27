@@ -810,10 +810,10 @@ function publishBlockers(
       });
     }
 
-    if (audioAsset.byteSize === null || audioAsset.byteSize <= 0) {
+    if (audioAsset.byteSize !== null && audioAsset.byteSize <= 0) {
       blockers.push({
         code: 'AUDIO_ASSET_SIZE_INVALID',
-        message: 'Audio asset byte size must be known and positive before RSS publishing.',
+        message: 'Audio asset byte size must be positive when known before RSS publishing.',
         metadata: { assetId: audioAsset.id, byteSize: audioAsset.byteSize },
       });
     }
@@ -1039,7 +1039,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
       const audioAsset = selectAsset(assets, ['audio-final', 'audio-preview'], 'audio');
       const coverAsset = selectAsset(assets, ['cover-art'], 'cover art');
       const guid = feedGuid(episode, feed);
-      const expectedRssUrl = resolvedRssPublicUrl(feed);
+      const expectedRssUrl = resolvedRssPublicUrl(feed) ?? '';
 
       const storageAdapter = options.publishStorageAdapterFactory?.(feed) ?? createPublishStorageAdapter(feed);
 
@@ -1101,15 +1101,6 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
         });
       }
 
-      if (!expectedRssUrl) {
-        throw new ApiError(409, 'PUBLISH_BLOCKED', 'Episode cannot be published until blocking issues are resolved.', {
-          blockedReasons: [{
-            code: 'PUBLISH_FEED_PUBLIC_URL_REQUIRED',
-            message: 'RSS publishing requires a public feed URL or a public base URL with an RSS feed path.',
-          }],
-        });
-      }
-
       logs.push(log('info', 'Starting publish.rss job.', {
         episodeId: episode.id,
         feedId: feed.id,
@@ -1165,6 +1156,16 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
       ]);
       const audioUpload = assertUploadedAssetReady('Audio asset', rawAudioUpload);
       const coverUpload = assertUploadedAssetReady('Cover art asset', rawCoverUpload);
+      const audioByteSize = audioUpload.byteSize ?? audioAsset.byteSize;
+
+      if (audioByteSize === null || audioByteSize <= 0) {
+        throw new ApiError(502, 'PUBLISHED_ASSET_SIZE_INVALID', 'Audio upload did not provide a positive byte size.', {
+          assetId: audioAsset.id,
+          uploadByteSize: audioUpload.byteSize,
+          assetByteSize: audioAsset.byteSize,
+        });
+      }
+
       const rssAudioUrl = feed.op3Wrap ? op3Wrap(audioUpload.publicUrl) : audioUpload.publicUrl;
 
       stage = 'validating-public-urls';
@@ -1206,7 +1207,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
           description: episode.description ?? episode.title,
           audioUrl: rssAudioUrl,
           audioMimeType: audioAsset.mimeType ?? 'audio/mpeg',
-          audioByteSize: audioUpload.byteSize ?? audioAsset.byteSize ?? 0,
+          audioByteSize,
           coverUrl: coverUpload.publicUrl,
           durationSeconds: audioAsset.durationSeconds ?? episode.durationSeconds,
           publishedAt,
