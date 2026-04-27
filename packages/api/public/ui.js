@@ -77,6 +77,7 @@ const els = {
   settingsPublishing: document.querySelector('#settingsPublishing'),
   settingsSchedules: document.querySelector('#settingsSchedules'),
   pipelineMeta: document.querySelector('#pipelineMeta'),
+  workflowContext: document.querySelector('#workflowContext'),
   pipelineStages: document.querySelector('#pipelineStages'),
   pipelineDebug: document.querySelector('#pipelineDebug'),
   profileList: document.querySelector('#profileList'),
@@ -1070,6 +1071,7 @@ function taskLabel(type) {
     'source.ingest': 'RSS import',
     'research.packet': 'Research brief',
     'script.generate': 'Script draft',
+    'script.integrity_review': 'Integrity review',
     'audio.preview': 'Preview audio',
     'art.generate': 'Cover art',
     'publish.rss': 'RSS publishing',
@@ -1112,9 +1114,24 @@ function latestStageJob(types) {
   return job ? `${taskLabel(job.type)} ${job.status}, ${job.progress}%` : 'No recorded task run yet.';
 }
 
+function scrollToPanel(id) {
+  const target = document.getElementById(id);
+
+  if (!target) {
+    return;
+  }
+
+  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  target.classList.add('panel-focus');
+  window.setTimeout(() => {
+    target.classList.remove('panel-focus');
+  }, 1200);
+}
+
 function stageCard(stage) {
   const card = document.createElement('article');
   card.className = `pipeline-card ${statusClass(stage.status)}${stage.active ? ' active' : ''}`;
+  card.dataset.stage = String(stage.number);
 
   const top = document.createElement('div');
   top.className = 'pipeline-top';
@@ -1158,6 +1175,15 @@ function stageCard(stage) {
   }
 
   card.append(top, artifacts, next, button);
+
+  if (stage.targetId) {
+    const panelButton = document.createElement('button');
+    panelButton.type = 'button';
+    panelButton.className = 'secondary';
+    panelButton.textContent = 'Open Stage Panel';
+    panelButton.addEventListener('click', () => scrollToPanel(stage.targetId));
+    card.append(panelButton);
+  }
 
   if (stage.jobTypes?.length) {
     const jobButton = document.createElement('button');
@@ -1212,6 +1238,44 @@ function latestProductionText() {
   return `${episode.title} (${episode.status}) | audio ${audio ? 'ready' : 'missing'} | cover ${art ? 'ready' : 'missing'}`;
 }
 
+function workflowStoryContext() {
+  const candidates = selectedCandidates();
+
+  if (candidates.length > 0) {
+    return candidates.length === 1 ? candidates[0].title : `${candidates.length} candidate stories selected`;
+  }
+
+  const packet = selectedResearchPacket();
+  if (packet) {
+    return packet.title;
+  }
+
+  if (state.storyCandidates.length > 0) {
+    return `${state.storyCandidates.length} candidate stories loaded`;
+  }
+
+  return 'No story selected yet';
+}
+
+function workflowRevisionContext() {
+  const episode = selectedEpisode();
+
+  if (episode) {
+    return `${episode.title} (${episode.status})`;
+  }
+
+  if (state.selectedScript && state.selectedRevision) {
+    return `${state.selectedScript.title} | revision ${state.selectedRevision.version}`;
+  }
+
+  const packet = selectedResearchPacket();
+  if (packet) {
+    return `${packet.title} | research brief`;
+  }
+
+  return 'No active run or revision';
+}
+
 function buildPipelineStages() {
   const show = selectedShow();
   const profile = selectedProfile();
@@ -1231,6 +1295,7 @@ function buildPipelineStages() {
   const discoverRunning = isActionRunning('discover');
   const researchRunning = isActionRunning('research');
   const scriptRunning = isActionRunning('script');
+  const integrityRunning = isActionRunning('integrity');
   const approvalsRunning = isActionRunning('approval');
   const publishRunning = isActionRunning('publish');
   const productionActionRunning = productionRunning || isActionRunning('production');
@@ -1245,7 +1310,7 @@ function buildPipelineStages() {
   return [
     {
       number: 1,
-      title: 'Choose show and story source',
+      title: 'Choose show',
       status: show && profile ? 'done' : show ? 'blocked' : 'not started',
       artifact: show ? `${show.title}${profile ? ` | ${profile.name}` : ''}` : 'No show selected.',
       next: show
@@ -1255,13 +1320,15 @@ function buildPipelineStages() {
       action: () => {
         state.showSetupOpen = true;
         render();
+        scrollToPanel('showSetupForm');
       },
       disabled: false,
       active: Boolean(show && profile),
+      targetId: show ? 'settingsPanel' : 'showSetupForm',
     },
     {
       number: 2,
-      title: 'Find or ingest candidate stories',
+      title: 'Find story candidates',
       status: discoverRunning ? 'running' : !profile ? 'blocked' : state.storyCandidates.length > 0 ? 'done' : profileSupportsDiscovery ? 'ready' : 'ready',
       artifact: state.storyCandidates.length > 0
         ? `${state.storyCandidates.length} candidate stor${state.storyCandidates.length === 1 ? 'y' : 'ies'} loaded. Latest: ${state.storyCandidates[0].title}`
@@ -1277,11 +1344,12 @@ function buildPipelineStages() {
       action: !profile ? undefined : profileSupportsDiscovery ? runSelectedProfileDiscovery : focusManualStoryForm,
       disabled: discoverRunning || !profile || (!profileSupportsDiscovery && profile.type !== 'manual'),
       active: state.storyCandidates.length > 0,
+      targetId: profile?.type === 'manual' ? 'manualStoryPanel' : 'settingsPanel',
       jobTypes: ['source.search', 'source.ingest'],
     },
     {
       number: 3,
-      title: 'Select or cluster candidate stories',
+      title: 'Pick / cluster story',
       status: state.storyCandidates.length === 0 ? 'blocked' : candidates.length > 0 ? 'done' : 'ready',
       artifact: latestCandidateText(),
       next: candidates.length > 0
@@ -1293,10 +1361,11 @@ function buildPipelineStages() {
       action: candidates.length > 0 ? clearCandidateSelection : selectTopCandidate,
       disabled: state.storyCandidates.length === 0,
       active: candidates.length > 0,
+      targetId: 'candidatePanel',
     },
     {
       number: 4,
-      title: 'Build research brief',
+      title: 'Build evidence brief',
       status: researchRunning ? 'running' : packetBlocked ? 'blocked' : packet && packetWarningCount > 0 ? 'needs review' : packet ? 'done' : state.researchPackets.length > 0 || candidates.length > 0 ? 'ready' : 'blocked',
       artifact: latestResearchText(latestPacket),
       next: packet
@@ -1306,62 +1375,77 @@ function buildPipelineStages() {
       action: packet ? () => selectResearchPacket(packet) : state.researchPackets.length > 0 ? () => selectResearchPacket(state.researchPackets[0]) : buildResearchBriefFromSelected,
       disabled: researchRunning || (!packet && state.researchPackets.length === 0 && !candidateAnalysis.canLaunch),
       active: Boolean(packet),
+      targetId: 'researchPanel',
       jobTypes: ['research.packet'],
     },
     {
       number: 5,
-      title: 'Generate or revise script draft',
-      status: scriptRunning ? 'running' : state.selectedScript && scriptReadyForProduction ? 'done' : state.selectedScript ? 'needs review' : packet && !packetBlocked ? 'ready' : 'blocked',
+      title: 'Generate script',
+      status: scriptRunning ? 'running' : state.selectedScript ? 'done' : packet && !packetBlocked ? 'ready' : 'blocked',
       artifact: latestScriptText(),
       next: state.selectedScript
-        ? (scriptReadyForProduction ? 'Approved script draft passed integrity review and can move into production.' : integrity.blocking ? 'Run the integrity reviewer or record an override before production.' : 'Review and approve the selected script revision before audio.')
+        ? 'Review the draft and continue to integrity review before production.'
         : packet && !packetBlocked ? 'Generate an episode draft from the selected research brief.' : 'Select a ready research brief first.',
       actionLabel: state.selectedScript ? 'Review Draft' : 'Generate Script Draft',
       action: state.selectedScript ? focusScriptEditor : generateScriptFromSelectedResearch,
       disabled: scriptRunning || (!state.selectedScript && (!packet || packetBlocked)),
       active: Boolean(state.selectedScript),
+      targetId: 'scriptPanel',
       jobTypes: ['script.generate'],
     },
     {
       number: 6,
-      title: 'Generate audio and cover preview',
+      title: 'Integrity review',
+      status: integrityRunning || approvalsRunning ? 'running' : scriptReadyForProduction ? 'done' : state.selectedScript && state.selectedRevision ? 'ready' : 'blocked',
+      artifact: state.selectedRevision
+        ? `Integrity review ${integrityReviewLabel(integrity.status)}${scriptApproved ? ' | script approved for audio' : ''}`
+        : 'No script revision selected yet.',
+      next: !state.selectedScript || !state.selectedRevision
+        ? 'Generate or select a script draft first.'
+        : integrity.blocking
+          ? 'Run the integrity reviewer or record an explicit override before production.'
+          : scriptApproved ? 'Integrity and script approval gates are complete.' : 'Approve the reviewed script revision for audio.',
+      actionLabel: !state.selectedScript || !state.selectedRevision
+        ? 'Open Scripts'
+        : integrity.blocking ? 'Run Integrity Review' : scriptApproved ? 'Open Review Gates' : 'Approve Script for Audio',
+      action: !state.selectedScript || !state.selectedRevision
+        ? () => scrollToPanel('scriptPanel')
+        : integrity.blocking ? runSelectedIntegrityReview : scriptApproved ? () => scrollToPanel('reviewPanel') : approveSelectedScript,
+      disabled: integrityRunning || approvalsRunning || (!state.selectedScript || !state.selectedRevision),
+      active: Boolean(state.selectedRevision && !integrity.blocking),
+      targetId: 'reviewPanel',
+    },
+    {
+      number: 7,
+      title: 'Produce audio / cover',
       status: productionActionRunning ? 'running' : audioAsset && coverAsset ? 'done' : scriptReadyForProduction ? 'ready' : 'blocked',
       artifact: latestProductionText(),
       next: audioAsset && coverAsset
-        ? 'Preview audio and cover art are ready for publish review.'
-        : scriptReadyForProduction ? 'Create the missing preview audio and cover art assets.' : integrity.blocking ? 'Complete the integrity review gate before production.' : 'Approve a script revision for audio first.',
+        ? 'Preview audio and cover art are ready for approval and publishing review.'
+        : scriptReadyForProduction ? 'Create the missing preview audio and cover art assets.' : integrity.blocking ? 'Complete the integrity review gate before production.' : 'Approve the reviewed script revision for audio first.',
       actionLabel: audioAsset && coverAsset ? 'Refresh Assets' : 'Create Missing Assets',
       action: audioAsset && coverAsset ? refreshProductionUntilSettled : createMissingProductionAssets,
       disabled: productionActionRunning || (!scriptReadyForProduction && !(audioAsset && coverAsset)),
       active: Boolean(audioAsset || coverAsset),
+      targetId: 'scriptPanel',
       jobTypes: ['audio.preview', 'art.generate'],
     },
     {
-      number: 7,
-      title: 'Review approvals',
-      status: approvalsRunning ? 'running' : episode?.status === 'approved-for-publish' || episode?.status === 'published' ? 'done' : episode?.status === 'audio-ready' && publishPreApprovalReady ? 'ready' : state.selectedScript && !scriptReadyForProduction ? 'needs review' : 'blocked',
-      artifact: episode ? `${episode.title} (${episode.status})` : latestScriptText(),
-      next: episode?.status === 'audio-ready'
-        ? (publishPreApprovalReady ? 'Approve the episode for publishing after reviewing assets.' : firstChecklistBlocker || 'Complete the publish checklist before approval.')
-        : state.selectedScript && !scriptReadyForProduction ? 'Finish script approval and integrity review before production can run.' : 'Finish script approval and production assets first.',
-      actionLabel: episode?.status === 'audio-ready' ? 'Approve for Publishing' : 'Approve Script for Audio',
-      action: episode?.status === 'audio-ready' ? approveEpisodeForPublishing : approveSelectedScript,
-      disabled: approvalsRunning || !(episode?.status === 'audio-ready' ? publishPreApprovalReady : (state.selectedScript && state.selectedRevision && !scriptApproved)),
-      active: Boolean(episode?.status === 'approved-for-publish' || episode?.status === 'published'),
-    },
-    {
       number: 8,
-      title: 'Publish',
-      status: publishRunning ? 'running' : episode?.status === 'published' ? 'done' : episode?.status === 'approved-for-publish' && publishChecklistReady ? 'ready' : 'blocked',
+      title: 'Approve and publish',
+      status: publishRunning || approvalsRunning ? 'running' : episode?.status === 'published' ? 'done' : episode?.status === 'approved-for-publish' && publishChecklistReady ? 'ready' : episode?.status === 'audio-ready' && publishPreApprovalReady ? 'ready' : 'blocked',
       artifact: episode?.feedGuid || episode?.metadata?.publish?.rssUrl || 'No publishing record yet.',
       next: episode?.status === 'published'
         ? 'RSS publishing has a recorded feed GUID or publish result.'
-        : episode?.status === 'approved-for-publish' ? (publishChecklistReady ? 'Publish to the configured RSS feed.' : firstChecklistBlocker || 'Complete the publish checklist first.') : 'Approval for publishing is required before RSS output.',
-      actionLabel: episode?.status === 'published' ? 'Already Published' : 'Publish to RSS',
-      action: publishSelectedEpisode,
-      disabled: publishRunning || episode?.status !== 'approved-for-publish' || !publishChecklistReady,
+        : episode?.status === 'approved-for-publish' ? (publishChecklistReady ? 'Publish to the configured RSS feed.' : firstChecklistBlocker || 'Complete the publish checklist first.')
+          : episode?.status === 'audio-ready' ? (publishPreApprovalReady ? 'Approve the episode for publishing after reviewing assets.' : firstChecklistBlocker || 'Complete the publish checklist before approval.')
+            : 'Production assets and explicit publish approval are required before RSS output.',
+      actionLabel: episode?.status === 'published' ? 'Already Published' : episode?.status === 'approved-for-publish' ? 'Publish to RSS' : 'Approve for Publishing',
+      action: episode?.status === 'approved-for-publish' ? publishSelectedEpisode : approveEpisodeForPublishing,
+      disabled: publishRunning || approvalsRunning || !(episode?.status === 'approved-for-publish' ? publishChecklistReady : (episode?.status === 'audio-ready' && publishPreApprovalReady)),
       active: episode?.status === 'published',
       primary: true,
+      targetId: 'reviewPanel',
       jobTypes: ['publish.rss'],
     },
   ];
@@ -1373,6 +1457,26 @@ function renderPipeline() {
   els.pipelineMeta.textContent = show
     ? `${show.title}${profile ? ` | Story source: ${profile.name}` : ' | Choose a story source/search recipe'}`
     : 'Choose a show to start an evidence-first episode workflow.';
+  els.workflowContext.innerHTML = '';
+
+  const contextItems = [
+    ['Selected show', show ? show.title : 'No show selected'],
+    ['Story source', profile ? profile.name : 'Choose a source/search recipe'],
+    ['Episode/story', workflowStoryContext()],
+    ['Active run/revision', workflowRevisionContext()],
+  ];
+
+  for (const [label, value] of contextItems) {
+    const item = document.createElement('div');
+    item.className = 'workflow-context-item';
+    const itemLabel = document.createElement('span');
+    itemLabel.textContent = label;
+    const itemValue = document.createElement('strong');
+    itemValue.textContent = value;
+    item.append(itemLabel, itemValue);
+    els.workflowContext.append(item);
+  }
+
   els.pipelineStages.innerHTML = '';
 
   for (const stage of buildPipelineStages()) {
