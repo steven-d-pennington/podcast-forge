@@ -9,6 +9,7 @@ import { nextCronRun } from './cron.js';
 import type { ScheduledPipelineRecord, ScheduledPipelineStage, SchedulerStore } from './store.js';
 
 type JsonObject = Record<string, unknown>;
+type WaitingStageCategory = 'queued' | 'blocked';
 
 export interface RunScheduledPipelineOptions {
   pipeline: ScheduledPipelineRecord;
@@ -89,13 +90,16 @@ async function createWaitingStageJob(options: {
   stage: ScheduledPipelineStage;
   type: string;
   reason: string;
+  category?: WaitingStageCategory;
   status?: JobRecord['status'];
 }) {
+  const category = options.category ?? 'queued';
   const logs = [
     log(options.status === 'failed' ? 'error' : 'info', options.reason, {
       scheduledPipelineId: options.pipeline.id,
       parentJobId: options.parentJob.id,
       stage: options.stage,
+      waitCategory: category,
     }),
   ];
 
@@ -112,9 +116,44 @@ async function createWaitingStageJob(options: {
       feedId: options.pipeline.feedId,
       sourceProfileId: options.pipeline.sourceProfileId,
       autopublish: options.pipeline.autopublish,
+      waitReason: options.reason,
+      waitCategory: category,
     },
     logs,
   });
+}
+
+function stageOutput(stageJobs: JobRecord[]) {
+  const failedStageJobs = stageJobs.filter((job) => job.status === 'failed');
+  const waitingStageJobs = stageJobs.filter((job) => job.status === 'queued' || job.status === 'running');
+  const blockedStageJobs = waitingStageJobs.filter((job) => job.input.waitCategory === 'blocked');
+  const completedStageJobs = stageJobs.filter((job) => job.status === 'succeeded');
+  const semanticStatus = failedStageJobs.length > 0
+    ? 'failed'
+    : blockedStageJobs.length > 0
+      ? 'blocked'
+      : waitingStageJobs.length > 0
+        ? completedStageJobs.length > 0
+          ? 'partial'
+          : 'queued'
+        : 'succeeded';
+
+  return {
+    semanticStatus,
+    stageJobIds: stageJobs.map((job) => job.id),
+    failedStageJobIds: failedStageJobs.map((job) => job.id),
+    waitingStageJobIds: waitingStageJobs.map((job) => job.id),
+    blockedStageJobIds: blockedStageJobs.map((job) => job.id),
+    stageStatuses: stageJobs.map((job) => ({
+      id: job.id,
+      type: job.type,
+      status: job.status,
+      stage: job.input.stage ?? null,
+      waitCategory: job.input.waitCategory ?? null,
+      waitReason: job.input.waitReason ?? null,
+      error: job.error,
+    })),
+  };
 }
 
 async function runIngestStage(options: RunScheduledPipelineOptions, parentJob: JobRecord) {
@@ -238,6 +277,7 @@ async function runStage(options: RunScheduledPipelineOptions, parentJob: JobReco
       parentJob,
       stage,
       type,
+      category: 'blocked',
       reason: 'Publishing is waiting for explicit approval; autopublish is disabled for this scheduled pipeline.',
     });
   }
@@ -257,6 +297,7 @@ async function runStage(options: RunScheduledPipelineOptions, parentJob: JobReco
       parentJob,
       stage,
       type,
+      category: 'blocked',
       reason: `Scheduled ${stage} stage is waiting for config.stageInputs.${stage}.${requiredId}.`,
     });
   }
@@ -327,11 +368,7 @@ export async function runScheduledPipeline(options: RunScheduledPipelineOptions)
       parentJob = await updateJob(options.store, parentJob.id, {
         progress: Math.round(((index + 1) / options.pipeline.workflow.length) * 90),
         logs,
-        output: {
-          stageJobIds: stageJobs.map((job) => job.id),
-          failedStageJobIds: stageJobs.filter((job) => job.status === 'failed').map((job) => job.id),
-          waitingStageJobIds: stageJobs.filter((job) => job.status === 'queued').map((job) => job.id),
-        },
+        output: stageOutput(stageJobs),
       }) ?? parentJob;
 
       if (failed) {
@@ -353,34 +390,43 @@ export async function runScheduledPipeline(options: RunScheduledPipelineOptions)
       stageJobs.push(legacyJob);
     }
 
-    logs.push(log('info', 'Completed scheduled pipeline run.', {
+    const output = stageOutput(stageJobs);
+    const hasWaitingStages = output.waitingStageJobIds.length > 0;
+    const status = hasWaitingStages ? 'running' : 'succeeded';
+    const progress = hasWaitingStages ? 90 : 100;
+
+    logs.push(log('info', hasWaitingStages ? 'Scheduled pipeline run recorded; downstream stages pending.' : 'Completed scheduled pipeline run.', {
+      status,
+      semanticStatus: output.semanticStatus,
       stageJobCount: stageJobs.length,
-      waitingStageJobCount: stageJobs.filter((job) => job.status === 'queued').length,
+      waitingStageJobCount: output.waitingStageJobIds.length,
     }));
+
+    if (hasWaitingStages) {
+      logs.push(log(output.blockedStageJobIds.length > 0 ? 'warn' : 'info', 'Scheduled pipeline has downstream stages that are not complete.', {
+        semanticStatus: output.semanticStatus,
+        waitingStageJobIds: output.waitingStageJobIds,
+        blockedStageJobIds: output.blockedStageJobIds,
+      }));
+    }
+
     parentJob = await updateJob(options.store, parentJob.id, {
-      status: 'succeeded',
-      progress: 100,
+      status,
+      progress,
       logs,
-      output: {
-        stageJobIds: stageJobs.map((job) => job.id),
-        failedStageJobIds: [],
-        waitingStageJobIds: stageJobs.filter((job) => job.status === 'queued').map((job) => job.id),
-      },
-      finishedAt: new Date(),
+      output,
+      finishedAt: hasWaitingStages ? null : new Date(),
     }) ?? parentJob;
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Scheduled pipeline run failed.';
     logs.push(log('error', message));
+    const output = { ...stageOutput(stageJobs), semanticStatus: 'failed' };
     parentJob = await updateJob(options.store, parentJob.id, {
       status: 'failed',
       progress: parentJob.progress,
       logs,
       error: message,
-      output: {
-        stageJobIds: stageJobs.map((job) => job.id),
-        failedStageJobIds: stageJobs.filter((job) => job.status === 'failed').map((job) => job.id),
-        waitingStageJobIds: stageJobs.filter((job) => job.status === 'queued').map((job) => job.id),
-      },
+      output,
       finishedAt: new Date(),
     }) ?? parentJob;
   }

@@ -384,14 +384,17 @@ describe('scheduler routes', () => {
     assert.equal(runResponse.statusCode, 201);
     const body = runResponse.json();
     assert.equal(body.job.type, 'pipeline.scheduled');
-    assert.equal(body.job.status, 'succeeded');
+    assert.equal(body.job.status, 'running');
+    assert.equal(body.job.output.semanticStatus, 'blocked');
     assert.equal(body.job.input.triggeredBy, 'dashboard-user');
     assert.deepEqual(
       body.stageJobs.map((job: JobRecord) => job.type),
       ['source.ingest', 'research.packet', 'script.generate', 'audio.preview', 'publish.rss'],
     );
     assert.equal(body.stageJobs[0].status, 'succeeded');
+    assert.equal(body.job.output.stageStatuses[0].stage, null);
     assert.equal(body.stageJobs[4].status, 'queued');
+    assert.equal(body.stageJobs[4].input.waitCategory, 'blocked');
     assert.match(body.stageJobs[4].logs[0].message, /approval/i);
   });
 
@@ -441,6 +444,7 @@ describe('scheduler routes', () => {
 
     assert.equal(retryResponse.statusCode, 201);
     assert.equal(retryResponse.json().job.status, 'succeeded');
+    assert.equal(retryResponse.json().job.output.semanticStatus, 'succeeded');
     assert.equal(retryResponse.json().job.input.retryOfJobId, failedJob.id);
   });
 });

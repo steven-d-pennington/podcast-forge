@@ -2749,6 +2749,40 @@ describe('source profile routes', () => {
     assert.equal(uploadedPublishAssets.length, 0);
   });
 
+  it('blocks RSS publishing before mutations when feed public URLs are unusable', async () => {
+    const { episode } = await createProducedEpisode('Missing Feed URL Story');
+
+    const approvalResponse = await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/approve-for-publish`,
+      payload: { actor: 'editor@example.com' },
+    });
+
+    assert.equal(approvalResponse.statusCode, 201);
+    store.feeds[0].publicFeedUrl = null;
+    store.feeds[0].publicBaseUrl = null;
+    store.feeds[0].rssFeedPath = null;
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/publish/rss`,
+      payload: { actor: 'publisher@example.com' },
+    });
+    const body = response.json();
+
+    assert.equal(response.statusCode, 409);
+    assert.equal(body.code, 'PUBLISH_BLOCKED');
+    assert.equal(
+      body.blockedReasons.some((reason: { code: string }) => reason.code === 'PUBLISH_FEED_PUBLIC_URL_REQUIRED'),
+      true,
+    );
+    assert.equal(store.jobs.some((job) => job.type === 'publish.rss'), false);
+    assert.equal(store.publishEvents.length, 0);
+    assert.equal(uploadedPublishAssets.length, 0);
+    assert.equal(rssEntries.size, 0);
+    assert.equal(store.episodes.find((candidate) => candidate.id === episode.id)?.status, 'approved-for-publish');
+  });
+
   it('blocks publish approval when the research brief has no recorded approval event', async () => {
     const packet = await store.createResearchPacket({
       showId: store.shows[0].id,
@@ -2884,6 +2918,126 @@ describe('source profile routes', () => {
     assert.equal(Array.from(rssEntries.values())[0]?.guid, publishBody.episode.feedGuid);
   });
 
+  it('records failed publish state without mutating RSS or marking the episode published when URL validation fails', async () => {
+    const { episode } = await createProducedEpisode('Failed Publish Validation Story');
+
+    await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/approve-for-publish`,
+      payload: { actor: 'editor@example.com' },
+    });
+
+    let rssMutationCount = 0;
+    const validationApp = buildApp({
+      sourceStore: store,
+      braveApiKey: 'test-brave-key',
+      fetchImpl: braveFetch,
+      rssFetchImpl: rssFetch,
+      researchFetchImpl: researchFetch,
+      researchModelServices,
+      llmRuntime,
+      publishStorageAdapterFactory,
+      rssUpdateAdapter: {
+        async upsertEpisode({ feed, entry }) {
+          rssMutationCount += 1;
+          return {
+            rssUrl: feed.publicFeedUrl ?? 'https://podcast.example.com/feed.xml',
+            inserted: !rssEntries.has(entry.guid),
+            itemCount: rssEntries.size,
+          };
+        },
+      },
+      publishUrlValidator: {
+        async validate(urls) {
+          validatedPublishUrls.push(...urls);
+          return urls.map((url) => ({ url, ok: !url.includes('/cover-art') }));
+        },
+      },
+      sleep: async () => {},
+    });
+
+    try {
+      const response = await validationApp.inject({
+        method: 'POST',
+        url: `/episodes/${episode.id}/publish/rss`,
+        payload: { actor: 'publisher@example.com' },
+      });
+      const body = response.json();
+
+      assert.equal(response.statusCode, 502);
+      assert.equal(body.code, 'PUBLISHED_URL_VALIDATION_FAILED');
+      assert.equal(body.job.status, 'failed');
+      assert.equal(body.job.output.stage, 'validating-public-urls');
+      assert.equal(rssMutationCount, 0);
+      assert.equal(rssEntries.size, 0);
+      assert.equal(store.episodes.find((candidate) => candidate.id === episode.id)?.status, 'approved-for-publish');
+      assert.equal(store.publishEvents.filter((event) => event.status === 'succeeded').length, 0);
+      assert.equal(store.publishEvents.filter((event) => event.status === 'failed').length, 1);
+    } finally {
+      await validationApp.close();
+    }
+  });
+
+  it('records failed publish state when the RSS adapter returns a different invalid final URL', async () => {
+    const { episode } = await createProducedEpisode('Failed Final RSS URL Story');
+
+    await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/approve-for-publish`,
+      payload: { actor: 'editor@example.com' },
+    });
+
+    let rssMutationCount = 0;
+    const finalUrlApp = buildApp({
+      sourceStore: store,
+      braveApiKey: 'test-brave-key',
+      fetchImpl: braveFetch,
+      rssFetchImpl: rssFetch,
+      researchFetchImpl: researchFetch,
+      researchModelServices,
+      llmRuntime,
+      publishStorageAdapterFactory,
+      rssUpdateAdapter: {
+        async upsertEpisode() {
+          rssMutationCount += 1;
+          return {
+            rssUrl: 'https://podcast.example.com/rebuilt-feed.xml',
+            inserted: true,
+            itemCount: 1,
+          };
+        },
+      },
+      publishUrlValidator: {
+        async validate(urls) {
+          validatedPublishUrls.push(...urls);
+          return urls.map((url) => ({ url, ok: !url.includes('rebuilt-feed.xml') }));
+        },
+      },
+      sleep: async () => {},
+    });
+
+    try {
+      const response = await finalUrlApp.inject({
+        method: 'POST',
+        url: `/episodes/${episode.id}/publish/rss`,
+        payload: { actor: 'publisher@example.com' },
+      });
+      const body = response.json();
+
+      assert.equal(response.statusCode, 502);
+      assert.equal(body.code, 'PUBLISHED_URL_VALIDATION_FAILED');
+      assert.equal(body.job.status, 'failed');
+      assert.equal(body.job.output.stage, 'updating-rss');
+      assert.equal(rssMutationCount, 1);
+      assert.equal(validatedPublishUrls.includes('https://podcast.example.com/rebuilt-feed.xml'), true);
+      assert.equal(store.episodes.find((candidate) => candidate.id === episode.id)?.status, 'approved-for-publish');
+      assert.equal(store.publishEvents.filter((event) => event.status === 'succeeded').length, 0);
+      assert.equal(store.publishEvents.filter((event) => event.status === 'failed').length, 1);
+    } finally {
+      await finalUrlApp.close();
+    }
+  });
+
   it('keeps RSS publishing idempotent by episode feed GUID', async () => {
     const { episode } = await createProducedEpisode('Idempotent Publish Story');
 
@@ -2897,6 +3051,9 @@ describe('source profile routes', () => {
       url: `/episodes/${episode.id}/publish/rss`,
       payload: { actor: 'publisher@example.com' },
     });
+    store.feeds[0].publicFeedUrl = null;
+    store.feeds[0].publicBaseUrl = null;
+    store.feeds[0].rssFeedPath = null;
     const secondResponse = await app.inject({
       method: 'POST',
       url: `/episodes/${episode.id}/publish/rss`,

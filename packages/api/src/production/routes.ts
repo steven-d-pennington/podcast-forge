@@ -23,12 +23,14 @@ import {
 } from './providers.js';
 import {
   createPublishStorageAdapter,
+  defaultPublishObjectKey,
   localRssUpdateAdapter,
   op3Wrap,
   strictPublicUrlValidator,
   type PublishStorageAdapter,
   type PublishUrlValidator,
   type RssUpdateAdapter,
+  type UploadedPublishAsset,
 } from './publishing.js';
 import type {
   CreateEpisodeAssetInput,
@@ -680,17 +682,88 @@ function researchBlockers(episode: EpisodeRecord, researchPacket: ResearchPacket
   return blockers;
 }
 
-function validHttpUrl(value: string | null) {
-  if (!value) {
-    return true;
+function normalizedHttpUrl(value: string | null) {
+  if (!value || value !== value.trim()) {
+    return null;
   }
 
   try {
     const parsed = new URL(value);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+      ? parsed.toString()
+      : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+function validOptionalHttpUrl(value: string | null) {
+  return !value || normalizedHttpUrl(value) !== null;
+}
+
+function resolvedAssetPublicUrl(feed: FeedRecord, episode: EpisodeRecord, asset: EpisodeAssetRecord) {
+  if (asset.publicUrl) {
+    return normalizedHttpUrl(asset.publicUrl);
+  }
+
+  const publicBaseUrl = normalizedHttpUrl(feed.publicBaseUrl);
+
+  if (!publicBaseUrl) {
+    return null;
+  }
+
+  return normalizedHttpUrl(`${publicBaseUrl.replace(/\/$/, '')}/${defaultPublishObjectKey(episode, asset).replace(/^\//, '')}`);
+}
+
+function resolvedRssPublicUrl(feed: FeedRecord) {
+  const publicFeedUrl = normalizedHttpUrl(feed.publicFeedUrl);
+
+  if (publicFeedUrl) {
+    return publicFeedUrl;
+  }
+
+  const publicBaseUrl = normalizedHttpUrl(feed.publicBaseUrl);
+
+  if (!publicBaseUrl || !feed.rssFeedPath) {
+    return null;
+  }
+
+  return normalizedHttpUrl(`${publicBaseUrl.replace(/\/$/, '')}/feed.xml`);
+}
+
+function sanitizedUrlForDiagnostics(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return '[REDACTED]';
+  }
+}
+
+function sanitizedUploadDetails(upload: UploadedPublishAsset) {
+  return {
+    assetId: upload.assetId,
+    type: upload.type,
+    objectKey: upload.objectKey,
+    byteSize: upload.byteSize,
+    hasMetadata: Object.keys(upload.metadata).length > 0,
+  };
+}
+
+function assertUploadedAssetReady(label: string, upload: UploadedPublishAsset) {
+  const publicUrl = normalizedHttpUrl(upload.publicUrl);
+
+  if (!publicUrl) {
+    throw new ApiError(502, 'PUBLISHED_ASSET_URL_INVALID', `${label} upload returned a non-public URL.`, {
+      upload: sanitizedUploadDetails(upload),
+    });
+  }
+
+  return { ...upload, publicUrl };
 }
 
 function publishBlockers(
@@ -729,11 +802,23 @@ function publishBlockers(
       message: 'Show has no configured RSS feed.',
     });
   } else {
-    if (!validHttpUrl(feed.publicFeedUrl) || !validHttpUrl(feed.publicBaseUrl)) {
+    if (!validOptionalHttpUrl(feed.publicFeedUrl) || !validOptionalHttpUrl(feed.publicBaseUrl)) {
       blockers.push({
         code: 'PUBLISH_FEED_PUBLIC_URL_INVALID',
         message: 'Feed public URLs must be valid http(s) URLs when configured.',
         metadata: { publicFeedUrl: feed.publicFeedUrl, publicBaseUrl: feed.publicBaseUrl },
+      });
+    }
+
+    if (!resolvedRssPublicUrl(feed)) {
+      blockers.push({
+        code: 'PUBLISH_FEED_PUBLIC_URL_REQUIRED',
+        message: 'RSS publishing requires a public feed URL or a public base URL with an RSS feed path.',
+        metadata: {
+          publicFeedUrl: sanitizedUrlForDiagnostics(feed.publicFeedUrl),
+          publicBaseUrl: sanitizedUrlForDiagnostics(feed.publicBaseUrl),
+          hasRssFeedPath: Boolean(feed.rssFeedPath),
+        },
       });
     }
   }
@@ -755,8 +840,22 @@ function publishBlockers(
     if (audioAsset.byteSize !== null && audioAsset.byteSize <= 0) {
       blockers.push({
         code: 'AUDIO_ASSET_SIZE_INVALID',
-        message: 'Audio asset byte size must be positive when known.',
+        message: 'Audio asset byte size must be positive when known before RSS publishing.',
         metadata: { assetId: audioAsset.id, byteSize: audioAsset.byteSize },
+      });
+    }
+
+    if (audioAsset.publicUrl && !normalizedHttpUrl(audioAsset.publicUrl)) {
+      blockers.push({
+        code: 'AUDIO_ASSET_PUBLIC_URL_INVALID',
+        message: 'Audio asset public URL must be a valid http(s) URL when configured.',
+        metadata: { assetId: audioAsset.id, publicUrl: audioAsset.publicUrl },
+      });
+    } else if (feed && !resolvedAssetPublicUrl(feed, episode, audioAsset)) {
+      blockers.push({
+        code: 'AUDIO_ASSET_PUBLIC_URL_REQUIRED',
+        message: 'Audio asset needs a public URL or a feed public base URL before RSS publishing.',
+        metadata: { assetId: audioAsset.id, objectKey: audioAsset.objectKey, publicBaseUrl: feed.publicBaseUrl },
       });
     }
   }
@@ -771,6 +870,18 @@ function publishBlockers(
       code: 'COVER_ART_ASSET_MIME_INVALID',
       message: 'Cover art asset must have an image MIME type.',
       metadata: { assetId: coverAsset.id, mimeType: coverAsset.mimeType },
+    });
+  } else if (coverAsset.publicUrl && !normalizedHttpUrl(coverAsset.publicUrl)) {
+    blockers.push({
+      code: 'COVER_ART_ASSET_PUBLIC_URL_INVALID',
+      message: 'Cover art asset public URL must be a valid http(s) URL when configured.',
+      metadata: { assetId: coverAsset.id, publicUrl: coverAsset.publicUrl },
+    });
+  } else if (feed && !resolvedAssetPublicUrl(feed, episode, coverAsset)) {
+    blockers.push({
+      code: 'COVER_ART_ASSET_PUBLIC_URL_REQUIRED',
+      message: 'Cover art asset needs a public URL or a feed public base URL before RSS publishing.',
+      metadata: { assetId: coverAsset.id, objectKey: coverAsset.objectKey, publicBaseUrl: feed.publicBaseUrl },
     });
   }
 
@@ -955,6 +1066,8 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
       const audioAsset = selectAsset(assets, ['audio-final', 'audio-preview'], 'audio');
       const coverAsset = selectAsset(assets, ['cover-art'], 'cover art');
       const guid = feedGuid(episode, feed);
+      const expectedRssUrl = resolvedRssPublicUrl(feed) ?? '';
+
       const storageAdapter = options.publishStorageAdapterFactory?.(feed) ?? createPublishStorageAdapter(feed);
 
       if (episode.status === 'published' && episode.feedGuid && !body.republish) {
@@ -1064,11 +1177,43 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
         logs,
         output: { stage },
       }) ?? job;
-      const [audioUpload, coverUpload] = await Promise.all([
+      const [rawAudioUpload, rawCoverUpload] = await Promise.all([
         storageAdapter.uploadAsset({ feed, episode, asset: audioAsset }),
         storageAdapter.uploadAsset({ feed, episode, asset: coverAsset }),
       ]);
+      const audioUpload = assertUploadedAssetReady('Audio asset', rawAudioUpload);
+      const coverUpload = assertUploadedAssetReady('Cover art asset', rawCoverUpload);
+      const audioByteSize = audioUpload.byteSize ?? audioAsset.byteSize;
+
+      if (audioByteSize === null || audioByteSize <= 0) {
+        throw new ApiError(502, 'PUBLISHED_ASSET_SIZE_INVALID', 'Audio upload did not provide a positive byte size.', {
+          assetId: audioAsset.id,
+          uploadByteSize: audioUpload.byteSize,
+          assetByteSize: audioAsset.byteSize,
+        });
+      }
+
       const rssAudioUrl = feed.op3Wrap ? op3Wrap(audioUpload.publicUrl) : audioUpload.publicUrl;
+
+      stage = 'validating-public-urls';
+      logs.push(log('info', 'Validating publish URLs before RSS mutation.', {
+        audioUrl: sanitizedUrlForDiagnostics(rssAudioUrl),
+        coverUrl: sanitizedUrlForDiagnostics(coverUpload.publicUrl),
+        rssUrl: sanitizedUrlForDiagnostics(expectedRssUrl),
+      }));
+      job = await updateJob(jobStore, job.id, {
+        progress: 65,
+        logs,
+        output: { stage },
+      }) ?? job;
+      const validations = await urlValidator.validate([rssAudioUrl, coverUpload.publicUrl, expectedRssUrl]);
+      const invalidUrl = validations.find((validation) => !validation.ok);
+
+      if (invalidUrl) {
+        throw new ApiError(502, 'PUBLISHED_URL_VALIDATION_FAILED', 'Published URL failed validation.', {
+          url: sanitizedUrlForDiagnostics(invalidUrl.url),
+        });
+      }
 
       stage = 'updating-rss';
       logs.push(log('info', 'Updating RSS feed.', {
@@ -1091,19 +1236,32 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
           description: episode.description ?? episode.title,
           audioUrl: rssAudioUrl,
           audioMimeType: audioAsset.mimeType ?? 'audio/mpeg',
-          audioByteSize: audioUpload.byteSize ?? audioAsset.byteSize ?? 0,
+          audioByteSize,
           coverUrl: coverUpload.publicUrl,
           durationSeconds: audioAsset.durationSeconds ?? episode.durationSeconds,
           publishedAt,
         },
       });
-      stage = 'validating-public-urls';
-      const validations = await urlValidator.validate([rssAudioUrl, coverUpload.publicUrl, rss.rssUrl]);
-      const invalidUrl = validations.find((validation) => !validation.ok);
+      const finalRssUrl = normalizedHttpUrl(rss.rssUrl);
 
-      if (invalidUrl) {
-        throw new ApiError(502, 'PUBLISHED_URL_VALIDATION_FAILED', `Published URL failed validation: ${invalidUrl.url}`);
+      if (!finalRssUrl) {
+        throw new ApiError(502, 'PUBLISHED_URL_VALIDATION_FAILED', 'RSS adapter returned a non-public feed URL.', {
+          rssUrl: sanitizedUrlForDiagnostics(rss.rssUrl),
+        });
       }
+
+      const finalRssValidations = finalRssUrl === expectedRssUrl
+        ? []
+        : await urlValidator.validate([finalRssUrl]);
+      const finalInvalidUrl = finalRssValidations.find((validation) => !validation.ok);
+
+      if (finalInvalidUrl) {
+        throw new ApiError(502, 'PUBLISHED_URL_VALIDATION_FAILED', 'Published RSS URL failed validation.', {
+          url: sanitizedUrlForDiagnostics(finalInvalidUrl.url),
+        });
+      }
+
+      const publishValidations = [...validations, ...finalRssValidations];
 
       const updatedEpisode = await productionStore.updateEpisodeProduction(episode.id, {
         feedId: feed.id,
@@ -1117,7 +1275,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
             feedGuid: guid,
             jobId: job.id,
             publishEventId: publishEvent.id,
-            rssUrl: rss.rssUrl,
+            rssUrl: finalRssUrl,
             audioUrl: rssAudioUrl,
             unwrappedAudioUrl: audioUpload.publicUrl,
             coverUrl: coverUpload.publicUrl,
@@ -1129,7 +1287,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
             },
             republished: body.republish,
             changelog: body.changelog ?? null,
-            validatedUrls: validations,
+            validatedUrls: publishValidations,
           },
         },
       }) ?? episode;
@@ -1138,26 +1296,26 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
         feedGuid: guid,
         audioUrl: rssAudioUrl,
         coverUrl: coverUpload.publicUrl,
-        rssUrl: rss.rssUrl,
+        rssUrl: finalRssUrl,
         metadata: {
           ...publishEvent.metadata,
           jobId: job.id,
           actor: body.actor,
-          audioUpload,
-          coverUpload,
+          audioUpload: sanitizedUploadDetails(audioUpload),
+          coverUpload: sanitizedUploadDetails(coverUpload),
           rss,
           op3: {
             enabled: feed.op3Wrap,
             originalAudioUrl: audioUpload.publicUrl,
             wrappedAudioUrl: rssAudioUrl,
           },
-          validatedUrls: validations,
+          validatedUrls: publishValidations,
         },
       }) ?? publishEvent;
 
       logs.push(log('info', 'Completed publish.rss job.', {
         publishEventId: publishEvent.id,
-        rssUrl: rss.rssUrl,
+        rssUrl: finalRssUrl,
         inserted: rss.inserted,
       }));
       job = await updateJob(jobStore, job.id, {
@@ -1173,9 +1331,9 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
           audioUrl: rssAudioUrl,
           unwrappedAudioUrl: audioUpload.publicUrl,
           coverUrl: coverUpload.publicUrl,
-          rssUrl: rss.rssUrl,
+          rssUrl: finalRssUrl,
           rssInserted: rss.inserted,
-          validatedUrls: validations,
+          validatedUrls: publishValidations,
         },
         finishedAt: new Date(),
       }) ?? job;
