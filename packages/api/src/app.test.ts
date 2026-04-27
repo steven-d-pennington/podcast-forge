@@ -26,6 +26,7 @@ describe('api config endpoints', () => {
     assert.match(response.body, /Shows &amp; Feeds/);
     assert.match(response.body, /Prompt Templates/);
     assert.match(response.body, /Editorial Production Workflow/);
+    assert.match(response.body, /nextActionPanel/);
     assert.match(response.body, /8-stage journey from show selection through sourced evidence, script, integrity review, production assets, approval, and publishing/);
   });
 
@@ -40,6 +41,8 @@ describe('api config endpoints', () => {
     assert.match(response.body, /renderPipeline/);
     assert.match(response.body, /runSelectedIntegrityReview/);
     assert.match(response.body, /workflowStoryContext/);
+    assert.match(response.body, /renderNextAction/);
+    assert.match(response.body, /checklistBlockers/);
     assert.match(response.body, /scrollToPanel/);
   });
 
