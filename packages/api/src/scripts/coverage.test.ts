@@ -140,6 +140,69 @@ describe('claim coverage summary', () => {
     assert.ok(summary.needsAttention.some((item) => item.code === 'SOURCE_FETCH_FAILED'));
   });
 
+  it('keeps overridden critical integrity issues visible without blocking coverage', () => {
+    const summary = buildClaimCoverageSummary(
+      packet({
+        claims: [{
+          id: 'claim-overridden-integrity',
+          text: 'A claim whose failed integrity review was explicitly overridden.',
+          sourceDocumentIds: ['source-1', 'source-2'],
+          citationUrls: ['https://primary.example/source', 'https://independent.example/source'],
+          claimType: 'fact',
+          confidence: 'high',
+          supportLevel: 'corroborated',
+          highStakes: true,
+        }],
+        citations: [{
+          sourceDocumentId: 'source-1',
+          url: 'https://primary.example/source',
+          title: 'Primary source',
+          fetchedAt: '2026-04-20T00:00:00.000Z',
+          status: 'fetched',
+        }, {
+          sourceDocumentId: 'source-2',
+          url: 'https://independent.example/source',
+          title: 'Independent source',
+          fetchedAt: '2026-04-20T00:00:00.000Z',
+          status: 'fetched',
+        }],
+      }),
+      revision({
+        metadata: {
+          citationMap: [{
+            line: 'HOST: A claim whose failed integrity review was explicitly overridden.',
+            claimId: 'claim-overridden-integrity',
+            sourceDocumentIds: ['source-1', 'source-2'],
+          }],
+          validation: { provenance: { valid: true, warnings: [] } },
+          integrityReview: {
+            status: 'fail',
+            override: {
+              actor: 'editor',
+              reason: 'Checked manually against primary source before production.',
+              overriddenAt: '2026-04-20T00:00:00.000Z',
+            },
+            result: {
+              claimIssues: [{
+                claimId: 'claim-overridden-integrity',
+                scriptExcerpt: 'failed integrity review was explicitly overridden',
+                issue: 'Critical issue accepted with manual verification.',
+                severity: 'critical',
+                suggestedFix: 'Confirm the override remains appropriate before publishing.',
+              }],
+            },
+          },
+        },
+      }),
+      { now: new Date('2026-04-20T00:00:00Z') },
+    );
+
+    assert.notEqual(summary.status, 'blocking');
+    assert.equal(summary.counts.blockingFindings, 0);
+    assert.ok(summary.needsAttention.some((item) => item.code === 'INTEGRITY_REVIEW_OVERRIDDEN'));
+    assert.ok(summary.needsAttention.some((item) => item.code === 'INTEGRITY_CLAIM_ISSUE'));
+  });
+
   it('deduplicates repeated provenance warnings from mirrored metadata fields', () => {
     const duplicatedWarning = {
       code: 'CITATION_MAP_STALE',

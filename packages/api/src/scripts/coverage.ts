@@ -512,10 +512,11 @@ function integrityFindings(revision: ScriptRevisionRecord): ClaimCoverageFinding
   for (const [code, issues] of issueGroups) {
     for (const issue of issues) {
       const critical = asString(issue.severity) === 'critical';
+      const blocking = integrity.status !== 'overridden' && (critical || integrity.status === 'fail');
       findings.push(finding({
         category: 'integrity',
-        status: critical || integrity.status === 'fail' ? 'blocking' : 'needs_attention',
-        severity: critical || integrity.status === 'fail' ? 'blocking' : asString(issue.severity) === 'info' ? 'info' : 'warning',
+        status: blocking ? 'blocking' : 'needs_attention',
+        severity: blocking ? 'blocking' : asString(issue.severity) === 'info' ? 'info' : 'warning',
         code,
         message: asString(issue.issue) ?? asString(issue.message) ?? 'Integrity reviewer flagged this script language.',
         nextAction: asString(issue.suggestedFix) ?? 'Resolve this finding or record an explicit editorial override.',
