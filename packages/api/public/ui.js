@@ -78,6 +78,7 @@ const els = {
   settingsSchedules: document.querySelector('#settingsSchedules'),
   pipelineMeta: document.querySelector('#pipelineMeta'),
   workflowContext: document.querySelector('#workflowContext'),
+  nextActionPanel: document.querySelector('#nextActionPanel'),
   pipelineStages: document.querySelector('#pipelineStages'),
   pipelineDebug: document.querySelector('#pipelineDebug'),
   profileList: document.querySelector('#profileList'),
@@ -980,8 +981,8 @@ function renderProfiles() {
     const empty = document.createElement('div');
     empty.className = 'empty';
     empty.textContent = state.selectedShowSlug
-      ? 'No story sources yet. Create one during show setup or add a story source through the API, then add search queries or RSS feeds.'
-      : 'No show selected. Create a show first, then add story sources.';
+      ? 'No story sources yet. Next action: open settings or show setup to create a search recipe, RSS feed, or manual intake source.'
+      : 'No show selected. Next action: create or select a show, then add story sources.';
     els.profileList.append(empty);
     return;
   }
@@ -1158,6 +1159,95 @@ function scrollToPanel(id) {
   }, 1200));
 }
 
+function stageIsComplete(stage) {
+  return stage.status === 'done';
+}
+
+function checklistBlockers(checklist, includePublishApproval = true) {
+  return checklist
+    .filter((item) => !item.passed && (includePublishApproval || item.key !== 'publishApproval'))
+    .map((item) => `${item.label}: ${item.reason}`);
+}
+
+function firstBlockerText(items, fallback) {
+  return items.find(Boolean) || fallback;
+}
+
+function nextActionFromStages(stages) {
+  const running = stages.find((stage) => stage.status === 'running');
+  const runnable = stages.find((stage) => !stageIsComplete(stage) && !stage.disabled && typeof stage.action === 'function');
+  const blocked = stages.find((stage) => !stageIsComplete(stage) && (stage.disabled || ['blocked', 'needs review'].includes(stage.status)));
+
+  return running || runnable || blocked || stages[stages.length - 1];
+}
+
+function renderNextAction(stages) {
+  const stage = nextActionFromStages(stages);
+  els.nextActionPanel.innerHTML = '';
+
+  if (!stage) {
+    return;
+  }
+
+  const copy = document.createElement('div');
+  copy.className = 'next-action-copy';
+  const kicker = document.createElement('span');
+  kicker.className = 'next-action-kicker';
+  kicker.textContent = 'Next best action';
+  const title = document.createElement('h3');
+  title.id = 'nextActionTitle';
+  title.textContent = stage.status === 'running' ? `Wait for ${stage.title.toLowerCase()}` : stage.actionLabel;
+  const reason = document.createElement('p');
+  reason.textContent = stage.actionReason || stage.next;
+  const meta = document.createElement('p');
+  meta.className = 'next-action-meta';
+  meta.textContent = `Stage ${stage.number}: ${stage.title} | ${stage.status}`;
+  copy.append(kicker, title, reason, meta);
+
+  if (stage.blockers?.length) {
+    const list = document.createElement('ul');
+    list.className = 'next-action-blockers';
+    for (const blocker of stage.blockers.slice(0, 5)) {
+      const item = document.createElement('li');
+      item.textContent = blocker;
+      list.append(item);
+    }
+    copy.append(list);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'next-action-controls';
+  const button = document.createElement('button');
+  button.type = 'button';
+
+  if (stage.status === 'running') {
+    button.className = 'secondary';
+    button.textContent = latestRunForTypes(stage.jobTypes || []) ? 'View Latest Run' : 'Open Stage Panel';
+    button.addEventListener('click', () => {
+      if (latestRunForTypes(stage.jobTypes || [])) {
+        viewLatestJob(stage.jobTypes || []);
+        return;
+      }
+      scrollToPanel(stage.targetId);
+    });
+  } else if (!stage.disabled && typeof stage.action === 'function') {
+    button.className = stage.primary ? '' : 'secondary';
+    button.textContent = stage.actionLabel;
+    button.addEventListener('click', stage.action);
+  } else if (stage.targetId && panelIsAvailable(stage.targetId)) {
+    button.className = 'secondary';
+    button.textContent = 'Open Stage Panel';
+    button.addEventListener('click', () => scrollToPanel(stage.targetId));
+  } else {
+    button.className = 'secondary';
+    button.textContent = 'Review Blockers';
+    button.disabled = true;
+  }
+
+  actions.append(button);
+  els.nextActionPanel.append(copy, actions);
+}
+
 function stageCard(stage) {
   const card = document.createElement('article');
   card.className = `pipeline-card ${statusClass(stage.status)}${stage.active ? ' active' : ''}`;
@@ -1200,11 +1290,16 @@ function stageCard(stage) {
   button.className = stage.primary ? '' : 'secondary';
   button.textContent = stage.actionLabel;
   button.disabled = stage.disabled;
+  button.title = stage.disabled ? (stage.actionReason || stage.next) : '';
   if (stage.action) {
     button.addEventListener('click', stage.action);
   }
 
-  card.append(top, artifacts, next, button);
+  const actionReason = document.createElement('p');
+  actionReason.className = `pipeline-action-reason${stage.disabled ? ' blocked' : ''}`;
+  actionReason.textContent = stage.actionReason || (stage.disabled ? stage.next : `Action available: ${stage.next}`);
+
+  card.append(top, artifacts, next, button, actionReason);
 
   if (stage.targetId && panelIsAvailable(stage.targetId)) {
     const panelButton = document.createElement('button');
@@ -1336,6 +1431,19 @@ function buildPipelineStages() {
   const publishChecklistReady = checklist.every((item) => item.passed);
   const publishPreApprovalReady = checklist.filter((item) => item.key !== 'publishApproval').every((item) => item.passed);
   const firstChecklistBlocker = checklist.find((item) => !item.passed)?.reason;
+  const publishBlockers = checklistBlockers(checklist);
+  const publishPreApprovalBlockers = checklistBlockers(checklist, false);
+  const candidateBlockers = candidateAnalysis.errors.length > 0
+    ? candidateAnalysis.errors
+    : candidates.length === 0
+      ? ['Select at least one candidate story before building a research brief.']
+      : [];
+  const productionBlockers = [
+    !state.selectedScript || !state.selectedRevision ? 'Generate or select a script draft.' : '',
+    state.selectedRevision && integrity.status === 'missing' ? 'Run the integrity reviewer before production.' : '',
+    state.selectedRevision && integrity.status === 'fail' ? 'Resolve the failed integrity review or record an explicit override reason.' : '',
+    state.selectedScript && state.selectedRevision && !scriptApproved ? 'Approve the selected script revision for audio.' : '',
+  ].filter(Boolean);
 
   return [
     {
@@ -1346,6 +1454,10 @@ function buildPipelineStages() {
       next: show
         ? (profile ? 'Use this show and source recipe for the next discovery run.' : 'Add or seed a story source/search recipe for this show.')
         : 'Create or select a show before building an episode.',
+      actionReason: show
+        ? (profile ? 'Show and story source are selected; discovery can use this configuration.' : 'Blocked: choose or create a story source/search recipe for this show before finding candidates.')
+        : 'Start here: choose an existing show or create a new show with feed and source settings.',
+      blockers: show && !profile ? ['Choose or create a story source/search recipe for this show.'] : [],
       actionLabel: show ? 'Open Settings' : 'New Show',
       action: () => {
         if (show) {
@@ -1374,6 +1486,20 @@ function buildPipelineStages() {
           : profileSupportsDiscovery
             ? `Run ${profile.type === 'rss' ? 'RSS import' : 'source search'} for the selected story source.`
             : 'This source type is not wired for browser-triggered discovery yet.',
+      actionReason: discoverRunning
+        ? 'Discovery is already running; wait for the task run to finish or inspect progress.'
+        : !profile
+          ? 'Blocked: choose a story source/search recipe before running discovery.'
+          : profile.type === 'manual'
+            ? 'Add a manual URL to create a candidate story with explicit source provenance.'
+            : profileSupportsDiscovery
+              ? `Ready: run ${profile.type === 'rss' ? 'RSS import' : 'source search'} to load candidate stories.`
+              : 'Blocked: this story source type cannot run discovery from the browser; use Brave, RSS, or manual intake.',
+      blockers: !profile
+        ? ['Choose a story source/search recipe.']
+        : !profileSupportsDiscovery && profile.type !== 'manual'
+          ? ['Choose a Brave, RSS, or manual story source for browser-triggered discovery.']
+          : [],
       actionLabel: !profile ? 'Choose Story Source' : profile.type === 'rss' ? 'Import RSS Items' : profile.type === 'brave' ? 'Run Source Search' : profile.type === 'manual' ? 'Add Manual Story' : 'Open Source Settings',
       action: !profile ? () => scrollToPanel('settingsPanel') : profileSupportsDiscovery ? runSelectedProfileDiscovery : profile.type === 'manual' ? focusManualStoryForm : () => scrollToPanel('settingsPanel'),
       disabled: discoverRunning,
@@ -1391,6 +1517,12 @@ function buildPipelineStages() {
           ? `${candidates.length} candidate stor${candidates.length === 1 ? 'y is' : 'ies are'} selected for the brief.`
           : 'Review the selected story warnings before building a research brief.'
         : 'Select one or more possible stories before building a research brief.',
+      actionReason: state.storyCandidates.length === 0
+        ? 'Blocked: run/import candidates or submit a manual URL before choosing the story.'
+        : candidates.length > 0
+          ? (candidateAnalysis.canLaunch ? 'Selection is ready for an evidence brief.' : firstBlockerText(candidateBlockers, 'Review selected story blockers before building a brief.'))
+          : 'Ready: select a candidate story to define the episode focus.',
+      blockers: state.storyCandidates.length === 0 ? ['Run/import candidates or submit a manual story URL.'] : candidateBlockers,
       actionLabel: candidates.length > 0 ? 'Clear Selection' : 'Select Top Candidate',
       action: candidates.length > 0 ? clearCandidateSelection : selectTopCandidate,
       disabled: state.storyCandidates.length === 0,
@@ -1405,6 +1537,16 @@ function buildPipelineStages() {
       next: packet
         ? (packetWarningCount > 0 ? 'Review warnings before drafting or approving production.' : 'Use this research brief to draft the episode.')
         : state.researchPackets.length > 0 ? 'Select the latest research brief or build a new one from selected candidate stories.' : candidates.length > 0 ? 'Build a research brief from the selected candidate stories.' : 'Select candidate stories first.',
+      actionReason: researchRunning
+        ? 'A research brief is already being built; wait for the task run to finish or inspect progress.'
+        : packet
+          ? (packetWarningCount > 0 ? `${packetWarningCount} research warning${packetWarningCount === 1 ? '' : 's'} need review before approval or production.` : 'Selected research brief can be used for script drafting.')
+          : state.researchPackets.length > 0
+            ? 'Ready: select the latest research brief or build a new brief from the selected candidates.'
+            : candidateAnalysis.canLaunch
+              ? 'Ready: build an evidence brief from the selected candidate stories.'
+              : firstBlockerText(candidateBlockers, 'Blocked: select candidate stories before building an evidence brief.'),
+      blockers: !packet && state.researchPackets.length === 0 && !candidateAnalysis.canLaunch ? candidateBlockers : [],
       actionLabel: packet ? 'Use Selected Brief' : state.researchPackets.length > 0 ? 'Select Latest Brief' : 'Build Research Brief',
       action: packet ? () => selectResearchPacket(packet) : state.researchPackets.length > 0 ? () => selectResearchPacket(state.researchPackets[0]) : buildResearchBriefFromSelected,
       disabled: researchRunning || (!packet && state.researchPackets.length === 0 && !candidateAnalysis.canLaunch),
@@ -1420,6 +1562,18 @@ function buildPipelineStages() {
       next: state.selectedScript
         ? 'Review the draft and continue to integrity review before production.'
         : packet && !packetBlocked ? 'Generate an episode draft from the selected research brief.' : 'Select a ready research brief first.',
+      actionReason: scriptRunning
+        ? 'A script draft is already being generated; wait for the task run to finish or inspect progress.'
+        : state.selectedScript
+          ? 'Script selected; review it, run integrity review, and approve a revision before audio.'
+          : packet && !packetBlocked
+            ? 'Ready: generate a script from the selected research brief.'
+            : packetBlocked
+              ? 'Blocked: resolve or override research warnings before drafting.'
+              : 'Blocked: build or select an evidence brief before generating a script.',
+      blockers: !state.selectedScript && (!packet || packetBlocked)
+        ? [packetBlocked ? 'Resolve or override research warnings before drafting.' : 'Build or select an evidence brief.']
+        : [],
       actionLabel: state.selectedScript ? 'Review Draft' : 'Generate Script Draft',
       action: state.selectedScript ? focusScriptEditor : generateScriptFromSelectedResearch,
       disabled: scriptRunning || (!state.selectedScript && (!packet || packetBlocked)),
@@ -1439,6 +1593,18 @@ function buildPipelineStages() {
         : integrity.blocking
           ? 'Run the integrity reviewer or record an explicit override before production.'
           : scriptApproved ? 'Integrity and script approval gates are complete.' : 'Approve the reviewed script revision for audio.',
+      actionReason: integrityRunning || approvalsRunning
+        ? 'Review or approval is already running; wait for it to finish.'
+        : !state.selectedScript || !state.selectedRevision
+          ? 'Blocked: generate or select a script draft before the integrity gate.'
+          : integrity.blocking
+            ? (integrity.status === 'fail' ? 'Blocked: resolve the failed integrity review or record an explicit override reason.' : 'Blocked: run the integrity reviewer before production.')
+            : scriptApproved ? 'Integrity review and script approval are complete.' : 'Ready: approve the reviewed script revision for audio.',
+      blockers: !state.selectedScript || !state.selectedRevision
+        ? ['Generate or select a script draft.']
+        : integrity.blocking
+          ? [integrity.status === 'fail' ? 'Resolve the failed integrity review or record an explicit override reason.' : 'Run the integrity reviewer before production.']
+          : !scriptApproved ? ['Approve the reviewed script revision for audio.'] : [],
       actionLabel: !state.selectedScript || !state.selectedRevision
         ? 'Open Scripts'
         : integrity.blocking ? 'Run Integrity Review' : scriptApproved ? 'Open Review Gates' : 'Approve Script for Audio',
@@ -1457,6 +1623,14 @@ function buildPipelineStages() {
       next: audioAsset && coverAsset
         ? 'Preview audio and cover art are ready for approval and publishing review.'
         : scriptReadyForProduction ? 'Create the missing preview audio and cover art assets.' : integrity.blocking ? 'Complete the integrity review gate before production.' : 'Approve the reviewed script revision for audio first.',
+      actionReason: productionActionRunning
+        ? 'Production is already running; wait for audio or cover art task runs to finish.'
+        : audioAsset && coverAsset
+          ? 'Audio and cover assets exist; review them for publish approval.'
+          : scriptReadyForProduction
+            ? `Ready: create missing ${audioAsset ? 'cover art' : coverAsset ? 'audio' : 'audio and cover art'} assets.`
+            : firstBlockerText(productionBlockers, 'Blocked: complete script approval and integrity review before production.'),
+      blockers: !scriptReadyForProduction && !(audioAsset && coverAsset) ? productionBlockers : [],
       actionLabel: audioAsset && coverAsset ? 'Refresh Assets' : 'Create Missing Assets',
       action: audioAsset && coverAsset ? refreshProductionUntilSettled : createMissingProductionAssets,
       disabled: productionActionRunning || (!scriptReadyForProduction && !(audioAsset && coverAsset)),
@@ -1474,6 +1648,22 @@ function buildPipelineStages() {
         : episode?.status === 'approved-for-publish' ? (publishChecklistReady ? 'Publish to the configured RSS feed.' : firstChecklistBlocker || 'Complete the publish checklist first.')
           : episode?.status === 'audio-ready' ? (publishPreApprovalReady ? 'Approve the episode for publishing after reviewing assets.' : firstChecklistBlocker || 'Complete the publish checklist before approval.')
             : 'Production assets and explicit publish approval are required before RSS output.',
+      actionReason: publishRunning || approvalsRunning
+        ? 'Publish approval or publishing is already running; wait for it to finish.'
+        : episode?.status === 'published'
+          ? 'Episode is already published; feed and publish records are available for audit.'
+          : episode?.status === 'approved-for-publish'
+            ? (publishChecklistReady ? 'Ready: publish the approved episode to RSS.' : `Blocked: ${firstBlockerText(publishBlockers, 'complete the publish checklist first.')}`)
+            : episode?.status === 'audio-ready'
+              ? (publishPreApprovalReady ? 'Ready: approve the episode for publishing after reviewing assets.' : `Blocked: ${firstBlockerText(publishPreApprovalBlockers, 'complete the publish checklist before approval.')}`)
+              : 'Blocked: produce audio and cover assets, then approve the episode for publishing.',
+      blockers: episode?.status === 'published'
+        ? []
+        : episode?.status === 'approved-for-publish'
+          ? publishBlockers
+          : episode?.status === 'audio-ready'
+            ? publishPreApprovalBlockers
+            : ['Produce missing audio/cover assets and approve the episode for publishing.'],
       actionLabel: episode?.status === 'published' ? 'Already Published' : episode?.status === 'approved-for-publish' ? 'Publish to RSS' : 'Approve for Publishing',
       action: episode?.status === 'approved-for-publish' ? publishSelectedEpisode : approveEpisodeForPublishing,
       disabled: publishRunning || approvalsRunning || !(episode?.status === 'approved-for-publish' ? publishChecklistReady : (episode?.status === 'audio-ready' && publishPreApprovalReady)),
@@ -1511,9 +1701,11 @@ function renderPipeline() {
     els.workflowContext.append(item);
   }
 
+  const stages = buildPipelineStages();
+  renderNextAction(stages);
   els.pipelineStages.innerHTML = '';
 
-  for (const stage of buildPipelineStages()) {
+  for (const stage of stages) {
     els.pipelineStages.append(stageCard(stage));
   }
 
@@ -1639,9 +1831,23 @@ function renderCandidateSelectionPanel() {
     });
   }
 
+  if (selectedCount === 0) {
+    reviewItems.push({
+      level: 'info',
+      text: state.storyCandidates.length === 0
+        ? 'Build Research Brief is blocked until candidate stories are discovered, imported, or added manually.'
+        : 'Build Research Brief is blocked until at least one candidate story is selected.',
+    });
+  } else if (!analysis.canLaunch) {
+    reviewItems.push({
+      level: 'error',
+      text: firstBlockerText(analysis.errors, 'Build Research Brief is blocked until selected story issues are resolved.'),
+    });
+  }
+
   for (const item of reviewItems) {
     const row = document.createElement('div');
-    row.className = `warning-item ${item.level === 'error' ? 'error' : ''}`;
+    row.className = `warning-item ${item.level === 'error' ? 'error' : item.level === 'info' ? 'info' : ''}`;
     row.textContent = item.text;
     els.selectionWarnings.append(row);
   }
@@ -2597,7 +2803,9 @@ function renderProduction() {
   if (assets.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = 'No audio or cover assets recorded yet.';
+    empty.textContent = readyForProduction
+      ? 'No audio or cover assets recorded yet. Next action: create missing preview audio and cover art.'
+      : 'No audio or cover assets recorded yet. Next action: complete script approval and integrity review before production.';
     els.productionAssets.append(empty);
     return;
   }
@@ -2899,6 +3107,13 @@ function reviewList(title, items, emptyText, mapper = (item) => item) {
   return section;
 }
 
+function actionBlockerNote(message, blocked = true) {
+  const note = document.createElement('p');
+  note.className = `action-blocker-note${blocked ? ' blocked' : ''}`;
+  note.textContent = message;
+  return note;
+}
+
 function renderResearchReview() {
   const packet = selectedResearchPacket();
   els.reviewResearch.innerHTML = '';
@@ -2972,7 +3187,14 @@ function renderResearchReview() {
   approve.title = approve.disabled && !approved ? 'Research must be ready and warnings must be overridden before approval.' : '';
   approve.addEventListener('click', approveSelectedResearch);
   actions.append(approve);
-  els.reviewResearch.append(warnings, actions);
+  const reason = approved
+    ? 'Research approval is recorded.'
+    : readiness !== 'ready'
+      ? `Blocked: research status is ${readiness}; use a ready brief before approval.`
+      : unresolved.length > 0
+        ? `Blocked: ${unresolved.length} research warning${unresolved.length === 1 ? '' : 's'} need override reasons before approval.`
+        : isActionRunning('approval') ? 'Approval is already running.' : 'Ready: approve the research brief after editorial review.';
+  els.reviewResearch.append(warnings, actions, actionBlockerNote(reason, approve.disabled && !approved));
 }
 
 function renderScriptReview() {
@@ -3042,7 +3264,10 @@ function renderScriptReview() {
   overrideIntegrity.disabled = !integrity.blocking || isActionRunning('integrity');
   overrideIntegrity.addEventListener('click', overrideSelectedIntegrityReview);
   actions.append(runIntegrity, overrideIntegrity, approve);
-  els.reviewScript.append(body, actions);
+  const scriptGateReason = integrity.blocking
+    ? (integrity.status === 'missing' ? 'Blocked: run the integrity reviewer before production.' : 'Blocked: resolve the failed integrity review or record an explicit override reason.')
+    : approved ? 'Script and integrity gates are complete for production.' : 'Ready: approve the reviewed script revision for audio.';
+  els.reviewScript.append(body, actions, actionBlockerNote(scriptGateReason, integrity.blocking || (!approved && approve.disabled)));
 }
 
 function renderProductionReview() {
@@ -3119,7 +3344,15 @@ function renderProductionReview() {
   approve.title = approve.disabled ? 'Complete the checklist before publish approval.' : '';
   approve.addEventListener('click', approveEpisodeForPublishing);
   actions.append(approve);
-  els.reviewProduction.append(actions);
+  const productionApprovalBlockers = checklistBlockers(publishChecklistState(), false);
+  const reason = !episode
+    ? 'Blocked: produce missing audio and cover assets to create an episode record.'
+    : episode.status !== 'audio-ready'
+      ? `Blocked: episode status is ${episode.status}; publish approval requires audio-ready.`
+      : productionApprovalBlockers.length > 0
+        ? `Blocked: ${productionApprovalBlockers[0]}`
+        : isActionRunning('approval') ? 'Approval is already running.' : 'Ready: approve assets for publishing.';
+  els.reviewProduction.append(actions, actionBlockerNote(reason, approve.disabled));
 }
 
 function renderPublishChecklist() {
@@ -3164,7 +3397,15 @@ function renderPublishChecklist() {
   publish.title = publish.disabled && episode?.status !== 'published' ? 'Publishing is disabled until every checklist item passes.' : '';
   publish.addEventListener('click', publishSelectedEpisode);
   actions.append(approve, publish);
-  els.publishChecklist.append(actions);
+  const publishBlockers = checklistBlockers(checklist);
+  const approvalBlockers = checklistBlockers(checklist, false);
+  const approvalReason = approve.disabled
+    ? `Publish approval blocked: ${firstBlockerText(approvalBlockers, episode ? `episode status is ${episode.status}` : 'create production assets first.')}`
+    : 'Ready: approve the episode for publishing.';
+  const publishReason = publish.disabled && episode?.status !== 'published'
+    ? `Publishing blocked: ${firstBlockerText(publishBlockers, episode ? `episode status is ${episode.status}` : 'create production assets first.')}`
+    : episode?.status === 'published' ? 'Publishing already recorded.' : 'Ready: publish to RSS.';
+  els.publishChecklist.append(actions, actionBlockerNote(approvalReason, approve.disabled), actionBlockerNote(publishReason, publish.disabled && episode?.status !== 'published'));
 }
 
 function renderReviewGates() {
