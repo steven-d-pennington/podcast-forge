@@ -585,21 +585,13 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
         promptRegistry: createPromptRegistry({ store: rawStore }),
       });
       assertValidSpeakers(coached.body, show);
-      const invalidSpeakers = coached.speakers.filter((speaker) => !show.cast.some((member) => member.name === speaker));
-
-      if (invalidSpeakers.length > 0) {
-        throw new ApiError(
-          400,
-          'INVALID_SCRIPT_SPEAKER',
-          `Speaker label(s) are not in the show cast: ${invalidSpeakers.join(', ')}`,
-        );
-      }
+      const coachedSpeakers = extractSpeakerLabels(coached.body);
 
       const result = await scriptStore.createScriptRevision(script.id, {
         title: coached.title,
         body: coached.body,
         format: revision.format || script.format,
-        speakers: coached.speakers,
+        speakers: coachedSpeakers,
         author: body.actor,
         changeSummary: coached.changeSummary,
         modelProfile: modelProfileRecord(modelProfile),
