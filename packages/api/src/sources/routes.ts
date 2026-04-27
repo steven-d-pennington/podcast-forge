@@ -104,11 +104,15 @@ function normalizeProfileCreateInput(body: z.infer<typeof profileCreateSchema>):
   };
 }
 
-function normalizeProfilePatchInput(input: z.infer<typeof profilePatchSchema>): UpdateSourceProfileInput {
+function normalizeProfilePatchInput(
+  input: z.infer<typeof profilePatchSchema>,
+  existingType: z.infer<typeof sourceTypeSchema>,
+): UpdateSourceProfileInput {
   const output: UpdateSourceProfileInput = { ...input };
-  const controlsSupported = supportsDiscoveryControls(output.type);
+  const effectiveType = output.type ?? existingType;
+  const controlsSupported = supportsDiscoveryControls(effectiveType);
 
-  if (controlsSupported || output.type === undefined) {
+  if (controlsSupported) {
     if ('includeDomains' in output) {
       output.includeDomains = normalizeDomainList(output.includeDomains);
     }
@@ -266,12 +270,15 @@ export function registerSourceRoutes(app: FastifyInstance, options: SourceRoutes
 
   app.patch<{ Params: { id: string } }>('/source-profiles/:id', async (request, reply) => {
     try {
-      const input = normalizeProfilePatchInput(parseBody(profilePatchSchema, request.body));
-      const profile = await getStore().updateSourceProfile(request.params.id, input);
+      const store = getStore();
+      const existing = await store.getSourceProfile(request.params.id);
 
-      if (!profile) {
+      if (!existing) {
         throw new ApiError(404, 'SOURCE_PROFILE_NOT_FOUND', `Source profile not found: ${request.params.id}`);
       }
+
+      const input = normalizeProfilePatchInput(parseBody(profilePatchSchema, request.body), existing.type);
+      const profile = await store.updateSourceProfile(request.params.id, input);
 
       return { ok: true, sourceProfile: profile };
     } catch (error) {

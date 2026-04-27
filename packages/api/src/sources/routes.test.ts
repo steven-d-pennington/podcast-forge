@@ -1343,7 +1343,7 @@ describe('source profile routes', () => {
     assert.deepEqual(body.sourceProfile.excludeDomains, ['example.com']);
   });
 
-  it('clears source controls when a profile is changed to an unsupported type', async () => {
+  it('clears source controls when a profile is changed to or already has an unsupported type', async () => {
     const response = await app.inject({
       method: 'PATCH',
       url: '/source-profiles/22222222-2222-4222-8222-222222222222',
@@ -1361,6 +1361,23 @@ describe('source profile routes', () => {
     assert.equal(body.sourceProfile.freshness, null);
     assert.deepEqual(body.sourceProfile.includeDomains, []);
     assert.deepEqual(body.sourceProfile.excludeDomains, []);
+
+    const followUpResponse = await app.inject({
+      method: 'PATCH',
+      url: '/source-profiles/22222222-2222-4222-8222-222222222222',
+      payload: {
+        freshness: 'pd',
+        includeDomains: ['openai.com'],
+        excludeDomains: ['example.com'],
+      },
+    });
+    const followUpBody = followUpResponse.json();
+
+    assert.equal(followUpResponse.statusCode, 200);
+    assert.equal(followUpBody.sourceProfile.type, 'manual');
+    assert.equal(followUpBody.sourceProfile.freshness, null);
+    assert.deepEqual(followUpBody.sourceProfile.includeDomains, []);
+    assert.deepEqual(followUpBody.sourceProfile.excludeDomains, []);
   });
 
   it('filters disabled queries from enabledOnly reads', async () => {

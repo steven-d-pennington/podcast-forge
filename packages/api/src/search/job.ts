@@ -122,12 +122,20 @@ function addFilterTotals(
   totals.freshness += next.freshness;
 }
 
+function summarizeWarnings(warnings: Array<Record<string, unknown>>, limit = 20) {
+  return {
+    total: warnings.length,
+    items: warnings.slice(0, limit),
+    omitted: Math.max(0, warnings.length - limit),
+  };
+}
+
 function filterSummary(total: number, kept: number, dropped: ReturnType<typeof emptyFilterTotals>, warnings: Array<Record<string, unknown>>) {
   return {
     total,
     kept,
     dropped,
-    warnings,
+    warnings: summarizeWarnings(warnings, 10),
   };
 }
 
@@ -135,7 +143,7 @@ function sourceControlOutput(controls: SourceControlSummary[], dropped: ReturnTy
   return {
     applied: controls,
     dropped,
-    warnings,
+    warnings: summarizeWarnings(warnings),
   };
 }
 
@@ -392,19 +400,21 @@ export async function runSourceIngest(options: RunSourceIngestOptions): Promise<
       fetchImpl: options.fetchImpl,
     });
     const queryById = new Map(options.queries.map((query) => [query.id, query]));
+    const candidatesByQuery = new Map<string, SourceCandidate[]>();
     const candidates: SourceCandidate[] = [];
 
-    for (const query of [null, ...options.queries]) {
-      const queryId = query?.id ?? null;
-      const candidatesForQuery = rawCandidates.filter((candidate) => sourceQueryIdFromCandidate(candidate) === queryId);
+    for (const candidate of rawCandidates) {
+      const queryId = sourceQueryIdFromCandidate(candidate) ?? 'profile';
+      const group = candidatesByQuery.get(queryId) ?? [];
+      group.push(candidate);
+      candidatesByQuery.set(queryId, group);
+    }
 
-      if (candidatesForQuery.length === 0) {
-        continue;
-      }
-
-      const filtered = filterCandidatesForSourceControls(candidatesForQuery, options.profile, queryById.get(queryId ?? '') ?? query);
+    for (const [queryId, candidatesForQuery] of candidatesByQuery) {
+      const query = queryId === 'profile' ? null : queryById.get(queryId) ?? null;
+      const filtered = filterCandidatesForSourceControls(candidatesForQuery, options.profile, query);
       candidates.push(...filtered.candidates);
-      sourceControlSummaries.set(queryId ?? 'profile', filtered.controls);
+      sourceControlSummaries.set(queryId, filtered.controls);
       addFilterTotals(sourceControlDropped, filtered.dropped);
       sourceControlWarnings.push(...filtered.warnings);
     }
