@@ -1363,7 +1363,7 @@ function buildPipelineStages() {
     {
       number: 2,
       title: 'Find story candidates',
-      status: discoverRunning ? 'running' : !profile ? 'blocked' : state.storyCandidates.length > 0 ? 'done' : 'ready',
+      status: discoverRunning ? 'running' : !profile ? 'blocked' : state.storyCandidates.length > 0 ? 'done' : (profileSupportsDiscovery || profile.type === 'manual') ? 'ready' : 'blocked',
       artifact: state.storyCandidates.length > 0
         ? `${state.storyCandidates.length} candidate stor${state.storyCandidates.length === 1 ? 'y' : 'ies'} loaded. Latest: ${state.storyCandidates[0].title}`
         : 'No candidate stories loaded yet.',
@@ -1374,9 +1374,9 @@ function buildPipelineStages() {
           : profileSupportsDiscovery
             ? `Run ${profile.type === 'rss' ? 'RSS import' : 'source search'} for the selected story source.`
             : 'This source type is not wired for browser-triggered discovery yet.',
-      actionLabel: !profile ? 'Choose Story Source' : profile.type === 'rss' ? 'Import RSS Items' : profile.type === 'brave' ? 'Run Source Search' : 'Add Manual Story',
-      action: !profile ? undefined : profileSupportsDiscovery ? runSelectedProfileDiscovery : focusManualStoryForm,
-      disabled: discoverRunning || !profile || (!profileSupportsDiscovery && profile.type !== 'manual'),
+      actionLabel: !profile ? 'Choose Story Source' : profile.type === 'rss' ? 'Import RSS Items' : profile.type === 'brave' ? 'Run Source Search' : profile.type === 'manual' ? 'Add Manual Story' : 'Open Source Settings',
+      action: !profile ? () => scrollToPanel('settingsPanel') : profileSupportsDiscovery ? runSelectedProfileDiscovery : profile.type === 'manual' ? focusManualStoryForm : () => scrollToPanel('settingsPanel'),
+      disabled: discoverRunning,
       active: state.storyCandidates.length > 0,
       targetId: profile?.type === 'manual' ? 'manualStoryPanel' : 'settingsPanel',
       jobTypes: ['source.search', 'source.ingest'],
