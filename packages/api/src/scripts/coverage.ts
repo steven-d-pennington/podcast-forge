@@ -117,7 +117,9 @@ function warningMatchesClaim(warning: ResearchWarning, claim: ResearchClaim): bo
     || (warning.url ? claim.citationUrls.includes(warning.url) : false);
 }
 
-function citationMapEntries(revision: ScriptRevisionRecord): Array<{ claimId?: string; line?: string; sourceDocumentIds: string[] }> {
+type CitationMapEntry = { claimId?: string; line?: string; sourceDocumentIds: string[] };
+
+function citationMapEntries(revision: ScriptRevisionRecord): CitationMapEntry[] {
   return asRecordArray(revision.metadata.citationMap).map((entry) => ({
     claimId: asString(entry.claimId),
     line: asString(entry.line),
@@ -183,9 +185,13 @@ function claimWarningFinding(warning: ResearchWarning, claim: ResearchClaim): Cl
   });
 }
 
-function claimFindings(packet: ResearchPacketRecord, claim: ResearchClaim, revision: ScriptRevisionRecord, now: Date): ClaimCoverageFinding[] {
+function claimFindings(
+  packet: ResearchPacketRecord,
+  claim: ResearchClaim,
+  citationMap: CitationMapEntry[],
+  now: Date,
+): ClaimCoverageFinding[] {
   const findings: ClaimCoverageFinding[] = [];
-  const citationMap = citationMapEntries(revision);
   const citedEntries = citationMap.filter((entry) => entry.claimId === claim.id);
   const sourceCount = independentSourceCount(claim.citationUrls);
 
@@ -325,9 +331,14 @@ function itemStatus(findings: ClaimCoverageFinding[]): ClaimCoverageStatus {
   return 'covered';
 }
 
-function claimItem(packet: ResearchPacketRecord, claim: ResearchClaim, revision: ScriptRevisionRecord, now: Date): ClaimCoverageItem {
-  const entries = citationMapEntries(revision).filter((entry) => entry.claimId === claim.id);
-  const findings = claimFindings(packet, claim, revision, now);
+function claimItem(
+  packet: ResearchPacketRecord,
+  claim: ResearchClaim,
+  citationMap: CitationMapEntry[],
+  now: Date,
+): ClaimCoverageItem {
+  const entries = citationMap.filter((entry) => entry.claimId === claim.id);
+  const findings = claimFindings(packet, claim, citationMap, now);
 
   return {
     claimId: claim.id,
@@ -508,7 +519,7 @@ function integrityFindings(revision: ScriptRevisionRecord): ClaimCoverageFinding
   return findings;
 }
 
-function unknownFindings(packet: ResearchPacketRecord, revision: ScriptRevisionRecord): ClaimCoverageFinding[] {
+function unknownFindings(packet: ResearchPacketRecord, citationMap: CitationMapEntry[]): ClaimCoverageFinding[] {
   const findings: ClaimCoverageFinding[] = [];
 
   if (packet.claims.length === 0) {
@@ -522,7 +533,7 @@ function unknownFindings(packet: ResearchPacketRecord, revision: ScriptRevisionR
     }));
   }
 
-  if (citationMapEntries(revision).length === 0) {
+  if (citationMap.length === 0) {
     findings.push(finding({
       category: 'metadata',
       status: 'unknown',
@@ -558,13 +569,14 @@ export function buildClaimCoverageSummary(
   options: { now?: Date } = {},
 ): ClaimCoverageSummary {
   const now = options.now ?? new Date();
-  const claims = packet.claims.map((claim) => claimItem(packet, claim, revision, now));
+  const citationMap = citationMapEntries(revision);
+  const claims = packet.claims.map((claim) => claimItem(packet, claim, citationMap, now));
   const blockerFindings = [
     ...researchPacketFindings(packet),
     ...provenanceFindings(revision),
     ...integrityFindings(revision),
   ];
-  const metadataUnknowns = unknownFindings(packet, revision);
+  const metadataUnknowns = unknownFindings(packet, citationMap);
   const allFindings = [
     ...claims.flatMap((claim) => claim.findings),
     ...blockerFindings,

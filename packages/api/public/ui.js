@@ -898,8 +898,9 @@ function renderCoverageSummary(summary) {
     reviewList('Covered claims', asArray(summary.coveredClaims), 'No claims are marked fully covered by current metadata.', coverageClaimText),
   );
 
-  if (asArray(summary.unknowns).length > 0) {
-    section.append(reviewList('Coverage unknowns', summary.unknowns, 'Coverage can be derived from current metadata.', coverageFindingText));
+  const unknowns = asArray(summary.unknowns);
+  if (unknowns.length > 0) {
+    section.append(reviewList('Coverage unknowns', unknowns, 'No unknown coverage gaps recorded.', coverageFindingText));
   }
 
   return section;
