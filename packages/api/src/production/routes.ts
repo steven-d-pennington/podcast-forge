@@ -731,6 +731,19 @@ function resolvedRssPublicUrl(feed: FeedRecord) {
   return normalizedHttpUrl(`${publicBaseUrl.replace(/\/$/, '')}/feed.xml`);
 }
 
+function sanitizedUrlForDiagnostics(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return '[REDACTED]';
+  }
+}
+
 function sanitizedUploadDetails(upload: UploadedPublishAsset) {
   return {
     assetId: upload.assetId,
@@ -1180,9 +1193,9 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
 
       stage = 'validating-public-urls';
       logs.push(log('info', 'Validating publish URLs before RSS mutation.', {
-        audioUrl: rssAudioUrl,
-        coverUrl: coverUpload.publicUrl,
-        rssUrl: expectedRssUrl,
+        audioUrl: sanitizedUrlForDiagnostics(rssAudioUrl),
+        coverUrl: sanitizedUrlForDiagnostics(coverUpload.publicUrl),
+        rssUrl: sanitizedUrlForDiagnostics(expectedRssUrl),
       }));
       job = await updateJob(jobStore, job.id, {
         progress: 65,
@@ -1193,7 +1206,9 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
       const invalidUrl = validations.find((validation) => !validation.ok);
 
       if (invalidUrl) {
-        throw new ApiError(502, 'PUBLISHED_URL_VALIDATION_FAILED', `Published URL failed validation: ${invalidUrl.url}`);
+        throw new ApiError(502, 'PUBLISHED_URL_VALIDATION_FAILED', 'Published URL failed validation.', {
+          url: sanitizedUrlForDiagnostics(invalidUrl.url),
+        });
       }
 
       stage = 'updating-rss';
@@ -1226,7 +1241,9 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
       const finalRssUrl = normalizedHttpUrl(rss.rssUrl);
 
       if (!finalRssUrl) {
-        throw new ApiError(502, 'PUBLISHED_URL_VALIDATION_FAILED', `RSS adapter returned a non-public feed URL: ${rss.rssUrl}`);
+        throw new ApiError(502, 'PUBLISHED_URL_VALIDATION_FAILED', 'RSS adapter returned a non-public feed URL.', {
+          rssUrl: sanitizedUrlForDiagnostics(rss.rssUrl),
+        });
       }
 
       const finalRssValidations = finalRssUrl === expectedRssUrl
@@ -1235,7 +1252,9 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
       const finalInvalidUrl = finalRssValidations.find((validation) => !validation.ok);
 
       if (finalInvalidUrl) {
-        throw new ApiError(502, 'PUBLISHED_URL_VALIDATION_FAILED', `Published RSS URL failed validation: ${finalInvalidUrl.url}`);
+        throw new ApiError(502, 'PUBLISHED_URL_VALIDATION_FAILED', 'Published RSS URL failed validation.', {
+          url: sanitizedUrlForDiagnostics(finalInvalidUrl.url),
+        });
       }
 
       const publishValidations = [...validations, ...finalRssValidations];
