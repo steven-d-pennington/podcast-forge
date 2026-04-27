@@ -297,18 +297,19 @@ export function registerSourceRoutes(app: FastifyInstance, options: SourceRoutes
         throw new ApiError(404, 'SOURCE_PROFILE_NOT_FOUND', `Source profile not found: ${request.params.id}`);
       }
 
-      const input = normalizeProfilePatchInput(parseBody(profilePatchSchema, request.body), existing.type);
+      const rawInput = parseBody(profilePatchSchema, request.body);
+      const input = normalizeProfilePatchInput(rawInput, existing.type);
       const profile = await store.updateSourceProfile(request.params.id, input);
 
       if (!profile) {
         throw new ApiError(404, 'SOURCE_PROFILE_NOT_FOUND', `Source profile not found: ${request.params.id}`);
       }
 
+      const hasSourceControlPatch = rawInput.freshness !== undefined
+        || rawInput.includeDomains !== undefined
+        || rawInput.excludeDomains !== undefined;
       const shouldClearQueryControls = !supportsDiscoveryControls(profile.type)
-        && (supportsDiscoveryControls(existing.type)
-          || input.freshness !== undefined
-          || input.includeDomains !== undefined
-          || input.excludeDomains !== undefined);
+        && (supportsDiscoveryControls(existing.type) || hasSourceControlPatch);
 
       if (shouldClearQueryControls) {
         const queries = await store.listSourceQueries(profile.id);

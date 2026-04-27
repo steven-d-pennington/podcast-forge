@@ -80,12 +80,10 @@ function resolveCount(query: SourceQueryRecord, profile: SourceProfileRecord): n
   return asPositiveInteger(query.config.count) ?? asPositiveInteger(profile.config.count) ?? 5;
 }
 
-function resolveFreshness(query: SourceQueryRecord, profile: SourceProfileRecord): string {
+function resolveFreshness(query: SourceQueryRecord, profile: SourceProfileRecord): string | null {
   return query.freshness
     ?? profile.freshness
-    ?? asString(query.config.freshness)
-    ?? asString(profile.config.freshness)
-    ?? 'pd';
+    ?? null;
 }
 
 function resolveRegion(query: SourceQueryRecord, profile: SourceProfileRecord): string | undefined {
@@ -148,8 +146,11 @@ export async function searchBraveNews(options: BraveSearchOptions): Promise<Brav
     const params = new URLSearchParams({
       q: query.query,
       count: String(count),
-      freshness,
     });
+
+    if (freshness) {
+      params.set('freshness', freshness);
+    }
 
     if (region) {
       params.set('country', region);

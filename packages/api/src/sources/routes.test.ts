@@ -1442,6 +1442,32 @@ describe('source profile routes', () => {
     assert.deepEqual(patchedQuery.excludeDomains, []);
   });
 
+
+  it('does not rescan queries when patching an unsupported profile without source-control fields', async () => {
+    await app.inject({
+      method: 'PATCH',
+      url: '/source-profiles/22222222-2222-4222-8222-222222222222',
+      payload: { type: 'manual' },
+    });
+
+    let listCalls = 0;
+    const originalListSourceQueries = store.listSourceQueries.bind(store);
+    store.listSourceQueries = async (...args) => {
+      listCalls += 1;
+      return originalListSourceQueries(...args);
+    };
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/source-profiles/22222222-2222-4222-8222-222222222222',
+      payload: { name: 'Manual source profile' },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().sourceProfile.name, 'Manual source profile');
+    assert.equal(listCalls, 0);
+  });
+
   it('filters disabled queries from enabledOnly reads', async () => {
     const allResponse = await app.inject({
       method: 'GET',
