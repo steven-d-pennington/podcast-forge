@@ -4,6 +4,7 @@ import { z, ZodError } from 'zod';
 import { MODEL_ROLES, isModelRole, type ModelRole } from '../models/roles.js';
 import type { CreateModelProfileInput, ModelProfileRecord, ModelProfileStore } from '../models/store.js';
 import { defaultPromptKey } from '../prompts/registry.js';
+import { normalizeDomainList } from '../search/controls.js';
 import type { CreateFeedInput, FeedRecord, ProductionStore, UpdateFeedInput } from '../production/store.js';
 import type {
   CreateShowInput,
@@ -40,6 +41,10 @@ const castSchema = z.array(z.object({
   voice: z.string().trim().min(1),
 })).default([]);
 const sourceTypeSchema = z.enum(['brave', 'rss', 'manual', 'local-json']);
+
+function supportsDiscoveryControls(type: z.infer<typeof sourceTypeSchema>) {
+  return type === 'brave' || type === 'rss';
+}
 
 const feedFieldsSchema = z.object({
   slug: slugSchema,
@@ -279,6 +284,8 @@ function feedInput(show: ShowRecord, input: z.infer<typeof feedSchema>): CreateF
 }
 
 function sourceProfileInput(show: ShowRecord, input: z.infer<typeof sourceDefaultsSchema>): CreateSourceProfileInput {
+  const supportsControls = supportsDiscoveryControls(input.type);
+
   return {
     showId: show.id,
     slug: input.slug,
@@ -286,9 +293,9 @@ function sourceProfileInput(show: ShowRecord, input: z.infer<typeof sourceDefaul
     type: input.type,
     enabled: input.enabled,
     weight: input.weight,
-    freshness: input.freshness,
-    includeDomains: input.includeDomains,
-    excludeDomains: input.excludeDomains,
+    freshness: supportsControls ? input.freshness : null,
+    includeDomains: supportsControls ? normalizeDomainList(input.includeDomains) : [],
+    excludeDomains: supportsControls ? normalizeDomainList(input.excludeDomains) : [],
     rateLimit: input.rateLimit,
     config: {
       ...input.config,
@@ -388,6 +395,7 @@ export function registerShowRoutes(app: FastifyInstance, options: ShowRoutesOpti
       const feed = await feedStore.createFeed(feedInput(show, body.feed));
       const sourceProfile = await store.createSourceProfile(sourceProfileInput(show, body.sourceProfileDefaults));
       const queries = body.sourceProfileDefaults.queries ?? [`${show.title} news`];
+      const supportsControls = supportsDiscoveryControls(sourceProfile.type);
       const sourceQueries = await Promise.all(queries.map((query) => {
         const queryInput: CreateSourceQueryInput = {
           query,
@@ -395,7 +403,7 @@ export function registerShowRoutes(app: FastifyInstance, options: ShowRoutesOpti
           weight: 1,
           region: null,
           language: null,
-          freshness: body.sourceProfileDefaults.freshness,
+          freshness: supportsControls ? body.sourceProfileDefaults.freshness : null,
           includeDomains: [],
           excludeDomains: [],
           config: { starter: true },

@@ -717,6 +717,11 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
       return rows.map(mapQuery);
     },
 
+    async getSourceQuery(id) {
+      const [row] = await db.select().from(sourceQueries).where(eq(sourceQueries.id, id)).limit(1);
+      return row ? mapQuery(row) : undefined;
+    },
+
     async createSourceQuery(profileId, input) {
       const profile = await this.getSourceProfile(profileId);
 

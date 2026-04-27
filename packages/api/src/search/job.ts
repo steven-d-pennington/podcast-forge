@@ -1,5 +1,6 @@
 import { searchBraveNews, type BraveCandidate, type BraveFetch } from './brave.js';
 import { normalizeTitle, type SourceCandidate } from './candidate.js';
+import { filterCandidatesForSourceControls, type SourceControlSummary } from './controls.js';
 import { fetchRssCandidates, type RssFetch } from './rss.js';
 import { scoreCandidateBatch, scoringLimitFromProfile, type CandidateScorer, type CandidateScoringBatchResult } from './scoring.js';
 import type { JobRecord, SearchJobStore, StoryCandidateRecord } from './store.js';
@@ -104,6 +105,50 @@ function pushScoringEvents(logs: Array<Record<string, unknown>>, events: Array<R
   }
 }
 
+function emptyFilterTotals() {
+  return {
+    includeDomain: 0,
+    excludeDomain: 0,
+    freshness: 0,
+  };
+}
+
+function addFilterTotals(
+  totals: ReturnType<typeof emptyFilterTotals>,
+  next: ReturnType<typeof emptyFilterTotals>,
+) {
+  totals.includeDomain += next.includeDomain;
+  totals.excludeDomain += next.excludeDomain;
+  totals.freshness += next.freshness;
+}
+
+function summarizeWarnings(warnings: Array<Record<string, unknown>>, limit = 20) {
+  const items = warnings.slice(0, limit);
+
+  return {
+    total: warnings.length,
+    items,
+    omitted: Math.max(0, warnings.length - items.length),
+  };
+}
+
+function filterSummary(total: number, kept: number, dropped: ReturnType<typeof emptyFilterTotals>, warnings: Array<Record<string, unknown>>) {
+  return {
+    total,
+    kept,
+    dropped,
+    warnings: summarizeWarnings(warnings, 10),
+  };
+}
+
+function sourceControlOutput(controls: SourceControlSummary[], dropped: ReturnType<typeof emptyFilterTotals>, warnings: Array<Record<string, unknown>>) {
+  return {
+    applied: controls,
+    dropped,
+    warnings: summarizeWarnings(warnings),
+  };
+}
+
 async function maybeScoreCandidates(options: {
   candidates: StoryCandidateRecord[];
   profile: SourceProfileRecord;
@@ -186,20 +231,29 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
     const seenTitles = new Set(existing.map((item) => normalizeTitle(item.title)).filter(Boolean));
     const insertedCandidates: StoryCandidateRecord[] = [];
     let skipped = 0;
+    const sourceControlSummaries: SourceControlSummary[] = [];
+    const sourceControlDropped = emptyFilterTotals();
+    const sourceControlWarnings: Array<Record<string, unknown>> = [];
 
     for (const [index, query] of options.queries.entries()) {
       logs.push(log('info', 'Running Brave news query.', { sourceQueryId: query.id, query: query.query }));
 
-      const candidates = await searchBraveNews({
+      const rawCandidates = await searchBraveNews({
         apiKey: options.apiKey,
         profile: options.profile,
         queries: [query],
         fetchImpl: options.fetchImpl,
       });
+      const filtered = filterCandidatesForSourceControls(rawCandidates, options.profile, query, { verifyFreshness: false });
+      const candidates = filtered.candidates;
+      sourceControlSummaries.push(filtered.controls);
+      addFilterTotals(sourceControlDropped, filtered.dropped);
+      sourceControlWarnings.push(...filtered.warnings);
 
       logs.push(log('info', 'Brave news query returned candidates.', {
         sourceQueryId: query.id,
-        candidateCount: candidates.length,
+        candidateCount: rawCandidates.length,
+        sourceControls: filterSummary(rawCandidates.length, candidates.length, filtered.dropped, filtered.warnings),
       }));
 
       for (const candidate of candidates) {
@@ -236,11 +290,14 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
       job = await options.store.updateJob(job.id, {
         progress,
         logs,
-      output: {
-        inserted: insertedCandidates.length,
-        skipped,
-        modelProfiles,
-      },
+        output: {
+          inserted: insertedCandidates.length,
+          skipped,
+          warnings: sourceControlWarnings.slice(0, 20),
+          warningSummary: summarizeWarnings(sourceControlWarnings, 20),
+          sourceControls: sourceControlOutput(sourceControlSummaries, sourceControlDropped, sourceControlWarnings),
+          modelProfiles,
+        },
       }) ?? job;
 
       const delayMs = index < options.queries.length - 1 ? rateLimitDelayMs(options.profile, query) : 0;
@@ -276,6 +333,8 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
         inserted: insertedCandidates.length,
         skipped,
         candidateIds: finalCandidates.map((candidate) => candidate.id),
+        warnings: sourceControlWarnings,
+        sourceControls: sourceControlOutput(sourceControlSummaries, sourceControlDropped, sourceControlWarnings),
         scoring: scoringSummary(scoring),
         modelProfiles,
       },
@@ -335,14 +394,40 @@ export async function runSourceIngest(options: RunSourceIngestOptions): Promise<
     const seenTitles = new Set(existing.map((item) => normalizeTitle(item.title)).filter(Boolean));
     const insertedCandidates: StoryCandidateRecord[] = [];
     let skipped = 0;
+    const sourceControlSummaries = new Map<string, SourceControlSummary>();
+    const sourceControlDropped = emptyFilterTotals();
+    const sourceControlWarnings: Array<Record<string, unknown>> = [];
 
     logs.push(log('info', 'Fetching RSS feeds.', { sourceProfileId: options.profile.id }));
-    const candidates = await fetchRssCandidates({
+    const rawCandidates = await fetchRssCandidates({
       profile: options.profile,
       queries: options.queries,
       fetchImpl: options.fetchImpl,
     });
-    logs.push(log('info', 'RSS feeds returned candidates.', { candidateCount: candidates.length }));
+    const queryById = new Map(options.queries.map((query) => [query.id, query]));
+    const candidatesByQuery = new Map<string, SourceCandidate[]>();
+    const candidates: SourceCandidate[] = [];
+
+    for (const candidate of rawCandidates) {
+      const queryId = sourceQueryIdFromCandidate(candidate) ?? 'profile';
+      const group = candidatesByQuery.get(queryId) ?? [];
+      group.push(candidate);
+      candidatesByQuery.set(queryId, group);
+    }
+
+    for (const [queryId, candidatesForQuery] of candidatesByQuery) {
+      const query = queryId === 'profile' ? null : queryById.get(queryId) ?? null;
+      const filtered = filterCandidatesForSourceControls(candidatesForQuery, options.profile, query);
+      candidates.push(...filtered.candidates);
+      sourceControlSummaries.set(queryId, filtered.controls);
+      addFilterTotals(sourceControlDropped, filtered.dropped);
+      sourceControlWarnings.push(...filtered.warnings);
+    }
+
+    logs.push(log('info', 'RSS feeds returned candidates.', {
+      candidateCount: rawCandidates.length,
+      sourceControls: filterSummary(rawCandidates.length, candidates.length, sourceControlDropped, sourceControlWarnings),
+    }));
 
     for (const candidate of candidates) {
       const normalizedTitle = normalizeTitle(candidate.title);
@@ -399,6 +484,8 @@ export async function runSourceIngest(options: RunSourceIngestOptions): Promise<
         inserted: insertedCandidates.length,
         skipped,
         candidateIds: finalCandidates.map((candidate) => candidate.id),
+        warnings: sourceControlWarnings,
+        sourceControls: sourceControlOutput([...sourceControlSummaries.values()], sourceControlDropped, sourceControlWarnings),
         scoring: scoringSummary(scoring),
         modelProfiles,
       },

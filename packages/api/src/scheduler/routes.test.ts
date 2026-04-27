@@ -127,6 +127,10 @@ class FakeSchedulerStore implements SourceStore, SearchJobStore, SchedulerStore 
     return this.queries.filter((query) => query.sourceProfileId === profileId && (!options.enabledOnly || query.enabled));
   }
 
+  async getSourceQuery(id: string) {
+    return this.queries.find((query) => query.id === id);
+  }
+
   async createSourceQuery(profileId: string, input: CreateSourceQueryInput) {
     const query = {
       ...input,

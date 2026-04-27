@@ -261,6 +261,10 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
     });
   }
 
+  async getSourceQuery(id: string) {
+    return this.queries.find((query) => query.id === id);
+  }
+
   async createSourceQuery(profileId: string, input: CreateSourceQueryInput) {
     const profile = await this.getSourceProfile(profileId);
 
@@ -1330,8 +1334,8 @@ describe('source profile routes', () => {
         enabled: false,
         weight: 1.75,
         freshness: 'pw',
-        includeDomains: ['openai.com'],
-        excludeDomains: ['example.com'],
+        includeDomains: ['https://OpenAI.com/news', 'openai.com'],
+        excludeDomains: ['https://Example.com/path'],
       },
     });
     const body = response.json();
@@ -1341,6 +1345,127 @@ describe('source profile routes', () => {
     assert.equal(body.sourceProfile.weight, 1.75);
     assert.deepEqual(body.sourceProfile.includeDomains, ['openai.com']);
     assert.deepEqual(body.sourceProfile.excludeDomains, ['example.com']);
+  });
+
+  it('clears source controls when a profile is changed to or already has an unsupported type', async () => {
+    const staleQueryResponse = await app.inject({
+      method: 'PATCH',
+      url: '/source-queries/33333333-3333-4333-8333-333333333333',
+      payload: {
+        freshness: 'pw',
+        includeDomains: ['openai.com'],
+        excludeDomains: ['example.com'],
+      },
+    });
+    assert.equal(staleQueryResponse.statusCode, 200);
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/source-profiles/22222222-2222-4222-8222-222222222222',
+      payload: {
+        type: 'manual',
+        freshness: 'pw',
+        includeDomains: ['openai.com'],
+        excludeDomains: ['example.com'],
+      },
+    });
+    const body = response.json();
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(body.sourceProfile.type, 'manual');
+    assert.equal(body.sourceProfile.freshness, null);
+    assert.deepEqual(body.sourceProfile.includeDomains, []);
+    assert.deepEqual(body.sourceProfile.excludeDomains, []);
+
+    const clearedQueriesResponse = await app.inject({
+      method: 'GET',
+      url: '/source-profiles/22222222-2222-4222-8222-222222222222/queries',
+    });
+    const clearedQuery = clearedQueriesResponse.json().sourceQueries.find(
+      (query: SourceQueryRecord) => query.id === '33333333-3333-4333-8333-333333333333',
+    );
+    assert.equal(clearedQueriesResponse.statusCode, 200);
+    assert.equal(clearedQuery.freshness, null);
+    assert.deepEqual(clearedQuery.includeDomains, []);
+    assert.deepEqual(clearedQuery.excludeDomains, []);
+
+    const followUpResponse = await app.inject({
+      method: 'PATCH',
+      url: '/source-profiles/22222222-2222-4222-8222-222222222222',
+      payload: {
+        freshness: 'pd',
+        includeDomains: ['openai.com'],
+        excludeDomains: ['example.com'],
+      },
+    });
+    const followUpBody = followUpResponse.json();
+
+    assert.equal(followUpResponse.statusCode, 200);
+    assert.equal(followUpBody.sourceProfile.type, 'manual');
+    assert.equal(followUpBody.sourceProfile.freshness, null);
+    assert.deepEqual(followUpBody.sourceProfile.includeDomains, []);
+    assert.deepEqual(followUpBody.sourceProfile.excludeDomains, []);
+
+    const createQueryResponse = await app.inject({
+      method: 'POST',
+      url: '/source-profiles/22222222-2222-4222-8222-222222222222/queries',
+      payload: {
+        query: 'https://example.com/manual-story',
+        enabled: true,
+        weight: 1,
+        freshness: 'pd',
+        includeDomains: ['openai.com'],
+        excludeDomains: ['example.com'],
+      },
+    });
+    const createdQuery = createQueryResponse.json().sourceQuery;
+
+    assert.equal(createQueryResponse.statusCode, 201);
+    assert.equal(createdQuery.freshness, null);
+    assert.deepEqual(createdQuery.includeDomains, []);
+    assert.deepEqual(createdQuery.excludeDomains, []);
+
+    const patchQueryResponse = await app.inject({
+      method: 'PATCH',
+      url: `/source-queries/${createdQuery.id}`,
+      payload: {
+        freshness: 'pw',
+        includeDomains: ['openai.com'],
+        excludeDomains: ['example.com'],
+      },
+    });
+    const patchedQuery = patchQueryResponse.json().sourceQuery;
+
+    assert.equal(patchQueryResponse.statusCode, 200);
+    assert.equal(patchedQuery.freshness, null);
+    assert.deepEqual(patchedQuery.includeDomains, []);
+    assert.deepEqual(patchedQuery.excludeDomains, []);
+  });
+
+
+  it('does not rescan queries when patching an unsupported profile without source-control fields', async () => {
+    await app.inject({
+      method: 'PATCH',
+      url: '/source-profiles/22222222-2222-4222-8222-222222222222',
+      payload: { type: 'manual' },
+    });
+
+    let listCalls = 0;
+    const originalListSourceQueries = store.listSourceQueries.bind(store);
+    store.listSourceQueries = async (...args) => {
+      listCalls += 1;
+      return originalListSourceQueries(...args);
+    };
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/source-profiles/22222222-2222-4222-8222-222222222222',
+      payload: { name: 'Manual source profile' },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().sourceProfile.name, 'Manual source profile');
+    assert.equal(listCalls, 0);
   });
 
   it('filters disabled queries from enabledOnly reads', async () => {
@@ -1385,7 +1510,7 @@ describe('source profile routes', () => {
         enabled: true,
         weight: 2,
         freshness: 'pd',
-        includeDomains: ['techcrunch.com'],
+        includeDomains: ['https://TechCrunch.com/startups'],
         excludeDomains: [],
       },
     });

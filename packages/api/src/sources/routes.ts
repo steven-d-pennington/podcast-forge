@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z, ZodError } from 'zod';
 
+import { normalizeDomainList } from '../search/controls.js';
 import type {
   CreateSourceProfileInput,
   CreateSourceQueryInput,
@@ -82,6 +83,84 @@ class ApiError extends Error {
   ) {
     super(message);
   }
+}
+
+function supportsDiscoveryControls(type: z.infer<typeof sourceTypeSchema> | undefined): boolean {
+  return type === 'brave' || type === 'rss';
+}
+
+function normalizeProfileCreateInput(body: z.infer<typeof profileCreateSchema>): Omit<CreateSourceProfileInput, 'showId'> {
+  return {
+    slug: body.slug,
+    name: body.name,
+    type: body.type,
+    enabled: body.enabled,
+    weight: body.weight,
+    freshness: supportsDiscoveryControls(body.type) ? body.freshness : null,
+    includeDomains: supportsDiscoveryControls(body.type) ? normalizeDomainList(body.includeDomains) : [],
+    excludeDomains: supportsDiscoveryControls(body.type) ? normalizeDomainList(body.excludeDomains) : [],
+    rateLimit: body.rateLimit,
+    config: body.config,
+  };
+}
+
+function normalizeProfilePatchInput(
+  input: z.infer<typeof profilePatchSchema>,
+  existingType: z.infer<typeof sourceTypeSchema>,
+): UpdateSourceProfileInput {
+  const output: UpdateSourceProfileInput = { ...input };
+  const effectiveType = output.type ?? existingType;
+  const controlsSupported = supportsDiscoveryControls(effectiveType);
+
+  if (controlsSupported) {
+    if ('includeDomains' in output) {
+      output.includeDomains = normalizeDomainList(output.includeDomains);
+    }
+
+    if ('excludeDomains' in output) {
+      output.excludeDomains = normalizeDomainList(output.excludeDomains);
+    }
+  } else {
+    output.freshness = null;
+    output.includeDomains = [];
+    output.excludeDomains = [];
+  }
+
+  return output;
+}
+
+function normalizeQueryInput<T extends CreateSourceQueryInput | UpdateSourceQueryInput>(
+  input: T,
+  controlsSupported = true,
+): T {
+  const output = { ...input };
+
+  if (!controlsSupported) {
+    output.freshness = null;
+    output.includeDomains = [];
+    output.excludeDomains = [];
+    return output as T;
+  }
+
+  if ('includeDomains' in output) {
+    output.includeDomains = normalizeDomainList(output.includeDomains);
+  }
+
+  if ('excludeDomains' in output) {
+    output.excludeDomains = normalizeDomainList(output.excludeDomains);
+  }
+
+  return output as T;
+}
+
+async function findSourceQueryProfile(store: SourceStore, queryId: string): Promise<z.infer<typeof sourceTypeSchema> | undefined> {
+  const query = await store.getSourceQuery(queryId);
+
+  if (!query) {
+    return undefined;
+  }
+
+  return (await store.getSourceProfile(query.sourceProfileId))?.type;
 }
 
 export interface SourceRoutesOptions {
@@ -198,17 +277,8 @@ export function registerSourceRoutes(app: FastifyInstance, options: SourceRoutes
       const store = getStore();
       const showId = await resolveShowId(store, body.showId, body.showSlug);
       const input: CreateSourceProfileInput = {
+        ...normalizeProfileCreateInput(body),
         showId,
-        slug: body.slug,
-        name: body.name,
-        type: body.type,
-        enabled: body.enabled,
-        weight: body.weight,
-        freshness: body.freshness,
-        includeDomains: body.includeDomains,
-        excludeDomains: body.excludeDomains,
-        rateLimit: body.rateLimit,
-        config: body.config,
       };
       const profile = await store.createSourceProfile(input);
 
@@ -220,11 +290,36 @@ export function registerSourceRoutes(app: FastifyInstance, options: SourceRoutes
 
   app.patch<{ Params: { id: string } }>('/source-profiles/:id', async (request, reply) => {
     try {
-      const input = parseBody(profilePatchSchema, request.body) as UpdateSourceProfileInput;
-      const profile = await getStore().updateSourceProfile(request.params.id, input);
+      const store = getStore();
+      const existing = await store.getSourceProfile(request.params.id);
+
+      if (!existing) {
+        throw new ApiError(404, 'SOURCE_PROFILE_NOT_FOUND', `Source profile not found: ${request.params.id}`);
+      }
+
+      const rawInput = parseBody(profilePatchSchema, request.body);
+      const input = normalizeProfilePatchInput(rawInput, existing.type);
+      const profile = await store.updateSourceProfile(request.params.id, input);
 
       if (!profile) {
         throw new ApiError(404, 'SOURCE_PROFILE_NOT_FOUND', `Source profile not found: ${request.params.id}`);
+      }
+
+      const hasSourceControlPatch = rawInput.freshness !== undefined
+        || rawInput.includeDomains !== undefined
+        || rawInput.excludeDomains !== undefined;
+      const shouldClearQueryControls = !supportsDiscoveryControls(profile.type)
+        && (supportsDiscoveryControls(existing.type) || hasSourceControlPatch);
+
+      if (shouldClearQueryControls) {
+        const queries = await store.listSourceQueries(profile.id);
+        await Promise.all(queries
+          .filter((query) => query.freshness || query.includeDomains.length > 0 || query.excludeDomains.length > 0)
+          .map((query) => store.updateSourceQuery(query.id, {
+            freshness: null,
+            includeDomains: [],
+            excludeDomains: [],
+          })));
       }
 
       return { ok: true, sourceProfile: profile };
@@ -256,8 +351,18 @@ export function registerSourceRoutes(app: FastifyInstance, options: SourceRoutes
 
   app.post<{ Params: { id: string } }>('/source-profiles/:id/queries', async (request, reply) => {
     try {
-      const input = parseBody(queryCreateSchema, request.body) as CreateSourceQueryInput;
-      const query = await getStore().createSourceQuery(request.params.id, input);
+      const store = getStore();
+      const profile = await store.getSourceProfile(request.params.id);
+
+      if (!profile) {
+        throw new ApiError(404, 'SOURCE_PROFILE_NOT_FOUND', `Source profile not found: ${request.params.id}`);
+      }
+
+      const input = normalizeQueryInput(
+        parseBody(queryCreateSchema, request.body) as CreateSourceQueryInput,
+        supportsDiscoveryControls(profile.type),
+      );
+      const query = await store.createSourceQuery(request.params.id, input);
 
       if (!query) {
         throw new ApiError(404, 'SOURCE_PROFILE_NOT_FOUND', `Source profile not found: ${request.params.id}`);
@@ -271,8 +376,18 @@ export function registerSourceRoutes(app: FastifyInstance, options: SourceRoutes
 
   app.patch<{ Params: { id: string } }>('/source-queries/:id', async (request, reply) => {
     try {
-      const input = parseBody(queryPatchSchema, request.body) as UpdateSourceQueryInput;
-      const query = await getStore().updateSourceQuery(request.params.id, input);
+      const store = getStore();
+      const profileType = await findSourceQueryProfile(store, request.params.id);
+
+      if (!profileType) {
+        throw new ApiError(404, 'SOURCE_QUERY_NOT_FOUND', `Source query not found: ${request.params.id}`);
+      }
+
+      const input = normalizeQueryInput(
+        parseBody(queryPatchSchema, request.body) as UpdateSourceQueryInput,
+        supportsDiscoveryControls(profileType),
+      );
+      const query = await store.updateSourceQuery(request.params.id, input);
 
       if (!query) {
         throw new ApiError(404, 'SOURCE_QUERY_NOT_FOUND', `Source query not found: ${request.params.id}`);
