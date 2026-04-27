@@ -731,12 +731,22 @@ function resolvedRssPublicUrl(feed: FeedRecord) {
   return normalizedHttpUrl(`${publicBaseUrl.replace(/\/$/, '')}/feed.xml`);
 }
 
+function sanitizedUploadDetails(upload: UploadedPublishAsset) {
+  return {
+    assetId: upload.assetId,
+    type: upload.type,
+    objectKey: upload.objectKey,
+    byteSize: upload.byteSize,
+    hasMetadata: Object.keys(upload.metadata).length > 0,
+  };
+}
+
 function assertUploadedAssetReady(label: string, upload: UploadedPublishAsset) {
   const publicUrl = normalizedHttpUrl(upload.publicUrl);
 
   if (!publicUrl) {
     throw new ApiError(502, 'PUBLISHED_ASSET_URL_INVALID', `${label} upload returned a non-public URL.`, {
-      upload,
+      upload: sanitizedUploadDetails(upload),
     });
   }
 
