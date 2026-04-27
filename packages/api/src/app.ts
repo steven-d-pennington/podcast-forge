@@ -17,6 +17,7 @@ import { registerModelRoutes } from './models/routes.js';
 import type { ModelProfileStore } from './models/store.js';
 import { registerPromptRoutes } from './prompts/routes.js';
 import type { PromptTemplateStore } from './prompts/types.js';
+import { registerEpisodePlanningRoutes } from './planning/routes.js';
 import { registerResearchRoutes } from './research/routes.js';
 import type { ResearchFetch } from './research/fetch.js';
 import type { ResearchModelServices } from './research/models.js';
@@ -216,6 +217,14 @@ export function buildApp(options: BuildAppOptions = {}) {
     candidateScorer,
     llmRuntime,
     sleep,
+  });
+
+  registerEpisodePlanningRoutes(app, {
+    getStore() {
+      resolvedSourceStore ??= createDbSourceStore();
+      return resolvedSourceStore;
+    },
+    llmRuntime,
   });
 
   registerResearchRoutes(app, {

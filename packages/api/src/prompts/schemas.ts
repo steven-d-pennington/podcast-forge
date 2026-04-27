@@ -29,6 +29,25 @@ const scoreDimensionsSchema = z.object({
   urgency: z.number().min(0).max(100),
 }).strict();
 
+const recommendedSourceSchema = z.object({
+  sourceType: z.string().min(1),
+  rationale: z.string().min(1),
+  suggestedQuery: z.string().min(1).optional(),
+  url: z.string().url().optional(),
+  priority: z.enum(['low', 'medium', 'high']).default('medium'),
+}).strict();
+
+export const episodePlanResultSchema = z.object({
+  proposedAngle: z.string().min(1),
+  whyNow: z.string().min(1),
+  audienceRelevance: z.string().min(1),
+  knownFacts: z.array(z.string().min(1)).default([]),
+  unknownsSourceGaps: z.array(z.string().min(1)).default([]),
+  questionsToAnswer: z.array(z.string().min(1)).default([]),
+  recommendedSources: z.array(recommendedSourceSchema).default([]),
+  warnings: z.array(warningSchema).default([]),
+}).strict();
+
 export const candidateScoreResultSchema = z.object({
   score: z.number().min(0).max(100),
   verdict: z.enum(['ignore', 'watch', 'shortlist']),
@@ -163,6 +182,7 @@ export const coverPromptResultSchema = z.object({
 }).strict();
 
 export type CandidateScoreResult = z.infer<typeof candidateScoreResultSchema>;
+export type EpisodePlanResult = z.infer<typeof episodePlanResultSchema>;
 export type SourceSummaryResult = z.infer<typeof sourceSummarySchema>;
 export type ExtractedClaimsResult = z.infer<typeof extractedClaimsSchema>;
 export type ResearchSynthesisResult = z.infer<typeof researchSynthesisSchema>;
@@ -183,6 +203,21 @@ function jsonSchemaHint(name: PromptOutputSchemaName, properties: Record<string,
 }
 
 export const PROMPT_OUTPUT_SCHEMAS: Record<PromptOutputSchemaName, PromptOutputSchemaDefinition> = {
+  episode_plan_result: {
+    name: 'episode_plan_result',
+    description: 'Advisory AI episode/story plan for selected candidate stories before research.',
+    schemaHint: jsonSchemaHint('episode_plan_result', {
+      proposedAngle: { type: 'string' },
+      whyNow: { type: 'string' },
+      audienceRelevance: { type: 'string' },
+      knownFacts: { type: 'array', items: { type: 'string' } },
+      unknownsSourceGaps: { type: 'array', items: { type: 'string' } },
+      questionsToAnswer: { type: 'array', items: { type: 'string' } },
+      recommendedSources: { type: 'array' },
+      warnings: { type: 'array' },
+    }, ['proposedAngle', 'whyNow', 'audienceRelevance', 'knownFacts', 'unknownsSourceGaps', 'questionsToAnswer', 'recommendedSources']),
+    validate: episodePlanResultSchema.parse,
+  },
   candidate_score_result: {
     name: 'candidate_score_result',
     description: 'Scores one story candidate for editorial fit and source quality.',

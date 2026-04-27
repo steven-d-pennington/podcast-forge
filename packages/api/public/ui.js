@@ -12,6 +12,7 @@ const state = {
   recentJobs: [],
   selectedJobId: '',
   storyCandidates: [],
+  episodePlan: null,
   episodes: [],
   selectedScriptId: '',
   selectedScript: null,
@@ -112,7 +113,9 @@ const els = {
   clusterNotes: document.querySelector('#clusterNotes'),
   clusterFormat: document.querySelector('#clusterFormat'),
   clusterRuntime: document.querySelector('#clusterRuntime'),
+  requestEpisodePlan: document.querySelector('#requestEpisodePlan'),
   launchClusterBrief: document.querySelector('#launchClusterBrief'),
+  episodePlanResult: document.querySelector('#episodePlanResult'),
   candidateList: document.querySelector('#candidateList'),
   researchBriefMeta: document.querySelector('#researchBriefMeta'),
   researchBriefList: document.querySelector('#researchBriefList'),
@@ -155,6 +158,10 @@ const els = {
 };
 
 const MODEL_ROLE_LABELS = {
+  episode_planner: {
+    title: 'Episode planner',
+    description: 'Drafts advisory story briefs and episode plans before research begins.',
+  },
   candidate_scorer: {
     title: 'Candidate scorer',
     description: 'Ranks possible stories for editorial fit, significance, novelty, source quality, and urgency.',
@@ -255,6 +262,10 @@ function friendlyApiMessage(body, status) {
     STORY_CANDIDATE_NOT_FOUND: 'That candidate story could not be found. Refresh and try again.',
     STORY_CANDIDATE_IGNORED: 'Ignored candidate stories cannot be used for research briefs.',
     CANDIDATE_SHOW_MISMATCH: 'All selected candidate stories must belong to the same show.',
+    EPISODE_PLANNER_RUNTIME_REQUIRED: 'AI episode planning is unavailable because the local LLM runtime is not configured.',
+    EPISODE_PLANNER_MODEL_PROFILE_REQUIRED: 'Configure the episode planner AI role before requesting a plan.',
+    EPISODE_PLAN_MODEL_OUTPUT_INVALID: 'The AI episode planner returned an unreadable plan. No research or approval state changed.',
+    EPISODE_PLAN_MODEL_FAILED: 'The AI episode planner failed. No research or approval state changed.',
     RESEARCH_PACKET_NOT_FOUND: 'That research brief could not be found. Check the ID and try again.',
     RESEARCH_PACKET_OR_WARNING_NOT_FOUND: 'That research brief or warning could not be found.',
     RESEARCH_APPROVAL_BLOCKED: 'Research approval is blocked until the brief is ready and warnings have override reasons.',
@@ -973,6 +984,7 @@ function savePipelineState() {
 
 function clearPipelineSelections() {
   state.selectedCandidateIds = [];
+  state.episodePlan = null;
   state.clusterForm = { angle: '', notes: '', targetFormat: '', targetRuntime: '' };
   state.selectedResearchPacketId = '';
   state.selectedScriptId = '';
@@ -1003,6 +1015,7 @@ function toggleCandidateSelection(candidateId) {
     state.selectedCandidateIds = [...state.selectedCandidateIds, candidateId];
   }
 
+  state.episodePlan = null;
   savePipelineState();
   render();
 }
@@ -1134,6 +1147,7 @@ function taskLabel(type) {
   const labels = {
     'source.search': 'Source search',
     'source.ingest': 'RSS import',
+    'episode.plan': 'AI episode plan',
     'research.packet': 'Research brief',
     'script.generate': 'Script draft',
     'script.integrity_review': 'Integrity review',
@@ -1919,11 +1933,103 @@ function renderQueries() {
   }
 }
 
+function appendPlanText(section, title, text) {
+  const block = document.createElement('section');
+  block.className = 'episode-plan-section';
+  const heading = document.createElement('h4');
+  heading.textContent = title;
+  const body = document.createElement('p');
+  body.textContent = text || 'Not provided.';
+  block.append(heading, body);
+  section.append(block);
+}
+
+function appendPlanList(section, title, items, mapper = (item) => String(item)) {
+  const block = document.createElement('section');
+  block.className = 'episode-plan-section wide';
+  const heading = document.createElement('h4');
+  heading.textContent = title;
+  block.append(heading);
+
+  if (!items.length) {
+    const empty = document.createElement('p');
+    empty.textContent = 'Not provided.';
+    block.append(empty);
+  } else {
+    const list = document.createElement('ul');
+    list.className = 'episode-plan-list';
+    for (const item of items) {
+      const row = document.createElement('li');
+      row.textContent = mapper(item);
+      list.append(row);
+    }
+    block.append(list);
+  }
+
+  section.append(block);
+}
+
+function renderEpisodePlan() {
+  els.episodePlanResult.innerHTML = '';
+  const plan = state.episodePlan;
+
+  if (!plan) {
+    return;
+  }
+
+  const selected = new Set(state.selectedCandidateIds);
+  const planMatchesSelection = asArray(plan.candidateIds).every((id) => selected.has(id)) && selected.size === asArray(plan.candidateIds).length;
+
+  const title = document.createElement('h3');
+  title.textContent = plan.proposedAngle || 'AI episode plan';
+  const banner = document.createElement('p');
+  banner.className = 'episode-plan-banner';
+  banner.textContent = planMatchesSelection
+    ? 'AI-generated editorial assistance only. This is not verified evidence and does not approve research, scripts, or publishing.'
+    : 'This AI plan was generated for a previous selection. Select the same candidate stories or request a fresh plan.';
+
+  const grid = document.createElement('div');
+  grid.className = 'episode-plan-grid';
+  appendPlanText(grid, 'Why now', plan.whyNow);
+  appendPlanText(grid, 'Audience relevance', plan.audienceRelevance);
+  appendPlanList(grid, 'Known from candidate records', asArray(plan.knownFacts));
+  appendPlanList(grid, 'Unknowns and source gaps', asArray(plan.unknownsSourceGaps));
+  appendPlanList(grid, 'Questions to answer', asArray(plan.questionsToAnswer));
+  appendPlanList(grid, 'Recommended sources to fetch next', asArray(plan.recommendedSources), (source) => {
+    const priority = source.priority ? `${source.priority} priority` : 'medium priority';
+    const query = source.suggestedQuery ? ` | query: ${source.suggestedQuery}` : '';
+    const url = source.url ? ` | ${source.url}` : '';
+    return `${source.sourceType || 'source'} (${priority}): ${source.rationale || 'No rationale recorded.'}${query}${url}`;
+  });
+
+  if (asArray(plan.warnings).length > 0) {
+    appendPlanList(grid, 'Planner warnings', asArray(plan.warnings), (warning) => `${warning.code || 'warning'}: ${warning.message || JSON.stringify(sanitizedDebug(warning))}`);
+  }
+
+  const details = document.createElement('details');
+  details.className = 'debug-details row-debug';
+  details.innerHTML = '<summary>Planning audit metadata</summary><pre></pre>';
+  details.querySelector('pre').textContent = JSON.stringify(sanitizedDebug({
+    id: plan.id,
+    candidateIds: plan.candidateIds,
+    generatedAt: plan.generatedAt,
+    aiGenerated: plan.aiGenerated,
+    advisoryOnly: plan.advisoryOnly,
+    evidenceStatus: plan.evidenceStatus,
+    gateStatus: plan.gateStatus,
+    modelProfile: plan.modelProfile,
+    promptTemplate: plan.promptTemplate,
+  }), null, 2);
+
+  els.episodePlanResult.append(title, banner, grid, details);
+}
+
 function renderCandidateSelectionPanel() {
   const analysis = selectedCandidateAnalysis();
   const { candidates } = analysis;
   const selectedCount = candidates.length;
   const researchRunning = isActionRunning('research');
+  const planningRunning = isActionRunning('planning');
 
   els.selectionCount.textContent = selectedCount === 0
     ? 'No candidate stories selected'
@@ -1983,6 +2089,9 @@ function renderCandidateSelectionPanel() {
 
   els.launchClusterBrief.disabled = researchRunning || !analysis.canLaunch;
   els.launchClusterBrief.textContent = researchRunning ? 'Building Research Brief...' : 'Build Research Brief';
+  els.requestEpisodePlan.disabled = planningRunning || selectedCount === 0;
+  els.requestEpisodePlan.textContent = planningRunning ? 'Planning...' : 'AI Episode Plan';
+  renderEpisodePlan();
 }
 
 function renderStoryCandidates() {
@@ -3909,6 +4018,7 @@ function selectTopCandidate() {
   }
 
   state.selectedCandidateIds = [candidate.id];
+  state.episodePlan = null;
   savePipelineState();
   render();
   setStatus('Top candidate story selected for the research brief.');
@@ -3916,6 +4026,7 @@ function selectTopCandidate() {
 
 function clearCandidateSelection() {
   state.selectedCandidateIds = [];
+  state.episodePlan = null;
   savePipelineState();
   render();
   setStatus('Candidate story selection cleared.');
@@ -3955,6 +4066,41 @@ async function runSelectedProfileDiscovery() {
     reportError(error);
   } finally {
     setActionRunning('discover', false);
+  }
+}
+
+async function requestEpisodePlanForSelected() {
+  syncClusterFormFromInputs();
+  const candidateIds = state.selectedCandidateIds.filter(Boolean);
+
+  if (candidateIds.length === 0) {
+    render();
+    return;
+  }
+
+  setActionRunning('planning', true);
+  setStatus('Requesting AI episode plan...');
+
+  try {
+    const body = await api('/story-candidates/episode-plan', {
+      method: 'POST',
+      body: JSON.stringify({
+        candidateIds,
+        notes: state.clusterForm.notes || null,
+        targetFormat: state.clusterForm.targetFormat || null,
+        targetRuntime: state.clusterForm.targetRuntime || null,
+      }),
+    });
+    state.episodePlan = body.episodePlan;
+    await loadJobs();
+    render();
+    setStatus('AI episode plan generated. It is advisory only and does not approve research or production.');
+  } catch (error) {
+    await loadJobs();
+    render();
+    reportError(error);
+  } finally {
+    setActionRunning('planning', false);
   }
 }
 
@@ -4493,6 +4639,7 @@ async function createShow(event) {
       queries: [els.showSourceQuery.value.trim() || `${els.showName.value.trim()} news`],
     },
     modelRoleDefaults: {
+      episode_planner: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
       candidate_scorer: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
       source_summarizer: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
       claim_extractor: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
@@ -5128,6 +5275,7 @@ els.candidateClusterForm.addEventListener('submit', async (event) => {
   await buildResearchBriefFromSelected();
 });
 els.clearCandidateSelection.addEventListener('click', clearCandidateSelection);
+els.requestEpisodePlan.addEventListener('click', requestEpisodePlanForSelected);
 for (const input of [els.clusterAngle, els.clusterNotes, els.clusterFormat, els.clusterRuntime]) {
   input.addEventListener('input', syncClusterFormFromInputs);
 }

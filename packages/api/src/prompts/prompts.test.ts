@@ -10,6 +10,7 @@ import { PromptRenderError, renderPromptTemplate } from './renderer.js';
 import { registerPromptRoutes } from './routes.js';
 import {
   candidateScoreResultSchema,
+  episodePlanResultSchema,
   extractedClaimsSchema,
   integrityReviewResultSchema,
 } from './schemas.js';
@@ -32,6 +33,14 @@ describe('prompt registry defaults', () => {
 
     assert.equal(template?.role, 'script_writer');
     assert.equal(template?.outputSchemaName, 'script_generation_result');
+  });
+
+  it('provides the default episode planner template', async () => {
+    const registry = createPromptRegistry();
+    const template = await registry.getTemplateByRole('episode_planner');
+
+    assert.equal(template?.key, 'episode_planner.default');
+    assert.equal(template?.outputSchemaName, 'episode_plan_result');
   });
 });
 
@@ -77,6 +86,40 @@ describe('prompt rendering', () => {
 });
 
 describe('prompt output schemas', () => {
+  it('validates episode plan output', () => {
+    const result = episodePlanResultSchema.parse({
+      proposedAngle: 'Why open model policy is becoming a product decision.',
+      whyNow: 'The candidate records indicate new policy and product activity this week.',
+      audienceRelevance: 'Listeners need to understand what to verify before treating the claim as settled.',
+      knownFacts: ['A candidate story was discovered from an AI policy source.'],
+      unknownsSourceGaps: ['No primary source has been fetched yet.'],
+      questionsToAnswer: ['Which organization made the announcement?'],
+      recommendedSources: [{
+        sourceType: 'primary company post',
+        rationale: 'The research brief should start with the source of the claim.',
+        suggestedQuery: 'company announcement model policy',
+        priority: 'high',
+      }],
+      warnings: [],
+    });
+
+    assert.equal(result.recommendedSources[0].priority, 'high');
+    const sparseResult = episodePlanResultSchema.parse({
+      proposedAngle: 'Sparse but valid advisory plan',
+      whyNow: 'Candidate metadata may still be incomplete.',
+      audienceRelevance: 'The planner should surface uncertainty without fabricating lists.',
+    });
+
+    assert.deepEqual(sparseResult.knownFacts, []);
+    assert.deepEqual(sparseResult.recommendedSources, []);
+    assert.throws(() => episodePlanResultSchema.parse({
+      proposedAngle: 'Bad source',
+      whyNow: 'Now',
+      audienceRelevance: 'Audience',
+      recommendedSources: [{ sourceType: '', rationale: 'Missing source type' }],
+    }), ZodError);
+  });
+
   it('validates candidate score output', () => {
     const result = candidateScoreResultSchema.parse({
       score: 82,

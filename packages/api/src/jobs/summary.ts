@@ -101,6 +101,7 @@ function artifactRefs(job: JobRecord): JobArtifactRef[] {
     addArtifact(artifacts, 'scheduled pipeline', source.scheduledPipelineSlug);
     addArtifact(artifacts, 'candidate story', source.storyCandidateId);
     addArtifact(artifacts, 'candidate story', source.candidateIds);
+    addArtifact(artifacts, 'episode plan', source.episodePlanId);
     addArtifact(artifacts, 'research brief', source.researchPacketId);
     addArtifact(artifacts, 'source document', source.sourceDocumentIds);
     addArtifact(artifacts, 'failed source document', source.failedSourceDocumentIds);

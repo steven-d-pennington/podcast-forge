@@ -52,6 +52,7 @@ export interface PromptRegistry {
 }
 
 export type PromptOutputSchemaName =
+  | 'episode_plan_result'
   | 'candidate_score_result'
   | 'source_summary'
   | 'extracted_claims'

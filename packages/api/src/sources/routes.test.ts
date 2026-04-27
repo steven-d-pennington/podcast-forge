@@ -135,6 +135,7 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
   scripts: ScriptRecord[] = [];
   scriptRevisions: ScriptRevisionRecord[] = [];
   modelProfiles: ModelProfileRecord[] = [
+    this.modelProfileRecord('episode_planner', 'openai', 'gpt-5.5'),
     this.modelProfileRecord('candidate_scorer', 'google-vertex', 'gemini-2.5-flash'),
     this.modelProfileRecord('source_summarizer', 'google-vertex', 'gemini-2.5-flash'),
     this.modelProfileRecord('claim_extractor', 'google-vertex', 'gemini-2.5-flash'),
