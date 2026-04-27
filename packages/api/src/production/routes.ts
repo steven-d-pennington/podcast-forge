@@ -814,7 +814,11 @@ function publishBlockers(
       blockers.push({
         code: 'PUBLISH_FEED_PUBLIC_URL_REQUIRED',
         message: 'RSS publishing requires a public feed URL or a public base URL with an RSS feed path.',
-        metadata: { publicFeedUrl: feed.publicFeedUrl, publicBaseUrl: feed.publicBaseUrl, rssFeedPath: feed.rssFeedPath },
+        metadata: {
+          publicFeedUrl: sanitizedUrlForDiagnostics(feed.publicFeedUrl),
+          publicBaseUrl: sanitizedUrlForDiagnostics(feed.publicBaseUrl),
+          hasRssFeedPath: Boolean(feed.rssFeedPath),
+        },
       });
     }
   }

@@ -420,12 +420,13 @@ export async function runScheduledPipeline(options: RunScheduledPipelineOptions)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Scheduled pipeline run failed.';
     logs.push(log('error', message));
+    const output = { ...stageOutput(stageJobs), semanticStatus: 'failed' };
     parentJob = await updateJob(options.store, parentJob.id, {
       status: 'failed',
       progress: parentJob.progress,
       logs,
       error: message,
-      output: stageOutput(stageJobs),
+      output,
       finishedAt: new Date(),
     }) ?? parentJob;
   }
