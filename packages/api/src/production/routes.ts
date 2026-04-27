@@ -10,6 +10,7 @@ import { PROMPT_OUTPUT_SCHEMAS, type CoverPromptResult } from '../prompts/schema
 import type { PromptTemplateStore } from '../prompts/types.js';
 import type { ResearchPacketRecord, ResearchStore } from '../research/store.js';
 import type { CreateJobInput, JobRecord, SearchJobStore, UpdateJobInput } from '../search/store.js';
+import { integrityGateState } from '../scripts/integrity.js';
 import type { ScriptRecord, ScriptRevisionRecord, ScriptStore } from '../scripts/store.js';
 import type { SourceStore, ShowRecord } from '../sources/store.js';
 import {
@@ -333,6 +334,30 @@ function assertRevisionReadyForAudio(revision: ScriptRevisionRecord) {
     throw new ApiError(409, 'SCRIPT_REVISION_NOT_READY_FOR_AUDIO', 'Approved script revision failed readiness validation.', {
       validation,
     });
+  }
+
+  const integrity = integrityGateState(revision);
+  if (integrity.blocking) {
+    throw new ApiError(
+      409,
+      integrity.status === 'missing' ? 'INTEGRITY_REVIEW_REQUIRED' : 'INTEGRITY_REVIEW_BLOCKED',
+      integrity.status === 'missing'
+        ? 'Approved script revision requires an integrity review or explicit override before production jobs can run.'
+        : 'Approved script revision has blocking integrity review issues that must be fixed or explicitly overridden before production jobs can run.',
+      {
+        integrityReview: integrity.review,
+        blockedReasons: [{
+          code: integrity.status === 'missing' ? 'INTEGRITY_REVIEW_REQUIRED' : 'INTEGRITY_REVIEW_BLOCKED',
+          message: integrity.status === 'missing'
+            ? 'Run the integrity reviewer for the approved script revision.'
+            : 'Resolve the failed integrity review or record an explicit override reason.',
+          metadata: {
+            status: integrity.status,
+            revisionId: revision.id,
+          },
+        }],
+      },
+    );
   }
 }
 
@@ -1202,6 +1227,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
       const episode = await getOrCreateEpisode(productionStore, script, revision);
       const production = productionConfig(show);
       const warnings = revisionWarnings(revision);
+      const integrityReview = integrityGateState(revision);
 
       logs.push(log('info', 'Starting audio.preview job.', {
         scriptId: script.id,
@@ -1209,6 +1235,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
         episodeId: episode.id,
         provider: production.ttsProvider ?? 'vertex-gemini-tts',
         warningCount: warnings.length,
+        integrityStatus: integrityReview.status,
       }));
       job = await createJob(jobStore, {
         showId: script.showId,
@@ -1226,6 +1253,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
           retryOfJobId: body.retryOfJobId,
           stage,
           warnings,
+          integrityReview,
         },
         logs,
         startedAt: new Date(),
@@ -1248,6 +1276,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
         revisionId: revision.id,
         jobId: job.id,
         warnings,
+        integrityReview,
       }));
       const updatedEpisode = await productionStore.updateEpisodeProduction(episode.id, {
         status: 'audio-ready',
@@ -1282,6 +1311,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
           adapter: asset.metadata.adapter,
           retryable: false,
           warnings,
+          integrityReview,
         },
         finishedAt: new Date(),
       }) ?? job;
@@ -1325,6 +1355,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
       const episode = await getOrCreateEpisode(productionStore, script, revision);
       const researchPacket = await resolveResearchPacket(rawStore, script);
       const production = productionConfig(show);
+      const integrityReview = integrityGateState(revision);
       const modelProfile = hasModelProfileStore(rawStore)
         ? await resolveModelProfile(rawStore, { showId: show.id, role: 'cover_prompt_writer' })
         : undefined;
@@ -1348,6 +1379,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
         provider: production.artProvider ?? 'configured-art-provider',
         modelProfileId: modelProfile?.id,
         promptSource: resolvedPrompt.promptMetadata.source,
+        integrityStatus: integrityReview.status,
       }));
       job = await createJob(jobStore, {
         showId: script.showId,
@@ -1367,6 +1399,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
           actor: body.actor,
           retryOfJobId: body.retryOfJobId,
           stage,
+          integrityReview,
         },
         logs,
         startedAt: new Date(),
@@ -1395,6 +1428,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
         promptMetadata: resolvedPrompt.promptMetadata,
         researchPacketId: researchPacket?.id ?? null,
         modelProfile,
+        integrityReview,
       }));
       const updatedEpisode = await productionStore.updateEpisodeProduction(episode.id, {
         metadata: {
@@ -1428,6 +1462,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
           provider: asset.metadata.provider,
           adapter: asset.metadata.adapter,
           modelProfile,
+          integrityReview,
           retryable: false,
         },
         finishedAt: new Date(),

@@ -100,6 +100,52 @@ export const scriptRevisionResultSchema = z.object({
   remainingWarnings: z.array(warningSchema).default([]),
 }).strict();
 
+const integrityIssueSeveritySchema = z.enum(['info', 'warning', 'critical']);
+
+const integrityIssueSchema = z.object({
+  claimId: z.string().min(1).optional(),
+  scriptExcerpt: z.string().min(1).optional(),
+  issue: z.string().min(1),
+  severity: integrityIssueSeveritySchema.default('warning'),
+  sourceDocumentIds: z.array(z.string().min(1)).default([]),
+  citationUrls: z.array(z.string().url()).default([]),
+  suggestedFix: z.string().min(1).optional(),
+}).strict();
+
+const missingCitationSchema = z.object({
+  scriptExcerpt: z.string().min(1),
+  issue: z.string().min(1),
+  suggestedCitation: citationReferenceSchema.optional(),
+  suggestedFix: z.string().min(1).optional(),
+  severity: integrityIssueSeveritySchema.default('warning'),
+}).strict();
+
+const unsupportedCertaintySchema = z.object({
+  scriptExcerpt: z.string().min(1),
+  issue: z.string().min(1),
+  suggestedFix: z.string().min(1).optional(),
+  severity: integrityIssueSeveritySchema.default('warning'),
+}).strict();
+
+const integrityWarningSchema = z.object({
+  scriptExcerpt: z.string().min(1).optional(),
+  issue: z.string().min(1),
+  severity: integrityIssueSeveritySchema.default('warning'),
+  suggestedFix: z.string().min(1).optional(),
+}).strict();
+
+export const integrityReviewResultSchema = z.object({
+  verdict: z.enum(['PASS', 'PASS_WITH_NOTES', 'FAIL']),
+  summary: z.string().min(1),
+  claimIssues: z.array(integrityIssueSchema).default([]),
+  missingCitations: z.array(missingCitationSchema).default([]),
+  unsupportedCertainty: z.array(unsupportedCertaintySchema).default([]),
+  attributionWarnings: z.array(integrityWarningSchema).default([]),
+  balanceWarnings: z.array(integrityWarningSchema).default([]),
+  biasSensationalismWarnings: z.array(integrityWarningSchema).default([]),
+  suggestedFixes: z.array(z.string().min(1)).default([]),
+}).strict();
+
 export const metadataResultSchema = z.object({
   title: z.string().min(1),
   subtitle: z.string().min(1).optional(),
@@ -122,6 +168,7 @@ export type ExtractedClaimsResult = z.infer<typeof extractedClaimsSchema>;
 export type ResearchSynthesisResult = z.infer<typeof researchSynthesisSchema>;
 export type ScriptGenerationResult = z.infer<typeof scriptGenerationResultSchema>;
 export type ScriptRevisionResult = z.infer<typeof scriptRevisionResultSchema>;
+export type IntegrityReviewResult = z.infer<typeof integrityReviewResultSchema>;
 export type MetadataResult = z.infer<typeof metadataResultSchema>;
 export type CoverPromptResult = z.infer<typeof coverPromptResultSchema>;
 
@@ -212,6 +259,22 @@ export const PROMPT_OUTPUT_SCHEMAS: Record<PromptOutputSchemaName, PromptOutputS
       remainingWarnings: { type: 'array' },
     }, ['title', 'body', 'changeSummary', 'speakers']),
     validate: scriptRevisionResultSchema.parse,
+  },
+  integrity_review_result: {
+    name: 'integrity_review_result',
+    description: 'Reviews a script against its research packet for accuracy, attribution, balance, uncertainty, and sourcing gaps.',
+    schemaHint: jsonSchemaHint('integrity_review_result', {
+      verdict: { enum: ['PASS', 'PASS_WITH_NOTES', 'FAIL'] },
+      summary: { type: 'string' },
+      claimIssues: { type: 'array' },
+      missingCitations: { type: 'array' },
+      unsupportedCertainty: { type: 'array' },
+      attributionWarnings: { type: 'array' },
+      balanceWarnings: { type: 'array' },
+      biasSensationalismWarnings: { type: 'array' },
+      suggestedFixes: { type: 'array' },
+    }, ['verdict', 'summary']),
+    validate: integrityReviewResultSchema.parse,
   },
   metadata_result: {
     name: 'metadata_result',

@@ -51,6 +51,7 @@ import type {
   CreateScriptRevisionInput,
   CreateScriptWithRevisionInput,
   ListScriptsFilter,
+  OverrideIntegrityReviewInput,
   ScriptRecord,
   ScriptRevisionRecord,
   ScriptStore,
@@ -139,6 +140,7 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
     this.modelProfileRecord('claim_extractor', 'google-vertex', 'gemini-2.5-flash'),
     this.modelProfileRecord('research_synthesizer', 'google-gemini-cli', 'gemini-3-pro-preview'),
     this.modelProfileRecord('script_writer', 'openai-codex', 'gpt-5.3-codex'),
+    this.modelProfileRecord('integrity_reviewer', 'openai', 'gpt-5.5'),
     this.modelProfileRecord('cover_prompt_writer', 'openai', 'gpt-5.5'),
   ];
   episodes: EpisodeRecord[] = [];
@@ -754,6 +756,52 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
     return { script, revision };
   }
 
+  async updateScriptRevisionMetadata(revisionId: string, metadata: Record<string, unknown>) {
+    const revision = await this.getScriptRevision(revisionId);
+
+    if (!revision) {
+      return undefined;
+    }
+
+    revision.metadata = metadata;
+    return revision;
+  }
+
+  async overrideIntegrityReview(scriptId: string, revisionId: string, input: OverrideIntegrityReviewInput) {
+    const revision = await this.getScriptRevision(revisionId);
+
+    if (!revision || revision.scriptId !== scriptId) {
+      return undefined;
+    }
+
+    const previous = revision.metadata.integrityReview && typeof revision.metadata.integrityReview === 'object' && !Array.isArray(revision.metadata.integrityReview)
+      ? revision.metadata.integrityReview as Record<string, unknown>
+      : {};
+    revision.metadata = {
+      ...revision.metadata,
+      integrityReview: {
+        ...previous,
+        status: 'overridden',
+        blocking: false,
+        override: {
+          actor: input.actor,
+          reason: input.reason,
+          overriddenAt: '2026-01-06T00:30:00.000Z',
+        },
+      },
+    };
+    this.approvalEvents.push({
+      artifactType: 'script-revision',
+      artifactId: revisionId,
+      action: 'override',
+      gate: 'integrity-review',
+      actor: input.actor,
+      reason: input.reason,
+      createdAt: new Date('2026-01-06T00:30:00Z'),
+    });
+    return revision;
+  }
+
   async approveScriptRevision(scriptId: string, revisionId: string, input: ApproveScriptRevisionInput) {
     const script = await this.getScript(scriptId);
     const revision = await this.getScriptRevision(revisionId);
@@ -830,6 +878,7 @@ let uploadedPublishAssets: Array<{ feedId: string; episodeId: string; assetId: s
 let rssEntries = new Map<string, RssEpisodeEntry>();
 let validatedPublishUrls: string[] = [];
 let scriptLlmMode: 'valid' | 'malformed' | 'unknown-speaker' = 'valid';
+let integrityReviewMode: 'pass' | 'notes' | 'fail' = 'pass';
 
 function quotedValue(content: string, key: string): string | undefined {
   const match = content.match(new RegExp(`"${key}"\\s*:\\s*"([^"]+)"`));
@@ -837,6 +886,76 @@ function quotedValue(content: string, key: string): string | undefined {
 }
 
 function scriptWriterResult(request: LlmProviderRequest): LlmProviderResult {
+  if (request.attempt.role === 'integrity_reviewer') {
+    const outputs = {
+      pass: {
+        verdict: 'PASS',
+        summary: 'The script is supported by the research packet and production can proceed.',
+        claimIssues: [],
+        missingCitations: [],
+        unsupportedCertainty: [],
+        attributionWarnings: [],
+        balanceWarnings: [],
+        biasSensationalismWarnings: [],
+        suggestedFixes: [],
+      },
+      notes: {
+        verdict: 'PASS_WITH_NOTES',
+        summary: 'The script is accurate, with one non-blocking attribution note for the editor.',
+        claimIssues: [],
+        missingCitations: [],
+        unsupportedCertainty: [],
+        attributionWarnings: [{
+          scriptExcerpt: 'The sourced packet points to a concrete development.',
+          issue: 'Attribute this line more explicitly to the captured source.',
+          severity: 'warning',
+          suggestedFix: 'Add "according to the captured source" before production.',
+        }],
+        balanceWarnings: [],
+        biasSensationalismWarnings: [],
+        suggestedFixes: ['Add one explicit attribution phrase in the correspondent line.'],
+      },
+      fail: {
+        verdict: 'FAIL',
+        summary: 'The script overstates an unsupported factual claim.',
+        claimIssues: [{
+          claimId: 'claim-1',
+          scriptExcerpt: 'This is confirmed as a market-changing breakthrough.',
+          issue: 'The research packet does not support this level of certainty.',
+          severity: 'critical',
+          sourceDocumentIds: ['source-document-1'],
+          citationUrls: ['https://example.com/production'],
+          suggestedFix: 'Soften the line and attribute it to the captured source.',
+        }],
+        missingCitations: [],
+        unsupportedCertainty: [{
+          scriptExcerpt: 'confirmed as a market-changing breakthrough',
+          issue: 'The certainty is stronger than the research packet allows.',
+          severity: 'critical',
+          suggestedFix: 'Replace with "the source says it could affect market positioning."',
+        }],
+        attributionWarnings: [],
+        balanceWarnings: [],
+        biasSensationalismWarnings: [{
+          scriptExcerpt: 'market-changing breakthrough',
+          issue: 'This framing is promotional without independent corroboration.',
+          severity: 'warning',
+          suggestedFix: 'Use restrained language.',
+        }],
+        suggestedFixes: ['Remove unsupported certainty before production.'],
+      },
+    } as const;
+    const text = JSON.stringify(outputs[integrityReviewMode]);
+
+    return {
+      text,
+      rawOutput: text,
+      metadata: { adapter: 'test-fake-integrity-reviewer' },
+      usage: { inputTokens: 12, outputTokens: 18, totalTokens: 30 },
+      cost: { usd: 0, currency: 'USD' },
+    };
+  }
+
   if (request.attempt.role === 'cover_prompt_writer') {
     const output = {
       prompt: 'A restrained editorial podcast cover with abstract newsroom light, no logos, no real people.',
@@ -1121,11 +1240,20 @@ describe('source profile routes', () => {
     rssEntries = new Map<string, RssEpisodeEntry>();
     validatedPublishUrls = [];
     scriptLlmMode = 'valid';
+    integrityReviewMode = 'pass';
   });
 
   after(async () => {
     await app.close();
   });
+
+  async function runIntegrityReview(scriptId: string, revisionId: string) {
+    return app.inject({
+      method: 'POST',
+      url: `/scripts/${scriptId}/revisions/${revisionId}/integrity-review`,
+      payload: { actor: 'integrity-reviewer@example.com' },
+    });
+  }
 
   async function createProducedEpisode(title: string) {
     const packet = await store.createResearchPacket({
@@ -1148,6 +1276,8 @@ describe('source profile routes', () => {
       url: `/research-packets/${packet.id}/script`,
     });
     const initial = scriptResponse.json();
+
+    await runIntegrityReview(initial.script.id, initial.revision.id);
 
     await app.inject({
       method: 'POST',
@@ -2060,6 +2190,253 @@ describe('source profile routes', () => {
     assert.ok(approved.approvedAt);
   });
 
+  it('runs and persists a passing integrity review for a script revision', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Integrity Pass Story',
+      status: 'approved',
+      sourceDocumentIds: ['source-document-1'],
+      claims: [{ id: 'claim-1', text: 'An integrity-reviewed claim exists.', sourceDocumentIds: ['source-document-1'], citationUrls: ['https://example.com/integrity-pass'] }],
+      citations: [{
+        sourceDocumentId: 'source-document-1',
+        url: 'https://example.com/integrity-pass',
+        title: 'Integrity Pass Source',
+        fetchedAt: '2026-01-04T00:00:00.000Z',
+        status: 'fetched',
+      }],
+      warnings: [],
+      content: { summary: 'A packet summary for integrity review testing.' },
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+    const reviewResponse = await runIntegrityReview(initial.script.id, initial.revision.id);
+    const reviewBody = reviewResponse.json();
+
+    assert.equal(reviewResponse.statusCode, 201);
+    assert.equal(reviewBody.integrityReview.verdict, 'PASS');
+    assert.equal(reviewBody.integrityReview.status, 'pass');
+    assert.equal(reviewBody.integrityReview.researchPacketId, packet.id);
+    assert.equal(reviewBody.integrityReview.result.claimIssues.length, 0);
+    assert.equal(reviewBody.revision.metadata.integrityReview.verdict, 'PASS');
+
+    const scriptDetail = await app.inject({ method: 'GET', url: `/scripts/${initial.script.id}` });
+    assert.equal(scriptDetail.json().latestRevision.metadata.integrityReview.status, 'pass');
+  });
+
+  it('allows production after a pass-with-notes integrity review while preserving warnings', async () => {
+    integrityReviewMode = 'notes';
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Integrity Notes Story',
+      status: 'approved',
+      sourceDocumentIds: ['source-document-1'],
+      claims: [{ id: 'claim-1', text: 'A sourced notes claim exists.', sourceDocumentIds: ['source-document-1'], citationUrls: ['https://example.com/integrity-notes'] }],
+      citations: [{
+        sourceDocumentId: 'source-document-1',
+        url: 'https://example.com/integrity-notes',
+        title: 'Integrity Notes Source',
+        fetchedAt: '2026-01-04T00:00:00.000Z',
+        status: 'fetched',
+      }],
+      warnings: [],
+      content: { summary: 'A packet summary for integrity notes testing.' },
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+    const reviewResponse = await runIntegrityReview(initial.script.id, initial.revision.id);
+
+    assert.equal(reviewResponse.statusCode, 201);
+    assert.equal(reviewResponse.json().integrityReview.status, 'pass_with_notes');
+    assert.equal(reviewResponse.json().integrityReview.issueCounts.attributionWarnings, 1);
+
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/approve-for-audio`,
+      payload: { actor: 'producer@example.com' },
+    });
+    const audioResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/audio-preview`,
+      payload: { actor: 'producer@example.com' },
+    });
+
+    assert.equal(audioResponse.statusCode, 201);
+    assert.equal(audioResponse.json().job.output.integrityReview.status, 'pass_with_notes');
+  });
+
+  it('blocks production when the latest required integrity review fails', async () => {
+    integrityReviewMode = 'fail';
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Integrity Fail Story',
+      status: 'approved',
+      sourceDocumentIds: ['source-document-1'],
+      claims: [{ id: 'claim-1', text: 'A sourced fail claim exists.', sourceDocumentIds: ['source-document-1'], citationUrls: ['https://example.com/production'] }],
+      citations: [{
+        sourceDocumentId: 'source-document-1',
+        url: 'https://example.com/production',
+        title: 'Integrity Fail Source',
+        fetchedAt: '2026-01-04T00:00:00.000Z',
+        status: 'fetched',
+      }],
+      warnings: [],
+      content: { summary: 'A packet summary for failed integrity review testing.' },
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+    const reviewResponse = await runIntegrityReview(initial.script.id, initial.revision.id);
+
+    assert.equal(reviewResponse.json().integrityReview.status, 'fail');
+
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/approve-for-audio`,
+      payload: { actor: 'producer@example.com' },
+    });
+    const audioResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/audio-preview`,
+      payload: { actor: 'producer@example.com' },
+    });
+    const body = audioResponse.json();
+
+    assert.equal(audioResponse.statusCode, 409);
+    assert.equal(body.code, 'INTEGRITY_REVIEW_BLOCKED');
+    assert.equal(body.blockedReasons[0].code, 'INTEGRITY_REVIEW_BLOCKED');
+    assert.equal(store.episodeAssets.length, 0);
+  });
+
+  it('allows production after an explicit integrity review override reason is recorded', async () => {
+    integrityReviewMode = 'fail';
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Integrity Override Story',
+      status: 'approved',
+      sourceDocumentIds: ['source-document-1'],
+      claims: [{ id: 'claim-1', text: 'A sourced override claim exists.', sourceDocumentIds: ['source-document-1'], citationUrls: ['https://example.com/override'] }],
+      citations: [{
+        sourceDocumentId: 'source-document-1',
+        url: 'https://example.com/override',
+        title: 'Integrity Override Source',
+        fetchedAt: '2026-01-04T00:00:00.000Z',
+        status: 'fetched',
+      }],
+      warnings: [],
+      content: { summary: 'A packet summary for integrity override testing.' },
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+
+    await runIntegrityReview(initial.script.id, initial.revision.id);
+
+    const rejectedOverride = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/integrity-review/override`,
+      payload: { actor: 'editor@example.com', reason: '' },
+    });
+    assert.equal(rejectedOverride.statusCode, 400);
+
+    const overrideResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/integrity-review/override`,
+      payload: {
+        actor: 'editor@example.com',
+        reason: 'Editor verified the flagged wording against an updated source outside the model review.',
+      },
+    });
+    assert.equal(overrideResponse.statusCode, 201);
+    assert.equal(overrideResponse.json().integrityReview.status, 'overridden');
+
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/approve-for-audio`,
+      payload: { actor: 'producer@example.com' },
+    });
+    const audioResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/audio-preview`,
+      payload: { actor: 'producer@example.com' },
+    });
+
+    assert.equal(audioResponse.statusCode, 201);
+    assert.equal(audioResponse.json().job.output.integrityReview.status, 'overridden');
+    assert.equal(store.approvalEvents.some((event) => event.gate === 'integrity-review' && event.action === 'override'), true);
+  });
+
+  it('blocks production when an approved script revision has no integrity review', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Missing Integrity Story',
+      status: 'approved',
+      sourceDocumentIds: [],
+      claims: [{ id: 'claim-1', text: 'A missing review claim exists.', sourceDocumentIds: [], citationUrls: ['https://example.com/missing-review'] }],
+      citations: [],
+      warnings: [],
+      content: { summary: 'A packet summary for missing review testing.' },
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/approve-for-audio`,
+      payload: { actor: 'producer@example.com' },
+    });
+    const audioResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/audio-preview`,
+      payload: { actor: 'producer@example.com' },
+    });
+
+    assert.equal(audioResponse.statusCode, 409);
+    assert.equal(audioResponse.json().code, 'INTEGRITY_REVIEW_REQUIRED');
+  });
+
+  it('treats malformed integrity review status and empty overrides as blocking', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Malformed Integrity Story',
+      status: 'approved',
+      sourceDocumentIds: [],
+      claims: [{ id: 'claim-1', text: 'A malformed review claim exists.', sourceDocumentIds: [], citationUrls: ['https://example.com/malformed-review'] }],
+      citations: [],
+      warnings: [],
+      content: { summary: 'A packet summary for malformed review testing.' },
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+
+    await store.updateScriptRevisionMetadata(initial.revision.id, {
+      ...initial.revision.metadata,
+      integrityReview: {
+        status: 'overridden',
+        verdict: 'PASS',
+        override: { reason: '   ' },
+      },
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/approve-for-audio`,
+      payload: { actor: 'producer@example.com' },
+    });
+    const audioResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/audio-preview`,
+      payload: { actor: 'producer@example.com' },
+    });
+
+    assert.equal(audioResponse.statusCode, 409);
+    assert.equal(audioResponse.json().code, 'INTEGRITY_REVIEW_REQUIRED');
+    assert.equal(audioResponse.json().blockedReasons[0].metadata.status, 'missing');
+  });
+
   it('produces preview audio and cover art as durable jobs linked to an episode', async () => {
     const packet = await store.createResearchPacket({
       showId: store.shows[0].id,
@@ -2077,6 +2454,8 @@ describe('source profile routes', () => {
       url: `/research-packets/${packet.id}/script`,
     });
     const initial = scriptResponse.json();
+
+    await runIntegrityReview(initial.script.id, initial.revision.id);
 
     await app.inject({
       method: 'POST',
@@ -2186,6 +2565,8 @@ describe('source profile routes', () => {
     const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
     const initial = scriptResponse.json();
 
+    await runIntegrityReview(initial.script.id, initial.revision.id);
+
     await app.inject({
       method: 'POST',
       url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/approve-for-audio`,
@@ -2235,6 +2616,8 @@ describe('source profile routes', () => {
       url: `/research-packets/${packet.id}/script`,
     });
     const initial = scriptResponse.json();
+
+    await runIntegrityReview(initial.script.id, initial.revision.id);
 
     await app.inject({
       method: 'POST',
@@ -2397,6 +2780,8 @@ describe('source profile routes', () => {
       url: `/research-packets/${packet.id}/script`,
     });
     const initial = scriptResponse.json();
+
+    await runIntegrityReview(initial.script.id, initial.revision.id);
 
     await app.inject({
       method: 'POST',

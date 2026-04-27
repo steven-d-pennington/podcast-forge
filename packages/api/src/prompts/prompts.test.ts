@@ -11,6 +11,7 @@ import { registerPromptRoutes } from './routes.js';
 import {
   candidateScoreResultSchema,
   extractedClaimsSchema,
+  integrityReviewResultSchema,
 } from './schemas.js';
 
 describe('prompt registry defaults', () => {
@@ -130,6 +131,35 @@ describe('prompt output schemas', () => {
         sourceDocumentIds: [],
         citations: [],
       }],
+    }), ZodError);
+  });
+
+  it('validates structured integrity review output', () => {
+    const result = integrityReviewResultSchema.parse({
+      verdict: 'FAIL',
+      summary: 'Unsupported certainty needs an edit before production.',
+      claimIssues: [{
+        claimId: 'claim-1',
+        scriptExcerpt: 'This is definitely confirmed.',
+        issue: 'The source packet does not support definite certainty.',
+        severity: 'critical',
+        sourceDocumentIds: ['source-document-1'],
+        citationUrls: ['https://example.com/source'],
+        suggestedFix: 'Attribute the claim and soften certainty.',
+      }],
+      missingCitations: [],
+      unsupportedCertainty: [],
+      attributionWarnings: [],
+      balanceWarnings: [],
+      biasSensationalismWarnings: [],
+      suggestedFixes: ['Rewrite the sentence with attribution.'],
+    });
+
+    assert.equal(result.verdict, 'FAIL');
+    assert.equal(result.claimIssues[0].severity, 'critical');
+    assert.throws(() => integrityReviewResultSchema.parse({
+      verdict: 'MAYBE',
+      summary: 'Invalid verdict.',
     }), ZodError);
   });
 });

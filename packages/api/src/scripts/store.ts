@@ -61,6 +61,11 @@ export interface ApproveScriptRevisionInput {
   reason: string | null;
 }
 
+export interface OverrideIntegrityReviewInput {
+  actor: string;
+  reason: string;
+}
+
 export interface ScriptStore {
   createScriptWithRevision(input: CreateScriptWithRevisionInput): Promise<{
     script: ScriptRecord;
@@ -74,5 +79,7 @@ export interface ScriptStore {
     script: ScriptRecord;
     revision: ScriptRevisionRecord;
   } | undefined>;
+  updateScriptRevisionMetadata(revisionId: string, metadata: Record<string, unknown>): Promise<ScriptRevisionRecord | undefined>;
+  overrideIntegrityReview(scriptId: string, revisionId: string, input: OverrideIntegrityReviewInput): Promise<ScriptRevisionRecord | undefined>;
   approveScriptRevision(scriptId: string, revisionId: string, input: ApproveScriptRevisionInput): Promise<ScriptRecord | undefined>;
 }

@@ -5,6 +5,7 @@ export const MODEL_ROLES = [
   'research_synthesizer',
   'script_writer',
   'script_editor',
+  'integrity_reviewer',
   'metadata_writer',
   'cover_prompt_writer',
 ] as const;

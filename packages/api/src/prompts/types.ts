@@ -58,6 +58,7 @@ export type PromptOutputSchemaName =
   | 'research_synthesis'
   | 'script_generation_result'
   | 'script_revision_result'
+  | 'integrity_review_result'
   | 'metadata_result'
   | 'cover_prompt_result';
 
