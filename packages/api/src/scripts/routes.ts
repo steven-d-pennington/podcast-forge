@@ -17,6 +17,7 @@ import {
   invalidSpeakerLabels,
   provenanceWarnings,
 } from './builder.js';
+import { buildClaimCoverageSummary } from './coverage.js';
 import { buildIntegrityReview } from './integrity.js';
 import type { ScriptStore } from './store.js';
 
@@ -153,6 +154,23 @@ function hasScriptJobStore(store: object): store is Pick<SearchJobStore, 'create
     && 'updateJob' in store
     && typeof store.updateJob === 'function'
   );
+}
+
+async function coverageSummaryFor(
+  store: Partial<ResearchStore>,
+  script: { researchPacketId: string },
+  revision: Parameters<typeof buildClaimCoverageSummary>[1] | undefined,
+) {
+  if (!revision || typeof store.getResearchPacket !== 'function') {
+    return null;
+  }
+
+  try {
+    const packet = await store.getResearchPacket(script.researchPacketId);
+    return packet ? buildClaimCoverageSummary(packet, revision) : null;
+  } catch {
+    return null;
+  }
 }
 
 function log(level: 'info' | 'warn' | 'error', message: string, metadata: Record<string, unknown> = {}) {
@@ -360,6 +378,7 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
           metadata: draft.metadata,
         },
       });
+      const coverageSummary = buildClaimCoverageSummary(packet, result.revision);
 
       logs.push(log('info', 'Completed script.generate job.', {
         scriptId: result.script.id,
@@ -384,7 +403,7 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
         }) ?? job;
       }
 
-      return reply.code(201).send({ ok: true, job, script: result.script, revision: result.revision });
+      return reply.code(201).send({ ok: true, job, script: result.script, revision: result.revision, coverageSummary });
     } catch (error) {
       if (jobStore && job) {
         const message = error instanceof Error ? error.message : 'Script generation failed.';
@@ -420,7 +439,8 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
 
   app.get<{ Params: { id: string } }>('/scripts/:id', async (request, reply) => {
     try {
-      const scriptStore = requireScriptStore(options.getStore());
+      const rawStore = options.getStore();
+      const scriptStore = requireScriptStore(rawStore);
       const script = await scriptStore.getScript(request.params.id);
 
       if (!script) {
@@ -428,7 +448,9 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
       }
 
       const revisions = await scriptStore.listScriptRevisions(script.id);
-      return { ok: true, script, revisions, latestRevision: revisions[0] };
+      const latestRevision = revisions[0];
+      const coverageSummary = await coverageSummaryFor(rawStore, script, latestRevision);
+      return { ok: true, script, revisions, latestRevision, coverageSummary };
     } catch (error) {
       return sendError(reply, error);
     }
@@ -489,7 +511,8 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
         throw new ApiError(404, 'SCRIPT_NOT_FOUND', `Script not found: ${request.params.id}`);
       }
 
-      return reply.code(201).send({ ok: true, script: result.script, revision: result.revision });
+      const coverageSummary = buildClaimCoverageSummary(packet, result.revision);
+      return reply.code(201).send({ ok: true, script: result.script, revision: result.revision, coverageSummary });
     } catch (error) {
       return sendError(reply, error);
     }
@@ -545,7 +568,8 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
         throw new ApiError(404, 'SCRIPT_REVISION_NOT_FOUND', `Script revision not found: ${request.params.revisionId}`);
       }
 
-      return reply.code(201).send({ ok: true, script, revision: updatedRevision, integrityReview: review });
+      const coverageSummary = buildClaimCoverageSummary(packet, updatedRevision);
+      return reply.code(201).send({ ok: true, script, revision: updatedRevision, integrityReview: review, coverageSummary });
     } catch (error) {
       return sendError(reply, error);
     }
@@ -553,7 +577,8 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
 
   app.post<{ Params: { id: string; revisionId: string } }>('/scripts/:id/revisions/:revisionId/integrity-review/override', async (request, reply) => {
     try {
-      const scriptStore = requireScriptStore(options.getStore());
+      const rawStore = options.getStore();
+      const scriptStore = requireScriptStore(rawStore);
       const body = overrideIntegrityReviewSchema.parse(request.body ?? {});
       const revision = await scriptStore.overrideIntegrityReview(request.params.id, request.params.revisionId, {
         actor: body.actor,
@@ -564,7 +589,9 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
         throw new ApiError(404, 'SCRIPT_REVISION_NOT_FOUND', `Script revision not found: ${request.params.revisionId}`);
       }
 
-      return reply.code(201).send({ ok: true, revision, integrityReview: revision.metadata.integrityReview });
+      const script = await scriptStore.getScript(request.params.id);
+      const coverageSummary = script ? await coverageSummaryFor(rawStore, script, revision) : null;
+      return reply.code(201).send({ ok: true, revision, integrityReview: revision.metadata.integrityReview, coverageSummary });
     } catch (error) {
       return sendError(reply, error);
     }
@@ -572,7 +599,8 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
 
   app.post<{ Params: { id: string; revisionId: string } }>('/scripts/:id/revisions/:revisionId/approve-for-audio', async (request, reply) => {
     try {
-      const scriptStore = requireScriptStore(options.getStore());
+      const rawStore = options.getStore();
+      const scriptStore = requireScriptStore(rawStore);
       const body = approveSchema.parse(request.body ?? {});
       const script = await scriptStore.approveScriptRevision(request.params.id, request.params.revisionId, {
         actor: body.actor,
@@ -583,7 +611,9 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
         throw new ApiError(404, 'SCRIPT_REVISION_NOT_FOUND', `Script revision not found: ${request.params.revisionId}`);
       }
 
-      return { ok: true, script };
+      const revision = await scriptStore.getScriptRevision(request.params.revisionId);
+      const coverageSummary = await coverageSummaryFor(rawStore, script, revision);
+      return { ok: true, script, coverageSummary };
     } catch (error) {
       return sendError(reply, error);
     }
