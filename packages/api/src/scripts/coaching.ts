@@ -1,4 +1,4 @@
-import type { LlmInvocationMetadata, LlmRuntime } from '../llm/types.js';
+import type { LlmRuntime } from '../llm/types.js';
 import type { ResolvedModelProfile } from '../models/resolver.js';
 import { PROMPT_OUTPUT_SCHEMAS, type ScriptRevisionResult } from '../prompts/schemas.js';
 import { renderPromptTemplate } from '../prompts/renderer.js';
@@ -83,7 +83,7 @@ function packetReadiness(packet: Pick<ResearchPacketRecord, 'content'>): Record<
 }
 
 const secretKeyPattern = /(api[_-]?key|authorization|cookie|credential|password|secret|token)/i;
-const localDataKeyPattern = /(^|_)(local|absolute)?(file|dir|directory|path)$/i;
+const localDataKeyPattern = /(^|_|\b)(local|absolute)?(file|dir|directory|path)$|(?:file|dir|directory|path)$/i;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -245,7 +245,7 @@ export async function buildLlmScriptCoachingRevision(
       promptTemplateVersion: rendered.template.version,
       modelProfileId: modelProfile.id,
       modelRole: modelProfile.role,
-      modelRuntime: result.metadata as LlmInvocationMetadata,
+      modelRuntime: result.metadata,
       resolvedWarnings: result.value.resolvedWarnings,
       remainingWarnings: result.value.remainingWarnings,
     },
