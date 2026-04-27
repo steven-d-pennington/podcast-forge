@@ -1087,6 +1087,42 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
       return row ? mapResearchPacket(row) : undefined;
     },
 
+    async approveResearchPacket(id: string, input) {
+      const current = await this.getResearchPacket(id);
+
+      if (!current) {
+        return undefined;
+      }
+
+      const approvedAt = new Date();
+      await db.insert(approvalEvents).values({
+        researchPacketId: id,
+        action: 'approve',
+        gate: 'research-brief',
+        actor: input.actor,
+        reason: input.reason ?? null,
+        metadata: input.metadata ?? {},
+      });
+
+      const [row] = await db.update(researchPackets)
+        .set({
+          approvedAt,
+          content: {
+            ...current.content,
+            reviewApproval: {
+              actor: input.actor,
+              reason: input.reason ?? null,
+              approvedAt: approvedAt.toISOString(),
+            },
+          },
+          updatedAt: approvedAt,
+        })
+        .where(eq(researchPackets.id, id))
+        .returning();
+
+      return row ? mapResearchPacket(row) : undefined;
+    },
+
     async createScriptWithRevision(input: CreateScriptWithRevisionInput) {
       return db.transaction(async (tx) => {
         const [scriptRow] = await tx.insert(scripts).values({

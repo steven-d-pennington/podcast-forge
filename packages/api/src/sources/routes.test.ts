@@ -35,6 +35,7 @@ import type {
 } from '../production/store.js';
 import type { ResearchFetch } from '../research/fetch.js';
 import type {
+  ApproveResearchPacketInput,
   CreateResearchPacketInput,
   CreateSourceDocumentInput,
   OverrideResearchWarningInput,
@@ -160,6 +161,15 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
     updatedAt: new Date('2026-01-01T00:00:00Z'),
   }];
   publishEvents: PublishEventRecord[] = [];
+  approvalEvents: Array<{
+    artifactType: string;
+    artifactId: string;
+    action: string;
+    gate: string;
+    actor: string;
+    reason: string | null;
+    createdAt: Date;
+  }> = [];
 
   async listShows() {
     return this.shows;
@@ -435,6 +445,15 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
       },
       updatedAt: new Date('2026-01-08T00:00:00Z'),
     });
+    this.approvalEvents.push({
+      artifactType: 'episode',
+      artifactId: id,
+      action: 'approve',
+      gate: 'episode-publish',
+      actor: input.actor,
+      reason: input.reason ?? null,
+      createdAt: new Date('2026-01-08T00:00:00Z'),
+    });
     return episode;
   }
 
@@ -614,7 +633,45 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
       return undefined;
     }
 
+    this.approvalEvents.push({
+      artifactType: 'research-packet',
+      artifactId: id,
+      action: 'override',
+      gate: 'research-warning',
+      actor: input.actor,
+      reason: input.reason,
+      createdAt: new Date('2026-01-03T00:00:00Z'),
+    });
     packet.updatedAt = new Date('2026-01-03T00:00:00Z');
+    return packet;
+  }
+
+  async approveResearchPacket(id: string, input: ApproveResearchPacketInput) {
+    const packet = await this.getResearchPacket(id);
+
+    if (!packet) {
+      return undefined;
+    }
+
+    packet.approvedAt = new Date('2026-01-03T12:00:00Z');
+    packet.content = {
+      ...packet.content,
+      reviewApproval: {
+        actor: input.actor,
+        reason: input.reason ?? null,
+        approvedAt: packet.approvedAt.toISOString(),
+      },
+    };
+    packet.updatedAt = packet.approvedAt;
+    this.approvalEvents.push({
+      artifactType: 'research-packet',
+      artifactId: id,
+      action: 'approve',
+      gate: 'research-brief',
+      actor: input.actor,
+      reason: input.reason ?? null,
+      createdAt: packet.approvedAt,
+    });
     return packet;
   }
 
@@ -715,6 +772,15 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
         approvalReason: input.reason,
       },
       updatedAt: new Date('2026-01-06T00:00:00Z'),
+    });
+    this.approvalEvents.push({
+      artifactType: 'script-revision',
+      artifactId: revisionId,
+      action: 'approve',
+      gate: 'script-audio',
+      actor: input.actor,
+      reason: input.reason,
+      createdAt: new Date('2026-01-06T00:00:00Z'),
     });
     return script;
   }
@@ -1047,6 +1113,7 @@ describe('source profile routes', () => {
     store.episodeAssets = [];
     store.feeds = new FakeSourceStore().feeds;
     store.publishEvents = [];
+    store.approvalEvents = [];
     requestedUrls = [];
     requestedRssUrls = [];
     requestedResearchUrls = [];
@@ -1071,6 +1138,10 @@ describe('source profile routes', () => {
       citations: [],
       warnings: [],
       content: { summary: `A packet summary for ${title}.` },
+    });
+    await store.approveResearchPacket(packet.id, {
+      actor: 'research-editor@example.com',
+      reason: 'Research reviewed for publish testing.',
     });
     const scriptResponse = await app.inject({
       method: 'POST',
@@ -1448,6 +1519,76 @@ describe('source profile routes', () => {
     assert.equal(overrideResponse.statusCode, 200);
     assert.equal(overriddenWarning.override.actor, 'editor@example.com');
     assert.match(overriddenWarning.override.reason, /two independent sources/);
+  });
+
+  it('records durable research approval only after readiness and warnings are clear', async () => {
+    const blockedPacket = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Blocked Research Review',
+      status: 'needs_more_sources',
+      sourceDocumentIds: [],
+      claims: [],
+      citations: [],
+      warnings: [{
+        id: 'warning-1',
+        code: 'INSUFFICIENT_INDEPENDENT_SOURCES',
+        message: 'Needs another independent source.',
+        severity: 'warning',
+      }],
+      content: { readiness: { status: 'needs_more_sources' } },
+    });
+    const blockedResponse = await app.inject({
+      method: 'POST',
+      url: `/research-packets/${blockedPacket.id}/approve`,
+      payload: {
+        actor: 'editor@example.com',
+        reason: 'Attempted approval without enough sourcing.',
+      },
+    });
+
+    assert.equal(blockedResponse.statusCode, 409);
+    assert.equal(blockedResponse.json().code, 'RESEARCH_APPROVAL_BLOCKED');
+
+    const readyPacket = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Ready Research Review',
+      status: 'ready',
+      sourceDocumentIds: ['source-document-1', 'source-document-2'],
+      claims: [{
+        id: 'claim-1',
+        text: 'A verified claim is supported.',
+        sourceDocumentIds: ['source-document-1'],
+        citationUrls: ['https://example.com/source'],
+      }],
+      citations: [{
+        sourceDocumentId: 'source-document-1',
+        url: 'https://example.com/source',
+        title: 'Source',
+        fetchedAt: '2026-01-03T00:00:00.000Z',
+        status: 'fetched',
+      }],
+      warnings: [],
+      content: { readiness: { status: 'ready', independentSourceCount: 2 } },
+    });
+    const approvalResponse = await app.inject({
+      method: 'POST',
+      url: `/research-packets/${readyPacket.id}/approve`,
+      payload: {
+        actor: 'editor@example.com',
+        reason: 'Sources and citations reviewed.',
+      },
+    });
+    const approved = approvalResponse.json().researchPacket as ResearchPacketRecord;
+
+    assert.equal(approvalResponse.statusCode, 201);
+    assert.ok(approved.approvedAt);
+    assert.equal((approved.content.reviewApproval as { actor: string }).actor, 'editor@example.com');
+    assert.deepEqual(
+      store.approvalEvents.map((event) => `${event.gate}:${event.action}`),
+      ['research-brief:approve'],
+    );
   });
 
   it('builds a research packet from multiple candidates with model warnings and readiness metadata', async () => {
@@ -2022,6 +2163,59 @@ describe('source profile routes', () => {
     assert.deepEqual(body.blockedReasons.map((reason: { code: string }) => reason.code), ['EPISODE_NOT_APPROVED_FOR_PUBLISH']);
     assert.equal(store.jobs.some((job) => job.type === 'publish.rss'), false);
     assert.equal(uploadedPublishAssets.length, 0);
+  });
+
+  it('blocks publish approval when the research brief has no recorded approval event', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Unreviewed Research Publish Story',
+      status: 'ready',
+      sourceDocumentIds: ['source-document-1'],
+      claims: [{ id: 'claim-1', text: 'A sourced claim exists.', sourceDocumentIds: ['source-document-1'], citationUrls: ['https://example.com/research'] }],
+      citations: [{
+        sourceDocumentId: 'source-document-1',
+        url: 'https://example.com/research',
+        title: 'Research Source',
+        fetchedAt: '2026-01-04T00:00:00.000Z',
+        status: 'fetched',
+      }],
+      warnings: [],
+      content: { summary: 'A packet summary.', readiness: { status: 'ready' } },
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/approve-for-audio`,
+      payload: { actor: 'producer@example.com' },
+    });
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/audio-preview`,
+      payload: { actor: 'producer@example.com' },
+    });
+    const artResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/cover-art`,
+      payload: { actor: 'producer@example.com' },
+    });
+    const episode = artResponse.json().episode as EpisodeRecord;
+    const approvalResponse = await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/approve-for-publish`,
+      payload: { actor: 'editor@example.com' },
+    });
+    const body = approvalResponse.json();
+
+    assert.equal(approvalResponse.statusCode, 409);
+    assert.equal(body.code, 'PUBLISH_APPROVAL_BLOCKED');
+    assert.equal(
+      body.blockedReasons.some((reason: { code: string }) => reason.code === 'RESEARCH_BRIEF_NOT_APPROVED'),
+      true,
+    );
+    assert.equal(store.approvalEvents.some((event) => event.gate === 'episode-publish'), false);
   });
 
   it('uses a provided cover prompt without invoking the prompt writer', async () => {

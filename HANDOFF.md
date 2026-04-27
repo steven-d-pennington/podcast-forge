@@ -93,7 +93,7 @@ Open build wave:
 - #21 Multi-select candidate clustering UI ✅ implemented locally on `issue-21-candidate-clustering-ui`; `npm run check` passed.
 - #22 Settings/admin UI for shows, sources, models, prompts, publishing ✅ implemented locally on `issue-22-settings-admin-ui`; `npm run check` passed.
 - #23 Job progress, logs, warnings, and retry UI ✅ implemented locally on `issue-23-job-progress-ui`; `npm run check` passed.
-- #24 Review and approval gates UI
+- #24 Review and approval gates UI ✅ implemented locally on `issue-24-review-approval-gates`; `npm run check` passed.
 - #25 UX terminology and inline help cleanup
 
 ## Recommended execution plan

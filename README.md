@@ -457,6 +457,10 @@ curl http://localhost:3450/research-packets/:id
 curl -X POST http://localhost:3450/research-packets/:id/override-warning \
   -H 'content-type: application/json' \
   -d '{"warningId":"INSUFFICIENT_INDEPENDENT_SOURCES","reason":"Editor approved with direct source material.","actor":"local-user"}'
+
+curl -X POST http://localhost:3450/research-packets/:id/approve \
+  -H 'content-type: application/json' \
+  -d '{"actor":"editor@example.com","reason":"Sources, claims, citations, and warnings reviewed."}'
 ```
 
 Research endpoints:
@@ -466,13 +470,17 @@ Research endpoints:
 - `GET /research-packets?showSlug=the-synthetic-lens`
 - `GET /research-packets/:id`
 - `POST /research-packets/:id/override-warning`
+- `POST /research-packets/:id/approve`
 
 Packet `status` is a readiness value: `ready`, `needs_more_sources`, or
 `blocked`. The same object is also available at `content.readiness` with reasons
 and counts such as `independentSourceCount`, `usableSourceCount`, and
 `selectedCandidateCount`. Script generation should consume packet `claims`,
 `citations`, `sourceDocumentIds`, and `warnings`, and should surface non-ready
-or warning-bearing packets for editorial review before production.
+or warning-bearing packets for editorial review before production. Research
+approval records an `approval_events` row with gate `research-brief`; approval is
+blocked until the packet is ready and all warnings have explicit override
+reasons.
 
 ## Script generation workflow
 
@@ -566,8 +574,9 @@ Production endpoints:
 ## Approval-gated RSS publishing
 
 Episodes must reach `approved-for-publish` before `publish.rss` can update a
-feed. The endpoint returns `PUBLISH_BLOCKED` with `blockedReasons` when approval,
-feed config, or required audio/cover assets are missing or unsafe. The publish
+feed. The endpoint returns `PUBLISH_BLOCKED` with `blockedReasons` when research
+approval, warning overrides, publish approval, feed config, or required
+audio/cover assets are missing or unsafe. The publish
 job uploads the selected audio and cover art through the configured feed storage
 adapter, preserves the feed OP3 wrapping setting and metadata, upserts the RSS
 item by episode/feed GUID, validates the resulting public URLs, records a
@@ -597,6 +606,10 @@ Publishing endpoints:
 - `POST /episodes/:id/approve-for-publish`
 - `POST /episodes/:id/publish/rss`
 
-The local UI at `http://localhost:3450/ui` includes a script review panel where
-editors can select or paste a research brief ID, generate a draft, edit the
-latest revision, and approve it for audio.
+The local UI at `http://localhost:3450/ui` includes a Review Gates panel where
+editors can inspect research sources, claims, citations, warnings, script
+validation/provenance, audio and cover previews, asset metadata, and the publish
+readiness checklist. The checklist blocks publish approval and RSS publishing
+until research is approved, warnings are overridden, the selected script is
+approved for audio, audio and cover assets are valid, feed/RSS targets are
+configured, and the final publish action is explicit.

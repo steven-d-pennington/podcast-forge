@@ -16,6 +16,7 @@ const state = {
   selectedScriptId: '',
   selectedScript: null,
   selectedRevision: null,
+  selectedRevisions: [],
   production: {
     episode: null,
     assets: [],
@@ -120,6 +121,11 @@ const els = {
   jobRunDetail: document.querySelector('#jobRunDetail'),
   episodeMeta: document.querySelector('#episodeMeta'),
   episodeList: document.querySelector('#episodeList'),
+  reviewMeta: document.querySelector('#reviewMeta'),
+  reviewResearch: document.querySelector('#reviewResearch'),
+  reviewScript: document.querySelector('#reviewScript'),
+  reviewProduction: document.querySelector('#reviewProduction'),
+  publishChecklist: document.querySelector('#publishChecklist'),
   modelMeta: document.querySelector('#modelMeta'),
   modelProfileList: document.querySelector('#modelProfileList'),
   queriesPanel: document.querySelector('#queriesPanel'),
@@ -241,6 +247,7 @@ function friendlyApiMessage(body, status) {
     CANDIDATE_SHOW_MISMATCH: 'All selected candidate stories must belong to the same show.',
     RESEARCH_PACKET_NOT_FOUND: 'That research brief could not be found. Check the ID and try again.',
     RESEARCH_PACKET_OR_WARNING_NOT_FOUND: 'That research brief or warning could not be found.',
+    RESEARCH_APPROVAL_BLOCKED: 'Research approval is blocked until the brief is ready and warnings have override reasons.',
     SCHEDULED_PIPELINE_NOT_FOUND: 'That scheduled pipeline could not be found. Refresh and try again.',
     SCHEDULED_RUN_NOT_FOUND: 'That scheduled run could not be found. Refresh and try again.',
     DUPLICATE_SHOW_SLUG: 'Another show already uses that slug. Choose a unique show slug.',
@@ -251,6 +258,7 @@ function friendlyApiMessage(body, status) {
     INVALID_CRON: 'The cron schedule is not valid. Check the cadence and try again.',
     SCHEDULED_RUN_NOT_FAILED: 'Only failed scheduled runs can be retried.',
     PUBLISH_BLOCKED: 'Publishing is blocked until the checklist items are complete.',
+    PUBLISH_APPROVAL_BLOCKED: 'Publish approval is blocked until the checklist items are complete.',
   };
 
   if (messages[code]) {
@@ -643,6 +651,132 @@ function selectedAssets() {
   return assets.length > 0 ? assets : state.production.assets;
 }
 
+function researchReadinessStatus(packet) {
+  const readiness = asObject(packet?.content?.readiness);
+  return typeof readiness.status === 'string' ? readiness.status : packet?.status || 'missing';
+}
+
+function unresolvedResearchWarnings(packet) {
+  return asArray(packet?.warnings).filter((warning) => !warning.override);
+}
+
+function researchApproved(packet) {
+  return Boolean(packet?.approvedAt);
+}
+
+function selectedFeed() {
+  const episode = selectedEpisode();
+  return state.feeds.find((feed) => feed.id === episode?.feedId) || state.feeds[0] || null;
+}
+
+function assetWarningItems(asset) {
+  return [
+    ...asArray(asset?.metadata?.warnings),
+    ...asArray(asset?.metadata?.validation?.warnings),
+  ].filter(Boolean);
+}
+
+function productionWarningItems() {
+  return [
+    ...asArray(selectedEpisode()?.warnings),
+    ...selectedAssets().flatMap(assetWarningItems),
+    ...state.production.jobs.flatMap((job) => asArray(job.summary?.warnings)),
+  ];
+}
+
+function validHttpUrl(value) {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function publishChecklistState() {
+  const packet = selectedResearchPacket();
+  const script = state.selectedScript;
+  const revision = state.selectedRevision;
+  const episode = selectedEpisode();
+  const assets = selectedAssets();
+  const feed = selectedFeed();
+  const audioAsset = assets.find((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview');
+  const coverAsset = assets.find((asset) => asset.type === 'cover-art');
+  const unresolvedWarnings = unresolvedResearchWarnings(packet);
+  const productionWarnings = productionWarningItems();
+  const scriptApproved = Boolean(script && revision && script.status === 'approved-for-audio' && script.approvedRevisionId === revision.id);
+  const feedPublicUrl = feed?.publicFeedUrl || '';
+  const publicBaseUrl = publicAssetBaseForFeed(feed || {});
+  const feedConfigured = Boolean(feed);
+  const targetConfigured = Boolean(feed?.rssFeedPath || outputPathForFeed(feed || {}) || feedPublicUrl);
+  const feedUrlsValid = (!feedPublicUrl || validHttpUrl(feedPublicUrl)) && (!publicBaseUrl || validHttpUrl(publicBaseUrl));
+  const audioValid = Boolean(audioAsset && audioAsset.mimeType?.startsWith('audio/') && (audioAsset.byteSize === null || audioAsset.byteSize > 0));
+  const coverValid = Boolean(coverAsset && coverAsset.mimeType?.startsWith('image/'));
+
+  return [
+    {
+      key: 'research',
+      label: 'Research brief approved',
+      passed: Boolean(packet && researchApproved(packet) && unresolvedWarnings.length === 0 && ['ready', 'approved', 'research-ready'].includes(researchReadinessStatus(packet))),
+      reason: !packet
+        ? 'Select a research brief.'
+        : !['ready', 'approved', 'research-ready'].includes(researchReadinessStatus(packet))
+          ? `Research status is ${researchReadinessStatus(packet)}.`
+          : unresolvedWarnings.length > 0
+            ? `${unresolvedWarnings.length} research warning${unresolvedWarnings.length === 1 ? '' : 's'} need override reasons.`
+            : !researchApproved(packet) ? 'Approve the research brief after review.' : 'Research review decision recorded.',
+    },
+    {
+      key: 'script',
+      label: 'Script approved for audio',
+      passed: scriptApproved,
+      reason: scriptApproved ? 'Script review decision recorded.' : 'Approve the selected script revision.',
+    },
+    {
+      key: 'audio',
+      label: 'Valid audio asset exists',
+      passed: audioValid,
+      reason: audioAsset ? (audioValid ? 'Audio asset has an audio MIME type and usable size.' : 'Audio asset metadata is incomplete or invalid.') : 'Create a preview MP3 or attach final audio.',
+    },
+    {
+      key: 'cover',
+      label: 'Cover art asset exists',
+      passed: coverValid,
+      reason: coverAsset ? (coverValid ? 'Cover art has an image MIME type.' : 'Cover art MIME type is not an image.') : 'Create cover art before publishing.',
+    },
+    {
+      key: 'feed',
+      label: 'Feed metadata configured',
+      passed: feedConfigured && feedUrlsValid,
+      reason: !feedConfigured ? 'Configure a feed for this show.' : feedUrlsValid ? 'Feed metadata is available.' : 'Feed public URLs must be valid http(s) URLs.',
+    },
+    {
+      key: 'target',
+      label: 'RSS/public target configured',
+      passed: feedConfigured && targetConfigured,
+      reason: targetConfigured ? 'RSS path or public feed URL is configured.' : 'Configure an RSS path, output path, or public feed URL.',
+    },
+    {
+      key: 'warnings',
+      label: 'No blocking warnings remain',
+      passed: unresolvedWarnings.length === 0 && productionWarnings.length === 0,
+      reason: unresolvedWarnings.length + productionWarnings.length === 0
+        ? 'No unresolved research or production warnings are selected.'
+        : `${unresolvedWarnings.length + productionWarnings.length} warning${unresolvedWarnings.length + productionWarnings.length === 1 ? '' : 's'} require review.`,
+    },
+    {
+      key: 'publishApproval',
+      label: 'Episode approved for publishing',
+      passed: Boolean(episode && ['approved-for-publish', 'published'].includes(episode.status)),
+      reason: episode ? (episode.status === 'published' ? 'Episode is already published.' : episode.status === 'approved-for-publish' ? 'Publish approval recorded.' : 'Approve audio and cover assets for publishing.') : 'Create production assets to create an episode record.',
+    },
+  ];
+}
+
 function pipelineStorageKey(showSlug = state.selectedShowSlug) {
   return showSlug ? `podcast-forge:pipeline:${showSlug}` : '';
 }
@@ -702,6 +836,7 @@ function clearPipelineSelections() {
   state.selectedScriptId = '';
   state.selectedScript = null;
   state.selectedRevision = null;
+  state.selectedRevisions = [];
   state.selectedEpisodeId = '';
   state.selectedAssetIds = [];
   state.production = { episode: null, assets: [], jobs: [] };
@@ -1023,6 +1158,10 @@ function buildPipelineStages() {
   const packetWarningCount = packet?.warnings?.length || 0;
   const packetBlocked = packet?.status === 'blocked';
   const profileSupportsDiscovery = profile && ['brave', 'rss'].includes(profile.type);
+  const checklist = publishChecklistState();
+  const publishChecklistReady = checklist.every((item) => item.passed);
+  const publishPreApprovalReady = checklist.filter((item) => item.key !== 'publishApproval').every((item) => item.passed);
+  const firstChecklistBlocker = checklist.find((item) => !item.passed)?.reason;
 
   return [
     {
@@ -1121,27 +1260,27 @@ function buildPipelineStages() {
     {
       number: 7,
       title: 'Review approvals',
-      status: approvalsRunning ? 'running' : episode?.status === 'approved-for-publish' || episode?.status === 'published' ? 'done' : episode?.status === 'audio-ready' ? 'ready' : state.selectedScript && !scriptApproved ? 'needs review' : 'blocked',
+      status: approvalsRunning ? 'running' : episode?.status === 'approved-for-publish' || episode?.status === 'published' ? 'done' : episode?.status === 'audio-ready' && publishPreApprovalReady ? 'ready' : state.selectedScript && !scriptApproved ? 'needs review' : 'blocked',
       artifact: episode ? `${episode.title} (${episode.status})` : latestScriptText(),
       next: episode?.status === 'audio-ready'
-        ? 'Approve the episode for publishing after reviewing assets.'
+        ? (publishPreApprovalReady ? 'Approve the episode for publishing after reviewing assets.' : firstChecklistBlocker || 'Complete the publish checklist before approval.')
         : state.selectedScript && !scriptApproved ? 'Approve the script revision before production can run.' : 'Finish script approval and production assets first.',
       actionLabel: episode?.status === 'audio-ready' ? 'Approve for Publishing' : 'Approve Script for Audio',
       action: episode?.status === 'audio-ready' ? approveEpisodeForPublishing : approveSelectedScript,
-      disabled: approvalsRunning || !(episode?.status === 'audio-ready' || (state.selectedScript && state.selectedRevision && !scriptApproved)),
+      disabled: approvalsRunning || !(episode?.status === 'audio-ready' ? publishPreApprovalReady : (state.selectedScript && state.selectedRevision && !scriptApproved)),
       active: Boolean(episode?.status === 'approved-for-publish' || episode?.status === 'published'),
     },
     {
       number: 8,
       title: 'Publish',
-      status: publishRunning ? 'running' : episode?.status === 'published' ? 'done' : episode?.status === 'approved-for-publish' ? 'ready' : 'blocked',
+      status: publishRunning ? 'running' : episode?.status === 'published' ? 'done' : episode?.status === 'approved-for-publish' && publishChecklistReady ? 'ready' : 'blocked',
       artifact: episode?.feedGuid || episode?.metadata?.publish?.rssUrl || 'No publishing record yet.',
       next: episode?.status === 'published'
         ? 'RSS publishing has a recorded feed GUID or publish result.'
-        : episode?.status === 'approved-for-publish' ? 'Publish to the configured RSS feed.' : 'Approval for publishing is required before RSS output.',
+        : episode?.status === 'approved-for-publish' ? (publishChecklistReady ? 'Publish to the configured RSS feed.' : firstChecklistBlocker || 'Complete the publish checklist first.') : 'Approval for publishing is required before RSS output.',
       actionLabel: episode?.status === 'published' ? 'Already Published' : 'Publish to RSS',
       action: publishSelectedEpisode,
-      disabled: publishRunning || episode?.status !== 'approved-for-publish',
+      disabled: publishRunning || episode?.status !== 'approved-for-publish' || !publishChecklistReady,
       active: episode?.status === 'published',
       primary: true,
       jobTypes: ['publish.rss'],
@@ -2485,6 +2624,319 @@ function renderScripts() {
   renderProduction();
 }
 
+function reviewSectionHeading(title, status, detail) {
+  const heading = document.createElement('div');
+  heading.className = 'review-heading';
+  const copy = document.createElement('div');
+  const h3 = document.createElement('h3');
+  h3.textContent = title;
+  const p = document.createElement('p');
+  p.textContent = detail;
+  copy.append(h3, p);
+  const pill = document.createElement('span');
+  pill.className = `status-pill ${statusClass(status)}`;
+  pill.textContent = status;
+  heading.append(copy, pill);
+  return heading;
+}
+
+function reviewFacts(items) {
+  const facts = document.createElement('div');
+  facts.className = 'settings-kv';
+  for (const [label, value] of items) {
+    const item = document.createElement('span');
+    item.textContent = `${label}: ${value}`;
+    facts.append(item);
+  }
+  return facts;
+}
+
+function reviewList(title, items, emptyText, mapper = (item) => item) {
+  const section = document.createElement('section');
+  section.className = 'review-subsection';
+  const heading = document.createElement('h4');
+  heading.textContent = title;
+  section.append(heading);
+
+  if (items.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'empty-inline';
+    empty.textContent = emptyText;
+    section.append(empty);
+    return section;
+  }
+
+  const list = document.createElement('div');
+  list.className = 'review-list';
+  for (const item of items) {
+    const row = document.createElement('div');
+    row.className = 'review-list-item';
+    row.textContent = mapper(item);
+    list.append(row);
+  }
+  section.append(list);
+  return section;
+}
+
+function renderResearchReview() {
+  const packet = selectedResearchPacket();
+  els.reviewResearch.innerHTML = '';
+
+  if (!packet) {
+    els.reviewResearch.append(
+      reviewSectionHeading('Research Brief', 'blocked', 'No research brief is selected.'),
+      settingsEmpty('Select or create a research brief before review.'),
+    );
+    return;
+  }
+
+  const readiness = researchReadinessStatus(packet);
+  const unresolved = unresolvedResearchWarnings(packet);
+  const approved = researchApproved(packet);
+  const status = approved && unresolved.length === 0 ? 'done' : unresolved.length > 0 || readiness !== 'ready' ? 'needs review' : 'ready';
+  const candidateIds = asArray(packet.content?.candidateIds).filter((id) => typeof id === 'string');
+  const sourceUrls = asArray(packet.citations).map((citation) => citation.url).filter(Boolean);
+
+  els.reviewResearch.append(
+    reviewSectionHeading('Research Brief', status, packet.title),
+    reviewFacts([
+      ['Readiness', readiness],
+      ['Review decision', approved ? `approved ${formatTime(packet.approvedAt)}` : 'not approved'],
+      ['Independent sources', packet.content?.independentSourceCount ?? 'unknown'],
+      ['Usable sources', packet.content?.usableSourceCount ?? 'unknown'],
+      ['Selected candidates', packet.content?.selectedCandidateCount ?? (candidateIds.length || 'unknown')],
+    ]),
+    reviewList('Selected candidates', candidateIds, 'No selected candidate IDs were recorded.', (id) => id),
+    reviewList('Source URLs', sourceUrls, 'No citation URLs were recorded.', (url) => url),
+    reviewList('Claims and citations', asArray(packet.claims), 'No claims were recorded for this brief.', (claim) => {
+      const citations = asArray(claim.citationUrls).join(', ') || 'missing citation URL';
+      return `${claim.text || claim.id || 'Claim'} | ${citations}`;
+    }),
+  );
+
+  const warnings = document.createElement('section');
+  warnings.className = 'review-subsection';
+  warnings.innerHTML = '<h4>Warnings</h4>';
+  if (asArray(packet.warnings).length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'empty-inline';
+    empty.textContent = 'No research warnings recorded.';
+    warnings.append(empty);
+  } else {
+    for (const warning of asArray(packet.warnings)) {
+      const row = document.createElement('div');
+      row.className = `warning-item ${warning.severity === 'error' ? 'error' : ''}`;
+      const message = document.createElement('span');
+      message.textContent = `${warning.code || 'warning'}: ${warning.message || 'No message recorded.'}${warning.override ? ` | overridden by ${warning.override.actor}` : ''}`;
+      row.append(message);
+      if (!warning.override) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'secondary compact-action';
+        button.textContent = 'Override';
+        button.addEventListener('click', () => overrideResearchWarning(packet.id, warning));
+        row.append(button);
+      }
+      warnings.append(row);
+    }
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'actions inline';
+  const approve = document.createElement('button');
+  approve.type = 'button';
+  approve.className = 'secondary';
+  approve.textContent = approved ? 'Research Approved' : 'Approve Research Brief';
+  approve.disabled = approved || readiness !== 'ready' || unresolved.length > 0 || isActionRunning('approval');
+  approve.title = approve.disabled && !approved ? 'Research must be ready and warnings must be overridden before approval.' : '';
+  approve.addEventListener('click', approveSelectedResearch);
+  actions.append(approve);
+  els.reviewResearch.append(warnings, actions);
+}
+
+function renderScriptReview() {
+  const script = state.selectedScript;
+  const revision = state.selectedRevision;
+  els.reviewScript.innerHTML = '';
+
+  if (!script || !revision) {
+    els.reviewScript.append(
+      reviewSectionHeading('Script Draft', 'blocked', 'No script revision is selected.'),
+      settingsEmpty('Generate or select a script draft before review.'),
+    );
+    return;
+  }
+
+  const validation = asObject(revision.metadata?.validation);
+  const speakerValidation = asObject(validation.speakerLabels);
+  const provenanceValidation = asObject(validation.provenance);
+  const warningItems = [
+    ...asArray(revision.metadata?.warnings),
+    ...asArray(revision.metadata?.provenance?.warnings),
+    ...asArray(provenanceValidation.warnings),
+  ];
+  const approved = script.status === 'approved-for-audio' && script.approvedRevisionId === revision.id;
+
+  els.reviewScript.append(
+    reviewSectionHeading('Script Draft', approved ? 'done' : warningItems.length > 0 ? 'needs review' : 'ready', `${script.title} | revision ${revision.version}`),
+    reviewFacts([
+      ['Review decision', approved ? `approved ${formatTime(script.approvedAt)}` : 'not approved'],
+      ['Speaker validation', speakerValidation.valid === false ? 'failed' : 'passed or not recorded'],
+      ['Provenance validation', provenanceValidation.valid === false ? 'failed' : `${provenanceValidation.warningCount ?? warningItems.length} warning(s)`],
+      ['Revision history', `${state.selectedRevisions.length || 1} revision${(state.selectedRevisions.length || 1) === 1 ? '' : 's'}`],
+    ]),
+    reviewList('Revision history', state.selectedRevisions, 'Only the selected revision is loaded.', (item) => `v${item.version} by ${item.author} | ${formatTime(item.createdAt)}${item.changeSummary ? ` | ${item.changeSummary}` : ''}`),
+    reviewList('Citation map and provenance warnings', warningItems, 'No missing-provenance warnings recorded.', (item) => item.message || item.code || JSON.stringify(sanitizedDebug(item))),
+  );
+
+  const body = document.createElement('pre');
+  body.className = 'script-review-body';
+  body.textContent = revision.body || 'No script body recorded.';
+  const actions = document.createElement('div');
+  actions.className = 'actions inline';
+  const approve = document.createElement('button');
+  approve.type = 'button';
+  approve.className = 'secondary';
+  approve.textContent = approved ? 'Script Approved' : 'Approve Script for Audio';
+  approve.disabled = approved || isActionRunning('approval');
+  approve.addEventListener('click', approveSelectedScript);
+  actions.append(approve);
+  els.reviewScript.append(body, actions);
+}
+
+function renderProductionReview() {
+  const episode = selectedEpisode();
+  const assets = selectedAssets();
+  const audioAsset = assets.find((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview');
+  const coverAsset = assets.find((asset) => asset.type === 'cover-art');
+  const warnings = productionWarningItems();
+  els.reviewProduction.innerHTML = '';
+
+  els.reviewProduction.append(
+    reviewSectionHeading('Audio and Cover Assets', episode?.status === 'approved-for-publish' || episode?.status === 'published' ? 'done' : audioAsset && coverAsset ? 'ready' : 'blocked', episode ? episode.title : 'No episode record yet.'),
+    reviewFacts([
+      ['Episode status', episode?.status || 'missing'],
+      ['Audio', audioAsset ? audioAsset.mimeType || 'recorded' : 'missing'],
+      ['Cover art', coverAsset ? coverAsset.mimeType || 'recorded' : 'missing'],
+      ['Production warnings', warnings.length],
+    ]),
+  );
+
+  const media = document.createElement('div');
+  media.className = 'asset-preview-grid';
+  const audioBox = document.createElement('div');
+  audioBox.className = 'asset-preview';
+  const audioTitle = document.createElement('strong');
+  audioTitle.textContent = 'Audio preview';
+  audioBox.append(audioTitle);
+  if (audioAsset?.publicUrl) {
+    const player = document.createElement('audio');
+    player.controls = true;
+    player.src = audioAsset.publicUrl;
+    audioBox.append(player);
+  } else {
+    const empty = document.createElement('p');
+    empty.textContent = audioAsset ? 'Audio asset recorded without a public preview URL.' : 'No audio asset recorded.';
+    audioBox.append(empty);
+  }
+  const coverBox = document.createElement('div');
+  coverBox.className = 'asset-preview';
+  const coverTitle = document.createElement('strong');
+  coverTitle.textContent = 'Cover art';
+  coverBox.append(coverTitle);
+  if (coverAsset?.publicUrl) {
+    const image = document.createElement('img');
+    image.src = coverAsset.publicUrl;
+    image.alt = coverAsset.label || 'Cover art preview';
+    coverBox.append(image);
+  } else {
+    const empty = document.createElement('p');
+    empty.textContent = coverAsset ? 'Cover art asset recorded without a public preview URL.' : 'No cover art asset recorded.';
+    coverBox.append(empty);
+  }
+  media.append(audioBox, coverBox);
+  els.reviewProduction.append(media);
+
+  els.reviewProduction.append(
+    reviewList('Asset metadata', assets, 'No production assets recorded.', (asset) => {
+      const provider = asset.metadata?.provider || asset.metadata?.adapter || asset.metadata?.adapterKind || 'unknown provider';
+      const size = asset.byteSize === null || asset.byteSize === undefined ? 'size unknown' : `${asset.byteSize} bytes`;
+      const duration = asset.durationSeconds ? ` | ${asset.durationSeconds}s` : '';
+      return `${asset.type} | ${asset.mimeType || 'unknown MIME'} | ${size}${duration} | ${provider}`;
+    }),
+    reviewList('Production warnings and failures', warnings, 'No production warnings recorded.', (item) => item.message || item.code || JSON.stringify(sanitizedDebug(item))),
+  );
+
+  const actions = document.createElement('div');
+  actions.className = 'actions inline';
+  const approve = document.createElement('button');
+  approve.type = 'button';
+  approve.className = 'secondary';
+  approve.textContent = episode?.status === 'approved-for-publish' || episode?.status === 'published' ? 'Assets Approved' : 'Approve Assets for Publishing';
+  const preApprovalReady = publishChecklistState().filter((item) => item.key !== 'publishApproval').every((item) => item.passed);
+  approve.disabled = !episode || episode.status !== 'audio-ready' || !preApprovalReady || isActionRunning('approval');
+  approve.title = approve.disabled ? 'Complete the checklist before publish approval.' : '';
+  approve.addEventListener('click', approveEpisodeForPublishing);
+  actions.append(approve);
+  els.reviewProduction.append(actions);
+}
+
+function renderPublishChecklist() {
+  const episode = selectedEpisode();
+  const checklist = publishChecklistState();
+  const ready = checklist.every((item) => item.passed);
+  const canApprove = checklist.filter((item) => item.key !== 'publishApproval').every((item) => item.passed);
+  els.publishChecklist.innerHTML = '';
+  els.publishChecklist.append(reviewSectionHeading('Publishing Checklist', ready ? 'ready' : 'blocked', episode ? `${episode.title} | ${episode.status}` : 'No episode selected.'));
+
+  const list = document.createElement('div');
+  list.className = 'checklist';
+  for (const item of checklist) {
+    const row = document.createElement('div');
+    row.className = `checklist-item ${item.passed ? 'passed' : 'blocked'}`;
+    const mark = document.createElement('span');
+    mark.className = 'checklist-mark';
+    mark.textContent = item.passed ? 'OK' : 'Block';
+    const text = document.createElement('div');
+    const label = document.createElement('strong');
+    label.textContent = item.label;
+    const reason = document.createElement('p');
+    reason.textContent = item.reason;
+    text.append(label, reason);
+    row.append(mark, text);
+    list.append(row);
+  }
+  els.publishChecklist.append(list);
+
+  const actions = document.createElement('div');
+  actions.className = 'actions inline';
+  const approve = document.createElement('button');
+  approve.type = 'button';
+  approve.className = 'secondary';
+  approve.textContent = episode?.status === 'approved-for-publish' || episode?.status === 'published' ? 'Publish Approval Saved' : 'Approve for Publishing';
+  approve.disabled = !episode || episode.status !== 'audio-ready' || !canApprove || isActionRunning('approval');
+  approve.addEventListener('click', approveEpisodeForPublishing);
+  const publish = document.createElement('button');
+  publish.type = 'button';
+  publish.textContent = episode?.status === 'published' ? 'Published' : 'Publish to RSS';
+  publish.disabled = !episode || episode.status !== 'approved-for-publish' || !ready || isActionRunning('publish');
+  publish.title = publish.disabled && episode?.status !== 'published' ? 'Publishing is disabled until every checklist item passes.' : '';
+  publish.addEventListener('click', publishSelectedEpisode);
+  actions.append(approve, publish);
+  els.publishChecklist.append(actions);
+}
+
+function renderReviewGates() {
+  const show = selectedShow();
+  els.reviewMeta.textContent = show
+    ? `${show.title} | Review research, script, production assets, and publish readiness.`
+    : 'Select a show before reviewing approval gates.';
+  renderResearchReview();
+  renderScriptReview();
+  renderProductionReview();
+  renderPublishChecklist();
+}
+
 function render() {
   renderShows();
   renderSettings();
@@ -2497,6 +2949,7 @@ function render() {
   renderScheduler();
   renderJobRuns();
   renderEpisodes();
+  renderReviewGates();
   renderModelProfiles();
   renderQueries();
   renderScripts();
@@ -2550,6 +3003,7 @@ async function loadScripts() {
     state.selectedScriptId = '';
     state.selectedScript = null;
     state.selectedRevision = null;
+    state.selectedRevisions = [];
     return;
   }
 
@@ -2565,6 +3019,7 @@ async function loadScripts() {
   } else {
     state.selectedScript = null;
     state.selectedRevision = null;
+    state.selectedRevisions = [];
     state.production = { episode: null, assets: [], jobs: [] };
   }
 }
@@ -2773,6 +3228,7 @@ async function loadScript(id) {
   state.selectedScriptId = id;
   state.selectedScript = body.script;
   state.selectedRevision = body.latestRevision || null;
+  state.selectedRevisions = body.revisions || [];
   await loadProduction();
 }
 
@@ -2970,6 +3426,14 @@ async function approveEpisodeForPublishing() {
     return;
   }
 
+  const checklist = publishChecklistState().filter((item) => item.key !== 'publishApproval');
+
+  if (!checklist.every((item) => item.passed)) {
+    setStatus(`Publish approval is blocked: ${checklist.find((item) => !item.passed)?.reason || 'checklist incomplete'}`);
+    render();
+    return;
+  }
+
   setActionRunning('approval', true);
   setStatus('Saving publish approval...');
 
@@ -2999,6 +3463,14 @@ async function publishSelectedEpisode() {
   const episode = selectedEpisode();
 
   if (!episode || episode.status !== 'approved-for-publish') {
+    return;
+  }
+
+  const checklist = publishChecklistState();
+
+  if (!checklist.every((item) => item.passed)) {
+    setStatus(`Publishing is blocked: ${checklist.find((item) => !item.passed)?.reason || 'checklist incomplete'}`);
+    render();
     return;
   }
 
@@ -3080,6 +3552,7 @@ async function loadAll() {
       state.selectedScriptId = '';
       state.selectedScript = null;
       state.selectedRevision = null;
+      state.selectedRevisions = [];
       state.production = { episode: null, assets: [], jobs: [] };
     });
     render();
@@ -3625,6 +4098,7 @@ async function generateScriptDraft(researchPacketId, format) {
     state.selectedScriptId = body.script.id;
     state.selectedScript = body.script;
     state.selectedRevision = body.revision;
+    state.selectedRevisions = [body.revision];
     state.selectedResearchPacketId = researchPacketId;
     state.production = { episode: null, assets: [], jobs: [] };
     els.scriptResearchPacketId.value = '';
@@ -3657,6 +4131,7 @@ async function saveScriptRevision(event) {
     state.scripts = [body.script, ...state.scripts.filter((script) => script.id !== body.script.id)];
     state.selectedScript = body.script;
     state.selectedRevision = body.revision;
+    state.selectedRevisions = [body.revision, ...state.selectedRevisions.filter((revision) => revision.id !== body.revision.id)];
     await loadProduction();
     await loadJobs();
     render();
@@ -3689,6 +4164,77 @@ async function approveSelectedScript() {
     savePipelineState();
     render();
     setStatus('Review decision saved: script approved for audio.');
+  } catch (error) {
+    reportError(error);
+  } finally {
+    setActionRunning('approval', false);
+  }
+}
+
+async function overrideResearchWarning(packetId, warning) {
+  const reason = window.prompt('Override reason for this research warning:');
+
+  if (!reason || !reason.trim()) {
+    setStatus('Warning override cancelled. A reason is required.');
+    return;
+  }
+
+  setActionRunning('approval', true);
+  setStatus('Saving research warning override...');
+
+  try {
+    const body = await api(`/research-packets/${packetId}/override-warning`, {
+      method: 'POST',
+      body: JSON.stringify({
+        warningId: warning.id,
+        warningCode: warning.code,
+        actor: 'local-user',
+        reason: reason.trim(),
+      }),
+    });
+    state.researchPackets = state.researchPackets.map((packet) => packet.id === body.researchPacket.id ? body.researchPacket : packet);
+    state.selectedResearchPacketId = body.researchPacket.id;
+    await loadJobs();
+    savePipelineState();
+    render();
+    setStatus('Review decision saved: research warning override recorded.');
+  } catch (error) {
+    reportError(error);
+  } finally {
+    setActionRunning('approval', false);
+  }
+}
+
+async function approveSelectedResearch() {
+  const packet = selectedResearchPacket();
+
+  if (!packet) {
+    return;
+  }
+
+  const reason = window.prompt('Research approval note:', 'Sources, claims, citations, and warnings reviewed.');
+
+  if (reason === null) {
+    setStatus('Research approval cancelled.');
+    return;
+  }
+
+  setActionRunning('approval', true);
+  setStatus('Saving research approval...');
+
+  try {
+    const body = await api(`/research-packets/${packet.id}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({
+        actor: 'local-user',
+        reason: reason.trim() || 'Sources, claims, citations, and warnings reviewed.',
+      }),
+    });
+    state.researchPackets = state.researchPackets.map((candidate) => candidate.id === body.researchPacket.id ? body.researchPacket : candidate);
+    state.selectedResearchPacketId = body.researchPacket.id;
+    savePipelineState();
+    render();
+    setStatus('Review decision saved: research brief approved.');
   } catch (error) {
     reportError(error);
   } finally {

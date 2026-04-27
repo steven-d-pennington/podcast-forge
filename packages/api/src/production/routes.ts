@@ -580,6 +580,81 @@ interface PublishBlockedReason {
   metadata?: Record<string, unknown>;
 }
 
+function researchReadinessStatus(packet: ResearchPacketRecord) {
+  const readiness = packet.content.readiness;
+  const contentStatus = readiness && typeof readiness === 'object' && !Array.isArray(readiness)
+    ? (readiness as Record<string, unknown>).status
+    : undefined;
+
+  return typeof contentStatus === 'string' ? contentStatus : packet.status;
+}
+
+function unresolvedResearchWarnings(packet: ResearchPacketRecord) {
+  return packet.warnings.filter((warning) => !warning.override);
+}
+
+async function loadEpisodeResearchPacket(store: object, episode: EpisodeRecord) {
+  if (!episode.researchPacketId) {
+    return null;
+  }
+
+  if (!hasResearchStore(store)) {
+    throw new ApiError(503, 'RESEARCH_STORE_UNAVAILABLE', 'Research store method is unavailable: getResearchPacket');
+  }
+
+  return store.getResearchPacket(episode.researchPacketId);
+}
+
+function researchBlockers(episode: EpisodeRecord, researchPacket: ResearchPacketRecord | null | undefined): PublishBlockedReason[] {
+  if (!episode.researchPacketId) {
+    return [{
+      code: 'RESEARCH_BRIEF_REQUIRED',
+      message: 'Episode must be linked to an approved research brief before publishing.',
+    }];
+  }
+
+  if (!researchPacket) {
+    return [{
+      code: 'RESEARCH_BRIEF_NOT_FOUND',
+      message: 'Linked research brief could not be loaded for publish review.',
+      metadata: { researchPacketId: episode.researchPacketId },
+    }];
+  }
+
+  const blockers: PublishBlockedReason[] = [];
+  const readiness = researchReadinessStatus(researchPacket);
+  const unresolvedWarnings = unresolvedResearchWarnings(researchPacket);
+
+  if (!['ready', 'approved', 'research-ready'].includes(readiness)) {
+    blockers.push({
+      code: 'RESEARCH_BRIEF_NOT_READY',
+      message: 'Research brief is not ready for publishing review.',
+      metadata: { researchPacketId: researchPacket.id, status: researchPacket.status, readiness },
+    });
+  }
+
+  if (!researchPacket.approvedAt) {
+    blockers.push({
+      code: 'RESEARCH_BRIEF_NOT_APPROVED',
+      message: 'Research brief must have a recorded review decision before publishing.',
+      metadata: { researchPacketId: researchPacket.id },
+    });
+  }
+
+  if (unresolvedWarnings.length > 0) {
+    blockers.push({
+      code: 'RESEARCH_WARNINGS_UNRESOLVED',
+      message: 'Research warnings must be resolved with explicit editorial overrides before publishing.',
+      metadata: {
+        researchPacketId: researchPacket.id,
+        warningIds: unresolvedWarnings.map((warning) => warning.id),
+      },
+    });
+  }
+
+  return blockers;
+}
+
 function validHttpUrl(value: string | null) {
   if (!value) {
     return true;
@@ -597,7 +672,8 @@ function publishBlockers(
   episode: EpisodeRecord,
   assets: EpisodeAssetRecord[],
   feed: FeedRecord | null,
-  options: { republish: boolean; changelog?: string | null },
+  options: { republish: boolean; changelog?: string | null; requirePublishApproval?: boolean },
+  researchPacket?: ResearchPacketRecord | null,
 ): PublishBlockedReason[] {
   const blockers: PublishBlockedReason[] = [];
   const audioAsset = assets.find((asset) => ['audio-final', 'audio-preview'].includes(asset.type));
@@ -607,12 +683,14 @@ function publishBlockers(
     return [];
   }
 
+  blockers.push(...researchBlockers(episode, researchPacket));
+
   if (episode.status === 'published' && options.republish && !options.changelog) {
     blockers.push({
       code: 'REPUBLISH_CHANGELOG_REQUIRED',
       message: 'Re-publishing an already published episode requires an explicit changelog.',
     });
-  } else if (episode.status !== 'approved-for-publish' && !(episode.status === 'published' && episode.feedGuid)) {
+  } else if (options.requirePublishApproval !== false && episode.status !== 'approved-for-publish' && !(episode.status === 'published' && episode.feedGuid)) {
     blockers.push({
       code: 'EPISODE_NOT_APPROVED_FOR_PUBLISH',
       message: 'Episode must be approved for publish before RSS publishing can run.',
@@ -781,8 +859,16 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
 
       assertEpisodeReadyForPublishApproval(episode);
       const assets = await productionStore.listEpisodeAssets(episode.id);
-      selectAsset(assets, ['audio-final', 'audio-preview'], 'audio');
-      selectAsset(assets, ['cover-art'], 'cover art');
+      const feed = await maybeResolveFeed(productionStore, episode);
+      const researchPacket = await loadEpisodeResearchPacket(rawStore, episode);
+      const blockers = publishBlockers(episode, assets, feed, { republish: false, requirePublishApproval: false }, researchPacket);
+
+      if (blockers.length > 0) {
+        throw new ApiError(409, 'PUBLISH_APPROVAL_BLOCKED', 'Episode cannot be approved for publishing until checklist items are complete.', {
+          blockedReasons: blockers,
+        });
+      }
+
       const approved = await productionStore.approveEpisodeForPublish(episode.id, {
         actor: body.actor,
         reason: body.reason ?? null,
@@ -818,10 +904,11 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
 
       const assets = await productionStore.listEpisodeAssets(episode.id);
       const maybeFeed = await maybeResolveFeed(productionStore, episode, body.feedId);
+      const researchPacket = await loadEpisodeResearchPacket(rawStore, episode);
       const blockers = publishBlockers(episode, assets, maybeFeed, {
         republish: body.republish,
         changelog: body.changelog ?? null,
-      });
+      }, researchPacket);
 
       if (blockers.length > 0) {
         throw new ApiError(409, 'PUBLISH_BLOCKED', 'Episode cannot be published until blocking issues are resolved.', {
