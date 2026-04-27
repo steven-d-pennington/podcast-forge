@@ -325,6 +325,7 @@ describe('episode planning routes', () => {
     assert.equal(store.jobs[0].type, 'episode.plan');
     assert.equal(store.jobs[0].status, 'failed');
     assert.equal((store.jobs[0].output.failure as { code: string }).code, 'EPISODE_PLAN_MODEL_OUTPUT_INVALID');
+    assert.equal((store.jobs[0].output.failure as { retryable: boolean }).retryable, false);
     await app.close();
   });
 

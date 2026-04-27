@@ -123,7 +123,7 @@ async function selectedCandidates(store: Pick<EpisodePlanningStore, 'getStoryCan
 
 async function showForCandidates(store: Pick<EpisodePlanningStore, 'listShows'>, candidates: StoryCandidateRecord[]) {
   const showId = candidates[0]?.showId;
-  const show = (await store.listShows()).find((candidate) => candidate.id === showId);
+  const show = (await store.listShows()).find((listedShow) => listedShow.id === showId);
 
   if (!show) {
     throw new ApiError(404, 'SHOW_NOT_FOUND', `Show not found for selected candidates: ${showId}`);
@@ -198,12 +198,14 @@ async function updatePlanningJob(
 
 function failurePayload(error: unknown): Record<string, unknown> {
   const code = error instanceof ApiError || error instanceof EpisodePlanError ? error.code : 'EPISODE_PLAN_FAILED';
+  const statusCode = error instanceof ApiError || error instanceof EpisodePlanError ? error.statusCode : 500;
+  const retryable = code !== 'EPISODE_PLAN_MODEL_OUTPUT_INVALID' && (statusCode < 400 || statusCode >= 500);
 
   return {
     failure: {
       code,
       message: error instanceof Error ? error.message : 'Episode planning failed.',
-      retryable: code !== 'STORY_CANDIDATE_NOT_FOUND' && code !== 'CANDIDATE_SHOW_MISMATCH',
+      retryable,
     },
   };
 }
