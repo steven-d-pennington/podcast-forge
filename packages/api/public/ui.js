@@ -1411,9 +1411,9 @@ function buildPipelineStages() {
       action: !state.selectedScript || !state.selectedRevision
         ? () => scrollToPanel('scriptPanel')
         : integrity.blocking ? runSelectedIntegrityReview : scriptApproved ? () => scrollToPanel('reviewPanel') : approveSelectedScript,
-      disabled: integrityRunning || approvalsRunning || (!state.selectedScript || !state.selectedRevision),
+      disabled: integrityRunning || approvalsRunning,
       active: Boolean(state.selectedRevision && !integrity.blocking),
-      targetId: 'reviewPanel',
+      targetId: !state.selectedScript || !state.selectedRevision ? 'scriptPanel' : 'reviewPanel',
     },
     {
       number: 7,
@@ -1427,7 +1427,7 @@ function buildPipelineStages() {
       action: audioAsset && coverAsset ? refreshProductionUntilSettled : createMissingProductionAssets,
       disabled: productionActionRunning || (!scriptReadyForProduction && !(audioAsset && coverAsset)),
       active: Boolean(audioAsset || coverAsset),
-      targetId: 'scriptPanel',
+      targetId: 'productionPanel',
       jobTypes: ['audio.preview', 'art.generate'],
     },
     {

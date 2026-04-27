@@ -160,7 +160,7 @@ button:disabled {
   min-width: 0;
 }
 
-.pipeline-panel {
+.panel.pipeline-panel {
   border-color: #b8c7d9;
   box-shadow: 0 10px 30px rgba(31, 91, 149, 0.08);
   padding: 1.15rem;
