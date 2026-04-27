@@ -1114,17 +1114,33 @@ function latestStageJob(types) {
   return job ? `${taskLabel(job.type)} ${job.status}, ${job.progress}%` : 'No recorded task run yet.';
 }
 
+function panelIsAvailable(id) {
+  const target = document.getElementById(id);
+  return Boolean(target && !target.closest('[hidden]'));
+}
+
 function scrollToPanel(id) {
   const target = document.getElementById(id);
 
-  if (!target) {
+  if (!target || target.closest('[hidden]')) {
     return;
   }
 
-  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const hadTabIndex = target.hasAttribute('tabindex');
+  const previousTabIndex = target.getAttribute('tabindex');
+
+  target.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth', block: 'start' });
+  target.setAttribute('tabindex', '-1');
+  target.focus({ preventScroll: true });
   target.classList.add('panel-focus');
   window.setTimeout(() => {
     target.classList.remove('panel-focus');
+    if (hadTabIndex && previousTabIndex !== null) {
+      target.setAttribute('tabindex', previousTabIndex);
+    } else {
+      target.removeAttribute('tabindex');
+    }
   }, 1200);
 }
 
@@ -1176,7 +1192,7 @@ function stageCard(stage) {
 
   card.append(top, artifacts, next, button);
 
-  if (stage.targetId) {
+  if (stage.targetId && panelIsAvailable(stage.targetId)) {
     const panelButton = document.createElement('button');
     panelButton.type = 'button';
     panelButton.className = 'secondary';
@@ -1316,8 +1332,12 @@ function buildPipelineStages() {
       next: show
         ? (profile ? 'Use this show and source recipe for the next discovery run.' : 'Add or seed a story source/search recipe for this show.')
         : 'Create or select a show before building an episode.',
-      actionLabel: show ? 'Open Show Setup' : 'New Show',
+      actionLabel: show ? 'Open Settings' : 'New Show',
       action: () => {
+        if (show) {
+          scrollToPanel('settingsPanel');
+          return;
+        }
         state.showSetupOpen = true;
         render();
         scrollToPanel('showSetupForm');
