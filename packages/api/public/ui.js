@@ -4980,6 +4980,7 @@ for (const button of els.surfaceTabs) {
 els.newShowToggle.addEventListener('click', () => {
   state.showSetupOpen = true;
   setActiveSurface('settings');
+  renderShowSetup();
   scrollToPanel('showSetupForm');
 });
 els.cancelShowSetup.addEventListener('click', () => {
