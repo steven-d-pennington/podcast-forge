@@ -252,6 +252,9 @@ button:disabled {
 
 .next-action-controls {
   align-self: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .pipeline-grid {
@@ -403,16 +406,16 @@ button:disabled {
   min-height: 2.4rem;
 }
 
-.pipeline-action-reason,
-.action-blocker-note {
+.pipeline-card .pipeline-action-reason,
+.panel .action-blocker-note {
   color: #3f4b5a;
   font-size: 0.86rem;
   line-height: 1.35;
   margin: 0;
 }
 
-.pipeline-action-reason.blocked,
-.action-blocker-note.blocked {
+.pipeline-card .pipeline-action-reason.blocked,
+.panel .action-blocker-note.blocked {
   color: #70440f;
 }
 
