@@ -1535,7 +1535,7 @@ function buildPipelineStages() {
         : candidates.length > 0
           ? (candidateAnalysis.canLaunch ? 'Selection is ready for an evidence brief.' : firstBlockerText(candidateBlockers, 'Review selected story blockers before building a brief.'))
           : 'Ready: select a candidate story to define the episode focus.',
-      blockers: state.storyCandidates.length === 0 ? ['Run/import candidates or submit a manual story URL.'] : candidateBlockers,
+      blockers: state.storyCandidates.length === 0 ? ['Run/import candidates or submit a manual story URL.'] : candidates.length > 0 && !candidateAnalysis.canLaunch ? candidateBlockers : [],
       actionLabel: candidates.length > 0 ? 'Clear Selection' : 'Select Top Candidate',
       action: candidates.length > 0 ? clearCandidateSelection : selectTopCandidate,
       disabled: state.storyCandidates.length === 0,
