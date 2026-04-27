@@ -3320,7 +3320,7 @@ function renderScriptReview() {
       ['Integrity issues', `${integrityCounts.total ?? integrityIssues.length} issue(s), ${integrityCounts.critical ?? 0} critical`],
       ['Speaker validation', speakerValidation.valid === false ? 'failed' : 'passed or not recorded'],
       ['Citation/provenance status', provenanceState.stale ? 'stale after human edit' : 'current or not flagged'],
-      ['Provenance validation', provenanceValidation.valid === false ? 'failed' : `${provenanceValidation.warningCount ?? warningItems.length} warning(s)`],
+      ['Provenance validation', provenanceValidation.valid === false ? 'failed' : `${warningItems.length} warning(s)`],
       ['Revision history', `${state.selectedRevisions.length || 1} revision${(state.selectedRevisions.length || 1) === 1 ? '' : 's'}`],
     ]),
     ...(provenanceState.stale ? [actionBlockerNote(provenanceState.message, true)] : []),

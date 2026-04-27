@@ -2253,11 +2253,13 @@ describe('source profile routes', () => {
     assert.deepEqual(edited.revision.metadata.previousIntegrityReviewSnapshot, integrityResponse.json().integrityReview);
     assert.deepEqual(edited.revision.metadata.staleCitationMap, initial.revision.metadata.citationMap);
 
-    await app.inject({
+    const editedApprovalResponse = await app.inject({
       method: 'POST',
       url: `/scripts/${edited.script.id}/revisions/${edited.revision.id}/approve-for-audio`,
       payload: { actor: 'producer@example.com', reason: 'Explicitly approving edited revision.' },
     });
+    assert.equal(editedApprovalResponse.statusCode, 200);
+    assert.equal(editedApprovalResponse.json().script.approvedRevisionId, edited.revision.id);
     const audioResponse = await app.inject({
       method: 'POST',
       url: `/scripts/${edited.script.id}/production/audio-preview`,
