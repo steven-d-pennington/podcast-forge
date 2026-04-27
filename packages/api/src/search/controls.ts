@@ -2,6 +2,8 @@ import type { SourceCandidate } from './candidate.js';
 import type { SourceProfileRecord, SourceQueryRecord } from '../sources/store.js';
 
 export interface SourceControlSummary {
+  sourceProfileId: string;
+  sourceQueryId: string | null;
   freshness: string | null;
   freshnessCutoff: string | null;
   includeDomains: string[];
@@ -66,17 +68,16 @@ export function normalizeDomainList(values: string[] | null | undefined): string
 }
 
 export function hostnameMatchesDomain(hostname: string | null, domain: string): boolean {
-  if (!hostname) {
+  const normalizedDomain = normalizeHostname(domain);
+  return normalizedDomain ? hostnameMatchesNormalizedDomain(hostname, normalizedDomain) : false;
+}
+
+function hostnameMatchesNormalizedDomain(hostname: string | null, normalizedDomain: string): boolean {
+  if (!hostname || !normalizedDomain) {
     return false;
   }
 
   const normalizedHost = hostname.toLowerCase().replace(/\.$/, '');
-  const normalizedDomain = normalizeHostname(domain);
-
-  if (!normalizedDomain) {
-    return false;
-  }
-
   return normalizedHost === normalizedDomain || normalizedHost.endsWith(`.${normalizedDomain}`);
 }
 
@@ -175,6 +176,8 @@ export function filterCandidatesForSourceControls<T extends SourceCandidate>(
   const freshness = resolveFreshness(query, profile);
   const cutoff = options.verifyFreshness === false ? null : freshnessCutoff(freshness, options.now ?? new Date());
   const controls = {
+    sourceProfileId: profile.id,
+    sourceQueryId: query?.id ?? null,
     freshness,
     freshnessCutoff: cutoff?.toISOString() ?? null,
     includeDomains,
@@ -202,13 +205,13 @@ export function filterCandidatesForSourceControls<T extends SourceCandidate>(
 
     if (
       includeDomainGroups.length > 0
-      && !includeDomainGroups.every((domains) => domains.some((domain) => hostnameMatchesDomain(hostname, domain)))
+      && !includeDomainGroups.every((domains) => domains.some((domain) => hostnameMatchesNormalizedDomain(hostname, domain)))
     ) {
       dropped.includeDomain += 1;
       continue;
     }
 
-    if (excludeDomains.some((domain) => hostnameMatchesDomain(hostname, domain))) {
+    if (excludeDomains.some((domain) => hostnameMatchesNormalizedDomain(hostname, domain))) {
       dropped.excludeDomain += 1;
       continue;
     }
