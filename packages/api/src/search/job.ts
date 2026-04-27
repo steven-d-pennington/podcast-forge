@@ -293,7 +293,8 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
         output: {
           inserted: insertedCandidates.length,
           skipped,
-          warnings: summarizeWarnings(sourceControlWarnings, 20),
+          warnings: sourceControlWarnings.slice(0, 20),
+          warningSummary: summarizeWarnings(sourceControlWarnings, 20),
           sourceControls: sourceControlOutput(sourceControlSummaries, sourceControlDropped, sourceControlWarnings),
           modelProfiles,
         },

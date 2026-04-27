@@ -4,6 +4,7 @@ import { z, ZodError } from 'zod';
 import { MODEL_ROLES, isModelRole, type ModelRole } from '../models/roles.js';
 import type { CreateModelProfileInput, ModelProfileRecord, ModelProfileStore } from '../models/store.js';
 import { defaultPromptKey } from '../prompts/registry.js';
+import { normalizeDomainList } from '../search/controls.js';
 import type { CreateFeedInput, FeedRecord, ProductionStore, UpdateFeedInput } from '../production/store.js';
 import type {
   CreateShowInput,
@@ -293,8 +294,8 @@ function sourceProfileInput(show: ShowRecord, input: z.infer<typeof sourceDefaul
     enabled: input.enabled,
     weight: input.weight,
     freshness: supportsControls ? input.freshness : null,
-    includeDomains: supportsControls ? input.includeDomains : [],
-    excludeDomains: supportsControls ? input.excludeDomains : [],
+    includeDomains: supportsControls ? normalizeDomainList(input.includeDomains) : [],
+    excludeDomains: supportsControls ? normalizeDomainList(input.excludeDomains) : [],
     rateLimit: input.rateLimit,
     config: {
       ...input.config,
