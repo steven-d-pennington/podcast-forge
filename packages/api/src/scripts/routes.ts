@@ -246,14 +246,43 @@ function validationMetadata(body: string, show: ShowRecord, packet: { id: string
   };
 }
 
-function inheritedRevisionMetadata(previous: Record<string, unknown> | undefined, body: string, show: ShowRecord, packet: Parameters<typeof validationMetadata>[2]) {
+function historicalMetadataValue(value: unknown): unknown {
+  return value === undefined ? null : value;
+}
+
+function inheritedRevisionMetadata(
+  previousRevision: { id: string; metadata: Record<string, unknown> } | undefined,
+  previousApprovedRevisionId: string | null,
+  body: string,
+  show: ShowRecord,
+  packet: Parameters<typeof validationMetadata>[2],
+) {
+  const previous = previousRevision?.metadata;
+  const inheritedCitationMap = previous?.citationMap !== undefined;
+  const inheritedProvenance = previous?.provenance !== undefined;
+  const inheritedIntegrityReview = previous?.integrityReview !== undefined;
+
   return {
     source: 'human-edit',
-    previousSource: previous?.source,
-    previousApprovedRevisionId: null,
-    citationMap: previous?.citationMap,
-    provenance: previous?.provenance,
-    inheritedProvenance: Boolean(previous?.provenance || previous?.citationMap),
+    previousSource: previous?.source ?? null,
+    previousRevisionId: previousRevision?.id ?? null,
+    previousApprovedRevisionId,
+    provenanceStatus: {
+      status: 'stale',
+      verified: false,
+      reason: 'human_edit',
+      message: 'Script text changed in a human edit; citation mapping and provenance must be reviewed or rebuilt for this revision.',
+      previousRevisionId: previousRevision?.id ?? null,
+      previousApprovedRevisionId,
+      previousSource: previous?.source ?? null,
+      staleCitationMap: inheritedCitationMap,
+      staleProvenance: inheritedProvenance,
+      staleIntegrityReview: inheritedIntegrityReview,
+    },
+    staleCitationMap: historicalMetadataValue(previous?.citationMap),
+    previousProvenanceSnapshot: historicalMetadataValue(previous?.provenance),
+    previousIntegrityReviewSnapshot: historicalMetadataValue(previous?.integrityReview),
+    inheritedProvenance: inheritedCitationMap || inheritedProvenance,
     validation: validationMetadata(body, show, packet),
   };
 }
@@ -452,8 +481,7 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
         changeSummary: body.changeSummary ?? 'Human edit.',
         modelProfile: {},
         metadata: {
-          ...inheritedRevisionMetadata(latestRevision?.metadata, body.body, show, packet),
-          previousApprovedRevisionId: script.approvedRevisionId,
+          ...inheritedRevisionMetadata(latestRevision, script.approvedRevisionId, body.body, show, packet),
         },
       });
 
