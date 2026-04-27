@@ -291,6 +291,7 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
         output: {
           inserted: insertedCandidates.length,
           skipped,
+          warnings: sourceControlWarnings,
           sourceControls: sourceControlOutput(sourceControlSummaries, sourceControlDropped, sourceControlWarnings),
           modelProfiles,
         },
@@ -329,6 +330,7 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
         inserted: insertedCandidates.length,
         skipped,
         candidateIds: finalCandidates.map((candidate) => candidate.id),
+        warnings: sourceControlWarnings,
         sourceControls: sourceControlOutput(sourceControlSummaries, sourceControlDropped, sourceControlWarnings),
         scoring: scoringSummary(scoring),
         modelProfiles,
@@ -479,6 +481,7 @@ export async function runSourceIngest(options: RunSourceIngestOptions): Promise<
         inserted: insertedCandidates.length,
         skipped,
         candidateIds: finalCandidates.map((candidate) => candidate.id),
+        warnings: sourceControlWarnings,
         sourceControls: sourceControlOutput([...sourceControlSummaries.values()], sourceControlDropped, sourceControlWarnings),
         scoring: scoringSummary(scoring),
         modelProfiles,
