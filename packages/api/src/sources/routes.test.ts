@@ -3051,6 +3051,9 @@ describe('source profile routes', () => {
       url: `/episodes/${episode.id}/publish/rss`,
       payload: { actor: 'publisher@example.com' },
     });
+    store.feeds[0].publicFeedUrl = null;
+    store.feeds[0].publicBaseUrl = null;
+    store.feeds[0].rssFeedPath = null;
     const secondResponse = await app.inject({
       method: 'POST',
       url: `/episodes/${episode.id}/publish/rss`,

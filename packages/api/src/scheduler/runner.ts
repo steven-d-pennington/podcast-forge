@@ -390,14 +390,17 @@ export async function runScheduledPipeline(options: RunScheduledPipelineOptions)
       stageJobs.push(legacyJob);
     }
 
-    logs.push(log('info', 'Completed scheduled pipeline run.', {
-      stageJobCount: stageJobs.length,
-      waitingStageJobCount: stageOutput(stageJobs).waitingStageJobIds.length,
-    }));
     const output = stageOutput(stageJobs);
     const hasWaitingStages = output.waitingStageJobIds.length > 0;
     const status = hasWaitingStages ? 'running' : 'succeeded';
     const progress = hasWaitingStages ? 90 : 100;
+
+    logs.push(log('info', hasWaitingStages ? 'Scheduled pipeline run recorded; downstream stages pending.' : 'Completed scheduled pipeline run.', {
+      status,
+      semanticStatus: output.semanticStatus,
+      stageJobCount: stageJobs.length,
+      waitingStageJobCount: output.waitingStageJobIds.length,
+    }));
 
     if (hasWaitingStages) {
       logs.push(log(output.blockedStageJobIds.length > 0 ? 'warn' : 'info', 'Scheduled pipeline has downstream stages that are not complete.', {

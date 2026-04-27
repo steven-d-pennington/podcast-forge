@@ -683,12 +683,12 @@ function researchBlockers(episode: EpisodeRecord, researchPacket: ResearchPacket
 }
 
 function normalizedHttpUrl(value: string | null) {
-  if (!value) {
+  if (!value || value !== value.trim()) {
     return null;
   }
 
   try {
-    const parsed = new URL(value.trim());
+    const parsed = new URL(value);
     return parsed.protocol === 'http:' || parsed.protocol === 'https:'
       ? parsed.toString()
       : null;
@@ -1041,15 +1041,6 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
       const guid = feedGuid(episode, feed);
       const expectedRssUrl = resolvedRssPublicUrl(feed);
 
-      if (!expectedRssUrl) {
-        throw new ApiError(409, 'PUBLISH_BLOCKED', 'Episode cannot be published until blocking issues are resolved.', {
-          blockedReasons: [{
-            code: 'PUBLISH_FEED_PUBLIC_URL_REQUIRED',
-            message: 'RSS publishing requires a public feed URL or a public base URL with an RSS feed path.',
-          }],
-        });
-      }
-
       const storageAdapter = options.publishStorageAdapterFactory?.(feed) ?? createPublishStorageAdapter(feed);
 
       if (episode.status === 'published' && episode.feedGuid && !body.republish) {
@@ -1107,6 +1098,15 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
           job,
           episode,
           publishEvent: null,
+        });
+      }
+
+      if (!expectedRssUrl) {
+        throw new ApiError(409, 'PUBLISH_BLOCKED', 'Episode cannot be published until blocking issues are resolved.', {
+          blockedReasons: [{
+            code: 'PUBLISH_FEED_PUBLIC_URL_REQUIRED',
+            message: 'RSS publishing requires a public feed URL or a public base URL with an RSS feed path.',
+          }],
         });
       }
 
