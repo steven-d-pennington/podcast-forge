@@ -82,6 +82,33 @@ function packetReadiness(packet: Pick<ResearchPacketRecord, 'content'>): Record<
     : {};
 }
 
+const secretKeyPattern = /(api[_-]?key|authorization|cookie|credential|password|secret|token)/i;
+const localDataKeyPattern = /(^|_)(local|absolute)?(file|dir|directory|path)$/i;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function sanitizePromptValue(value: unknown, depth = 0): unknown {
+  if (depth > 4) {
+    return '[max-depth]';
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizePromptValue(item, depth + 1));
+  }
+
+  if (!isRecord(value)) {
+    return value instanceof Date ? value.toISOString() : value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !secretKeyPattern.test(key) && !localDataKeyPattern.test(key))
+      .map(([key, entry]) => [key, sanitizePromptValue(entry, depth + 1)]),
+  );
+}
+
 function showContext(show: ShowRecord) {
   return {
     id: show.id,
@@ -90,7 +117,7 @@ function showContext(show: ShowRecord) {
     description: show.description,
     format: show.format,
     defaultRuntimeMinutes: show.defaultRuntimeMinutes,
-    settings: show.settings,
+    settings: sanitizePromptValue(show.settings),
     cast: show.cast.map((member) => ({ name: member.name, role: member.role })),
   };
 }
