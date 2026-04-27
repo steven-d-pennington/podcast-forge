@@ -894,8 +894,8 @@ function renderCoverageSummary(summary) {
 
   section.append(
     reviewList('Blocking coverage findings', asArray(summary.blockers), 'No blocking coverage findings recorded.', coverageFindingText),
-    reviewList('Needs attention', asArray(summary.needsAttention).slice(0, 8), 'No weak, stale, single-source, missing-primary, or uncertain coverage warnings recorded.', coverageFindingText),
-    reviewList('Covered claims', asArray(summary.coveredClaims).slice(0, 6), 'No claims are marked fully covered by current metadata.', coverageClaimText),
+    reviewList('Needs attention', asArray(summary.needsAttention), 'No weak, stale, single-source, missing-primary, or uncertain coverage warnings recorded.', coverageFindingText),
+    reviewList('Covered claims', asArray(summary.coveredClaims), 'No claims are marked fully covered by current metadata.', coverageClaimText),
   );
 
   if (asArray(summary.unknowns).length > 0) {

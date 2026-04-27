@@ -95,6 +95,80 @@ describe('claim coverage summary', () => {
     assert.match(summary.headline, /blocking coverage finding/);
   });
 
+  it('does not turn overridden claim-level research warnings into blocking coverage', () => {
+    const summary = buildClaimCoverageSummary(
+      packet({
+        claims: [{
+          id: 'claim-overridden',
+          text: 'A claim with a recorded editorial override.',
+          sourceDocumentIds: ['source-1', 'source-2'],
+          citationUrls: ['https://primary.example/source', 'https://independent.example/source'],
+          claimType: 'fact',
+          confidence: 'high',
+          supportLevel: 'corroborated',
+          highStakes: false,
+        }],
+        warnings: [{
+          id: 'warning-overridden',
+          code: 'SOURCE_FETCH_FAILED',
+          message: 'A related source failed before an editor approved the fallback evidence.',
+          severity: 'error',
+          sourceDocumentId: 'source-1',
+          override: {
+            actor: 'editor',
+            reason: 'Independent replacement source was verified.',
+            overriddenAt: '2026-04-20T00:00:00.000Z',
+          },
+        }],
+      }),
+      revision({
+        metadata: {
+          citationMap: [{
+            line: 'HOST: A claim with a recorded editorial override.',
+            claimId: 'claim-overridden',
+            sourceDocumentIds: ['source-1', 'source-2'],
+          }],
+          validation: { provenance: { valid: true, warnings: [] } },
+          integrityReview: { status: 'pass', result: { claimIssues: [] } },
+        },
+      }),
+      { now: new Date('2026-04-20T00:00:00Z') },
+    );
+
+    assert.equal(summary.status, 'needs_attention');
+    assert.equal(summary.counts.blockingFindings, 0);
+    assert.ok(summary.needsAttention.some((item) => item.code === 'SOURCE_FETCH_FAILED'));
+  });
+
+  it('reports unknown coverage before non-blocking attention findings', () => {
+    const summary = buildClaimCoverageSummary(
+      packet({
+        claims: [{
+          id: 'claim-unknown',
+          text: 'A claim whose citation map is missing.',
+          sourceDocumentIds: ['source-1'],
+          citationUrls: ['https://primary.example/source'],
+          claimType: 'fact',
+          confidence: 'high',
+          supportLevel: 'single_source',
+          highStakes: false,
+        }],
+      }),
+      revision({
+        metadata: {
+          citationMap: [],
+          validation: { provenance: { valid: true, warnings: [] } },
+          integrityReview: { status: 'pass', result: { claimIssues: [] } },
+        },
+      }),
+      { now: new Date('2026-04-20T00:00:00Z') },
+    );
+
+    assert.equal(summary.status, 'unknown');
+    assert.ok(summary.unknowns.some((item) => item.code === 'COVERAGE_UNKNOWN_NO_CITATION_MAP'));
+    assert.ok(summary.needsAttention.some((item) => item.code === 'CLAIM_SINGLE_SOURCE'));
+  });
+
   it('marks corroborated cited claims covered when no blockers are present', () => {
     const summary = buildClaimCoverageSummary(
       packet({

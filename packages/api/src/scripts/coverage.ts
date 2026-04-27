@@ -165,14 +165,16 @@ function staleCitationUrls(packet: ResearchPacketRecord, claim: ResearchClaim, n
 }
 
 function claimWarningFinding(warning: ResearchWarning, claim: ResearchClaim): ClaimCoverageFinding {
+  const overridden = Boolean(warning.override);
+
   return finding({
     category: 'research',
-    status: warning.severity === 'error' ? 'blocking' : 'needs_attention',
-    severity: warning.severity === 'error' ? 'blocking' : warning.severity === 'warning' ? 'warning' : 'info',
+    status: !overridden && warning.severity === 'error' ? 'blocking' : 'needs_attention',
+    severity: !overridden && warning.severity === 'error' ? 'blocking' : warning.severity === 'info' ? 'info' : 'warning',
     code: warning.code || 'RESEARCH_WARNING',
-    message: warning.message || 'Research warning is associated with this claim.',
-    nextAction: warning.override
-      ? 'Review the recorded override reason before relying on this claim.'
+    message: `${warning.message || 'Research warning is associated with this claim.'}${overridden ? ' An editorial override is recorded.' : ''}`,
+    nextAction: overridden
+      ? 'Review the recorded override reason before relying on this claim; it no longer blocks coverage status by itself.'
       : 'Resolve or record an editorial override for this research warning.',
     claimId: claim.id,
     claimText: claim.text,
@@ -353,11 +355,11 @@ function provenanceFindings(revision: ScriptRevisionRecord): ClaimCoverageFindin
   if (stale) {
     findings.push(finding({
       category: 'provenance',
-      status: 'blocking',
-      severity: 'blocking',
+      status: 'needs_attention',
+      severity: 'warning',
       code: 'STALE_SCRIPT_PROVENANCE',
       message: asString(status.message) ?? 'Script text changed; citation mapping and provenance are stale for this revision.',
-      nextAction: 'Rerun integrity review and rebuild or verify citation coverage before production.',
+      nextAction: 'Rerun integrity review and rebuild or verify citation coverage before production; enforced production gates remain the source of truth for hard blocks.',
     }));
   }
 
@@ -578,10 +580,10 @@ export function buildClaimCoverageSummary(
   };
   const status: ClaimCoverageStatus = blockers.length > 0
     ? 'blocking'
-    : needsAttention.length > 0
-      ? 'needs_attention'
-      : unknowns.length > 0 || claims.length === 0
-        ? 'unknown'
+    : unknowns.length > 0 || claims.length === 0
+      ? 'unknown'
+      : needsAttention.length > 0
+        ? 'needs_attention'
         : 'covered';
 
   return {
