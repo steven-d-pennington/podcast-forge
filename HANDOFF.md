@@ -215,6 +215,7 @@ Podcast Forge is an active managed sprint. Do **not** rely on session memory to 
 - Repo handoff: this `HANDOFF.md`
 - Repo agent rules: `AGENTS.md`
 - Repo gotchas: `LESSONS.md`
+- Rough second-pass UI direction: `docs/prototypes/second-pass-rough-ui-prototype.html` (rough draft only; preserve workflow/product intent, do not copy verbatim)
 - Review/comment shepherd state: `~/clawd/data/pr-comment-shepherd/` and `~/clawd/data/pr-shepherd/`
 
 Every heartbeat or resume should:
@@ -378,3 +379,38 @@ Workflow:
 Guardrail: fix/shepherd agents must not approve or self-review their own work. If Copilot and local review disagree, prefer the stricter result or escalate to Steven.
 
 Checkpoint reference: Issue #28 / PR #29 implemented this policy and merged successfully. Issue #28 is closed. Next build target after the fallback is Issue #14: LLM runtime/provider adapter layer and job logging.
+
+
+## Second-pass UI/product sprint direction
+
+Approved direction: use the rough prototype at `docs/prototypes/second-pass-rough-ui-prototype.html` as a design-direction artifact, not a pixel-perfect spec.
+
+Preserve these product decisions:
+- The episode production workflow is the primary UI, not the admin dashboard.
+- The app should always expose a next-best-action and concrete blocker reasons.
+- AI should feel like a producer/editor assistant: episode planning, source-gap surfacing, integrity review, and safe rewrites.
+- Integrity review is a visible workflow gate between script generation and production.
+- Admin/settings/debug surfaces should remain reachable but secondary.
+- Mobile usability is first-class: stacked panels, horizontal/compact step navigation, and bottom actions where useful.
+
+Current frontend stack remains static HTML + vanilla JS + plain CSS served by Fastify. Do not introduce React/Next/Vite/etc. unless Steven explicitly approves a frontend migration.
+
+
+### Second-pass issue queue (created 2026-04-26)
+
+Run one issue per coding agent, preferably branch/PR per issue because the static UI files are conflict-prone.
+
+Recommended order:
+1. #38 — Add Integrity Reviewer — AI quality gate between script writing and production
+2. #44 — PF2-01 Make the guided workflow the primary UI
+3. #45 — PF2-02 Add always-visible next-best-action and blocker explanations
+4. #46 — PF2-03 Move admin/settings/debug surfaces out of the production flow
+5. #51 — PF2-08 Fix script edit provenance and citation-map invalidation
+6. #50 — PF2-07 Enforce source query domain/freshness controls or remove dead UI fields
+7. #52 — PF2-09 Harden publishing validation and scheduled-run status semantics
+8. #47 — PF2-04 Add AI story brief / episode plan assistant
+9. #48 — PF2-05 Add AI source-gap and claim-coverage surfacing in review UI
+10. #49 — PF2-06 Add AI rewrite/coaching actions for scripts without bypassing approval
+11. #53 — PF2-10 Split UI state/render helpers into testable modules or sections
+12. #54 — PF2-11 Replace destructive/critical prompts with explicit confirmation dialogs
+13. #55 — PF2-12 Add local UI smoke checks for the guided flow
