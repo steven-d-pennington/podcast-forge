@@ -92,7 +92,7 @@ Open build wave:
 - #20 Guided episode pipeline UI ✅ implemented locally on `issue-20-guided-pipeline-ui`; `npm run check` passed.
 - #21 Multi-select candidate clustering UI ✅ implemented locally on `issue-21-candidate-clustering-ui`; `npm run check` passed.
 - #22 Settings/admin UI for shows, sources, models, prompts, publishing ✅ implemented locally on `issue-22-settings-admin-ui`; `npm run check` passed.
-- #23 Job progress, logs, warnings, and retry UI
+- #23 Job progress, logs, warnings, and retry UI ✅ implemented locally on `issue-23-job-progress-ui`; `npm run check` passed.
 - #24 Review and approval gates UI
 - #25 UX terminology and inline help cleanup
 

@@ -9,6 +9,8 @@ const state = {
   promptTemplates: [],
   scheduledPipelines: [],
   failedScheduledRuns: [],
+  recentJobs: [],
+  selectedJobId: '',
   storyCandidates: [],
   episodes: [],
   selectedScriptId: '',
@@ -20,6 +22,7 @@ const state = {
     jobs: [],
   },
   productionPoll: null,
+  jobPoll: null,
   selectedCandidateIds: [],
   clusterForm: {
     angle: '',
@@ -111,6 +114,10 @@ const els = {
   schedulerMeta: document.querySelector('#schedulerMeta'),
   schedulerList: document.querySelector('#schedulerList'),
   failedScheduleRuns: document.querySelector('#failedScheduleRuns'),
+  jobRunsMeta: document.querySelector('#jobRunsMeta'),
+  refreshJobs: document.querySelector('#refreshJobs'),
+  jobRunList: document.querySelector('#jobRunList'),
+  jobRunDetail: document.querySelector('#jobRunDetail'),
   episodeMeta: document.querySelector('#episodeMeta'),
   episodeList: document.querySelector('#episodeList'),
   modelMeta: document.querySelector('#modelMeta'),
@@ -817,6 +824,82 @@ function statusClass(status) {
   return status.replaceAll(' ', '-');
 }
 
+function selectedJob() {
+  return state.recentJobs.find((job) => job.id === state.selectedJobId) || state.recentJobs[0] || null;
+}
+
+function latestRunForTypes(types) {
+  return state.recentJobs.find((job) => types.includes(job.type));
+}
+
+function taskState(job) {
+  if (!job) {
+    return 'not started';
+  }
+
+  if (!isTerminalJob(job)) {
+    return 'running';
+  }
+
+  if (job.status === 'failed') {
+    return 'failed';
+  }
+
+  if ((job.summary?.warnings || []).length > 0) {
+    return 'warning';
+  }
+
+  return job.status;
+}
+
+function taskLabel(type) {
+  const labels = {
+    'source.search': 'Source search',
+    'source.ingest': 'RSS import',
+    'research.packet': 'Research brief',
+    'script.generate': 'Script draft',
+    'audio.preview': 'Preview audio',
+    'art.generate': 'Cover art',
+    'publish.rss': 'RSS publishing',
+    'pipeline.scheduled': 'Scheduled pipeline',
+    'source.import': 'Legacy import',
+  };
+
+  return labels[type] || type;
+}
+
+function formatTime(value) {
+  return value ? new Date(value).toLocaleString() : 'not recorded';
+}
+
+function jobProgressText(job) {
+  const started = job.startedAt ? `started ${formatTime(job.startedAt)}` : `created ${formatTime(job.createdAt)}`;
+  const finished = job.finishedAt ? `finished ${formatTime(job.finishedAt)}` : `updated ${formatTime(job.updatedAt)}`;
+  return `${job.progress}% | ${started} | ${finished}`;
+}
+
+function selectJob(jobId) {
+  state.selectedJobId = jobId;
+  render();
+  setStatus('Task run details selected.');
+}
+
+function viewLatestJob(types) {
+  const job = latestRunForTypes(types);
+
+  if (!job) {
+    setStatus('No task run has been recorded for that stage yet.');
+    return;
+  }
+
+  selectJob(job.id);
+}
+
+function latestStageJob(types) {
+  const job = latestRunForTypes(types);
+  return job ? `${taskLabel(job.type)} ${job.status}, ${job.progress}%` : 'No recorded task run yet.';
+}
+
 function stageCard(stage) {
   const card = document.createElement('article');
   card.className = `pipeline-card ${statusClass(stage.status)}${stage.active ? ' active' : ''}`;
@@ -863,6 +946,17 @@ function stageCard(stage) {
   }
 
   card.append(top, artifacts, next, button);
+
+  if (stage.jobTypes?.length) {
+    const jobButton = document.createElement('button');
+    jobButton.type = 'button';
+    jobButton.className = 'secondary';
+    jobButton.textContent = 'View Latest Run';
+    jobButton.disabled = !latestRunForTypes(stage.jobTypes);
+    jobButton.addEventListener('click', () => viewLatestJob(stage.jobTypes));
+    card.append(jobButton);
+  }
+
   return card;
 }
 
@@ -965,6 +1059,7 @@ function buildPipelineStages() {
       action: !profile ? undefined : profileSupportsDiscovery ? runSelectedProfileDiscovery : focusManualStoryForm,
       disabled: discoverRunning || !profile || (!profileSupportsDiscovery && profile.type !== 'manual'),
       active: state.storyCandidates.length > 0,
+      jobTypes: ['source.search', 'source.ingest'],
     },
     {
       number: 3,
@@ -993,6 +1088,7 @@ function buildPipelineStages() {
       action: packet ? () => selectResearchPacket(packet) : state.researchPackets.length > 0 ? () => selectResearchPacket(state.researchPackets[0]) : buildResearchBriefFromSelected,
       disabled: researchRunning || (!packet && state.researchPackets.length === 0 && !candidateAnalysis.canLaunch),
       active: Boolean(packet),
+      jobTypes: ['research.packet'],
     },
     {
       number: 5,
@@ -1006,6 +1102,7 @@ function buildPipelineStages() {
       action: state.selectedScript ? focusScriptEditor : generateScriptFromSelectedResearch,
       disabled: scriptRunning || (!state.selectedScript && (!packet || packetBlocked)),
       active: Boolean(state.selectedScript),
+      jobTypes: ['script.generate'],
     },
     {
       number: 6,
@@ -1019,6 +1116,7 @@ function buildPipelineStages() {
       action: audioAsset && coverAsset ? refreshProductionUntilSettled : createMissingProductionAssets,
       disabled: productionActionRunning || (!scriptApproved && !(audioAsset && coverAsset)),
       active: Boolean(audioAsset || coverAsset),
+      jobTypes: ['audio.preview', 'art.generate'],
     },
     {
       number: 7,
@@ -1046,6 +1144,7 @@ function buildPipelineStages() {
       disabled: publishRunning || episode?.status !== 'approved-for-publish',
       active: episode?.status === 'published',
       primary: true,
+      jobTypes: ['publish.rss'],
     },
   ];
 }
@@ -2155,6 +2254,200 @@ function renderProduction() {
   }
 }
 
+function renderJobRuns() {
+  const activeCount = state.recentJobs.filter((job) => !isTerminalJob(job)).length;
+  const failedCount = state.recentJobs.filter((job) => job.status === 'failed').length;
+  els.jobRunsMeta.textContent = `${state.recentJobs.length} recent run${state.recentJobs.length === 1 ? '' : 's'}${activeCount ? ` | ${activeCount} active` : ''}${failedCount ? ` | ${failedCount} failed` : ''}`;
+  els.jobRunList.innerHTML = '';
+
+  if (state.recentJobs.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = state.selectedShowSlug
+      ? 'No task runs recorded for this show yet.'
+      : 'Choose a show to inspect recent task runs.';
+    els.jobRunList.append(empty);
+  }
+
+  for (const job of state.recentJobs) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `job-row ${statusClass(taskState(job))}${job.id === state.selectedJobId ? ' selected' : ''}`;
+    button.innerHTML = `
+      <strong></strong>
+      <span class="job-row-meta"></span>
+      <span class="job-row-note"></span>
+    `;
+    button.querySelector('strong').textContent = `${taskLabel(job.type)} | ${job.status}`;
+    button.querySelector('.job-row-meta').textContent = jobProgressText(job);
+    button.querySelector('.job-row-note').textContent = (job.summary?.warnings || []).length > 0
+      ? `${job.summary.warnings.length} warning${job.summary.warnings.length === 1 ? '' : 's'}`
+      : job.error || latestStageJob([job.type]);
+    button.addEventListener('click', () => selectJob(job.id));
+    els.jobRunList.append(button);
+  }
+
+  renderJobDetail();
+}
+
+function renderJobDetail() {
+  const job = selectedJob();
+  els.jobRunDetail.innerHTML = '';
+
+  if (!job) {
+    els.jobRunDetail.className = 'job-detail empty';
+    els.jobRunDetail.textContent = 'Select a task run to inspect logs, warnings, retryability, and debug details.';
+    return;
+  }
+
+  els.jobRunDetail.className = `job-detail ${statusClass(taskState(job))}`;
+  state.selectedJobId = job.id;
+
+  const heading = document.createElement('div');
+  heading.className = 'job-detail-heading';
+  const title = document.createElement('div');
+  title.innerHTML = '<h3></h3><p></p>';
+  title.querySelector('h3').textContent = taskLabel(job.type);
+  title.querySelector('p').textContent = `${job.type} | created ${formatTime(job.createdAt)}`;
+  const status = document.createElement('span');
+  status.className = `status-pill ${statusClass(taskState(job))}`;
+  status.textContent = taskState(job);
+  heading.append(title, status);
+
+  const progress = document.createElement('div');
+  progress.className = 'progress-track';
+  const fill = document.createElement('div');
+  fill.className = 'progress-fill';
+  fill.style.width = `${Math.max(0, Math.min(100, job.progress))}%`;
+  progress.append(fill);
+
+  const facts = document.createElement('div');
+  facts.className = 'job-facts';
+  for (const [label, value] of [
+    ['Status', job.status],
+    ['Progress', `${job.progress}%`],
+    ['Attempts', `${job.attempts}/${job.maxAttempts}`],
+    ['Started', formatTime(job.startedAt)],
+    ['Finished', formatTime(job.finishedAt)],
+  ]) {
+    const item = document.createElement('span');
+    item.textContent = `${label}: ${value}`;
+    facts.append(item);
+  }
+
+  const artifacts = document.createElement('div');
+  artifacts.className = 'job-artifacts';
+  const artifactItems = job.summary?.artifacts || [];
+  artifacts.innerHTML = '<h4>Linked records</h4>';
+  if (artifactItems.length === 0) {
+    const empty = document.createElement('p');
+    empty.textContent = 'No artifact IDs recorded yet.';
+    artifacts.append(empty);
+  } else {
+    const list = document.createElement('div');
+    list.className = 'settings-kv';
+    for (const artifact of artifactItems) {
+      const item = document.createElement('span');
+      item.textContent = `${artifact.label}: ${artifact.value}`;
+      list.append(item);
+    }
+    artifacts.append(list);
+  }
+
+  const warnings = renderJobMessages('Warnings', job.summary?.warnings || [], 'No warnings recorded for this task run.');
+  const failure = renderJobFailure(job);
+  const logs = renderJobLogs(job.logs || []);
+  const retry = renderJobRetry(job);
+  const debug = document.createElement('details');
+  debug.className = 'debug-details';
+  debug.innerHTML = '<summary>Metadata and debug details</summary><pre></pre>';
+  debug.querySelector('pre').textContent = JSON.stringify(sanitizedDebug({
+    id: job.id,
+    showId: job.showId,
+    episodeId: job.episodeId,
+    provider: job.summary?.provider || {},
+    input: job.input,
+    output: job.output,
+  }), null, 2);
+
+  els.jobRunDetail.append(heading, progress, facts, artifacts, warnings, failure, logs, retry, debug);
+}
+
+function renderJobMessages(title, items, emptyText) {
+  const section = document.createElement('section');
+  section.className = 'job-messages';
+  const heading = document.createElement('h4');
+  heading.textContent = title;
+  section.append(heading);
+
+  if (items.length === 0) {
+    const empty = document.createElement('p');
+    empty.textContent = emptyText;
+    section.append(empty);
+    return section;
+  }
+
+  for (const item of items) {
+    const row = document.createElement('div');
+    row.className = 'job-message';
+    row.textContent = item.message || item.code || JSON.stringify(sanitizedDebug(item));
+    section.append(row);
+  }
+
+  return section;
+}
+
+function renderJobFailure(job) {
+  const failure = job.summary?.failure;
+  const section = document.createElement('section');
+  section.className = 'job-messages';
+  section.innerHTML = '<h4>Failure</h4>';
+  const message = document.createElement('p');
+  message.textContent = failure?.message || job.error || 'No failure recorded.';
+  section.append(message);
+  return section;
+}
+
+function renderJobLogs(logs) {
+  const section = document.createElement('section');
+  section.className = 'job-messages';
+  section.innerHTML = '<h4>Logs and events</h4>';
+
+  if (logs.length === 0) {
+    const empty = document.createElement('p');
+    empty.textContent = 'No logs recorded yet.';
+    section.append(empty);
+    return section;
+  }
+
+  for (const log of logs.slice(-8)) {
+    const row = document.createElement('div');
+    row.className = `job-message ${log.level || 'info'}`;
+    row.textContent = `${log.at || ''} ${log.level || 'info'}: ${log.message || JSON.stringify(sanitizedDebug(log))}`.trim();
+    section.append(row);
+  }
+
+  return section;
+}
+
+function renderJobRetry(job) {
+  const section = document.createElement('section');
+  section.className = 'job-retry';
+  const retry = job.summary?.retry || { supported: false, reason: 'Retry information is unavailable.' };
+  const note = document.createElement('p');
+  note.textContent = retry.reason;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = retry.requiresConfirmation ? 'danger' : 'secondary';
+  button.textContent = retry.requiresConfirmation ? 'Retry Requires Publish Review' : 'Retry Run';
+  button.disabled = !retry.supported;
+  if (retry.supported) {
+    button.addEventListener('click', async () => retryJob(job, button));
+  }
+  section.append(note, button);
+  return section;
+}
+
 function renderScripts() {
   els.scriptList.innerHTML = '';
   els.scriptMeta.textContent = `${state.scripts.length} script${state.scripts.length === 1 ? '' : 's'} for this show`;
@@ -2202,6 +2495,7 @@ function render() {
   renderStoryCandidates();
   renderResearchBriefs();
   renderScheduler();
+  renderJobRuns();
   renderEpisodes();
   renderModelProfiles();
   renderQueries();
@@ -2330,6 +2624,54 @@ async function loadScheduledPipelines() {
   state.failedScheduledRuns = failedRunsBody.jobs;
 }
 
+async function loadJobs() {
+  if (!state.selectedShowSlug) {
+    state.recentJobs = [];
+    state.selectedJobId = '';
+    stopJobPolling();
+    return;
+  }
+
+  const body = await api(`/jobs?showSlug=${encodeURIComponent(state.selectedShowSlug)}&limit=30`);
+  state.recentJobs = body.jobs || [];
+
+  if (!state.recentJobs.some((job) => job.id === state.selectedJobId)) {
+    state.selectedJobId = state.recentJobs[0]?.id || '';
+  }
+
+  updateJobPolling();
+}
+
+function stopJobPolling() {
+  if (state.jobPoll) {
+    window.clearInterval(state.jobPoll);
+    state.jobPoll = null;
+  }
+}
+
+function updateJobPolling() {
+  const hasActiveJobs = state.recentJobs.some((job) => !isTerminalJob(job));
+
+  if (!hasActiveJobs) {
+    stopJobPolling();
+    return;
+  }
+
+  if (state.jobPoll) {
+    return;
+  }
+
+  state.jobPoll = window.setInterval(async () => {
+    try {
+      await loadJobs();
+      render();
+    } catch (error) {
+      stopJobPolling();
+      reportError(error);
+    }
+  }, 5000);
+}
+
 async function runScheduledPipeline(id, button) {
   button.disabled = true;
   setStatus('Starting scheduled pipeline...');
@@ -2340,6 +2682,7 @@ async function runScheduledPipeline(id, button) {
       body: JSON.stringify({ actor: 'local-ui' }),
     });
     await loadScheduledPipelines();
+    await loadJobs();
     await loadStoryCandidates();
     render();
     setStatus(`Scheduled pipeline run ${body.job.status}.`);
@@ -2362,11 +2705,49 @@ async function retryScheduledRun(id, button) {
       body: JSON.stringify({ actor: 'local-ui' }),
     });
     await loadScheduledPipelines();
+    await loadJobs();
     await loadStoryCandidates();
     render();
     setStatus(`Scheduled run retry ${body.job.status}.`);
   } catch (error) {
     await loadScheduledPipelines();
+    render();
+    reportError(error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function retryJob(job, button) {
+  const retry = job.summary?.retry;
+
+  if (!retry?.supported || !retry.endpoint) {
+    return;
+  }
+
+  if (job.type === 'publish.rss') {
+    setStatus('RSS publishing retries require the explicit publish action after review.');
+    return;
+  }
+
+  button.disabled = true;
+  setStatus('Retrying task run...');
+
+  try {
+    const body = await api(retry.endpoint, {
+      method: retry.method || 'POST',
+      body: JSON.stringify({ actor: 'local-ui', retryOfJobId: job.id }),
+    });
+    await loadScheduledPipelines();
+    await loadJobs();
+    if (state.selectedScriptId) {
+      await loadProduction();
+    }
+    await loadStoryCandidates();
+    render();
+    setStatus(`Retry created: ${(body.job || {}).status || 'started'}.`);
+  } catch (error) {
+    await loadJobs();
     render();
     reportError(error);
   } finally {
@@ -2471,6 +2852,7 @@ async function runSelectedProfileDiscovery() {
       : `/source-profiles/${profile.id}/search`;
     const body = await api(path, { method: 'POST' });
     await loadStoryCandidates();
+    await loadJobs();
     render();
     setStatus(`${profile.type === 'rss' ? 'RSS import' : 'Source search'} complete: ${body.inserted} inserted, ${body.skipped} skipped.`);
   } catch (error) {
@@ -2508,6 +2890,7 @@ async function buildResearchBriefFromSelected() {
     state.selectedResearchPacketId = body.researchPacket.id;
     els.scriptResearchPacketId.value = body.researchPacket.id;
     await loadResearchPackets();
+    await loadJobs();
     savePipelineState();
     render();
     setStatus(`Research brief created: ${body.researchPacket.status}.`);
@@ -2554,6 +2937,7 @@ async function createMissingProductionAssets() {
         body: JSON.stringify({ actor: 'local-user' }),
       });
       await loadProduction();
+      await loadJobs();
       assets = selectedAssets();
     }
 
@@ -2563,9 +2947,11 @@ async function createMissingProductionAssets() {
         body: JSON.stringify({ actor: 'local-user' }),
       });
       await loadProduction();
+      await loadJobs();
     }
 
     await loadEpisodes();
+    await loadJobs();
     render();
     setStatus('Audio and cover asset tasks updated.');
   } catch (error) {
@@ -2598,6 +2984,7 @@ async function approveEpisodeForPublishing() {
     state.selectedEpisodeId = body.episode.id;
     await loadEpisodes();
     await loadProduction();
+    await loadJobs();
     savePipelineState();
     render();
     setStatus('Review decision saved: episode approved for publishing.');
@@ -2680,6 +3067,10 @@ async function loadAll() {
     await safeLoad('scheduled pipelines', loadScheduledPipelines, () => {
       state.scheduledPipelines = [];
       state.failedScheduledRuns = [];
+    });
+    await safeLoad('task runs', loadJobs, () => {
+      state.recentJobs = [];
+      state.selectedJobId = '';
     });
     await safeLoad('episodes', loadEpisodes, () => {
       state.episodes = [];
@@ -3022,6 +3413,7 @@ async function importLegacyData() {
     });
     await loadStoryCandidates();
     await loadEpisodes();
+    await loadJobs();
     render();
     setStatus(`Legacy import complete: ${body.summary.candidates.inserted} candidates inserted, ${body.summary.candidates.updated} updated.`);
   } catch (error) {
@@ -3077,6 +3469,7 @@ async function ingestSelectedProfile() {
   try {
     const body = await api(`/source-profiles/${profile.id}/ingest`, { method: 'POST' });
     await loadStoryCandidates();
+    await loadJobs();
     render();
     setStatus(`RSS import complete: ${body.inserted} inserted, ${body.skipped} skipped.`);
   } catch (error) {
@@ -3196,6 +3589,7 @@ async function createResearchBrief(candidateId, button) {
     state.selectedCandidateIds = [candidateId];
     state.selectedResearchPacketId = body.researchPacket.id;
     await loadResearchPackets();
+    await loadJobs();
     render();
     els.scriptResearchPacketId.value = body.researchPacket.id;
     savePipelineState();
@@ -3235,6 +3629,7 @@ async function generateScriptDraft(researchPacketId, format) {
     state.production = { episode: null, assets: [], jobs: [] };
     els.scriptResearchPacketId.value = '';
     savePipelineState();
+    await loadJobs();
     render();
     setStatus(`Generated script revision ${body.revision.version}.`);
   } catch (error) {
@@ -3263,6 +3658,7 @@ async function saveScriptRevision(event) {
     state.selectedScript = body.script;
     state.selectedRevision = body.revision;
     await loadProduction();
+    await loadJobs();
     render();
     setStatus(`Saved script revision ${body.revision.version}.`);
   } catch (error) {
@@ -3289,6 +3685,7 @@ async function approveSelectedScript() {
     state.scripts = state.scripts.map((script) => script.id === body.script.id ? body.script : script);
     state.selectedScript = body.script;
     await loadProduction();
+    await loadJobs();
     savePipelineState();
     render();
     setStatus('Review decision saved: script approved for audio.');
@@ -3305,6 +3702,7 @@ async function refreshProductionUntilSettled() {
   }
 
   await loadProduction();
+  await loadJobs();
   render();
 
   if (state.production.jobs.some((job) => !isTerminalJob(job))) {
@@ -3321,7 +3719,7 @@ async function refreshProductionUntilSettled() {
         } catch (error) {
           reportError(error);
         }
-      }, 1500);
+      }, 5000);
     }
   }
 }
@@ -3340,6 +3738,7 @@ async function startAudioPreview() {
       body: JSON.stringify({ actor: 'local-user' }),
     });
     await refreshProductionUntilSettled();
+    await loadJobs();
     setStatus('Preview audio job updated.');
   } catch (error) {
     await loadProduction();
@@ -3362,6 +3761,7 @@ async function startCoverArt() {
       body: JSON.stringify({ actor: 'local-user' }),
     });
     await refreshProductionUntilSettled();
+    await loadJobs();
     setStatus('Cover art job updated.');
   } catch (error) {
     await loadProduction();
@@ -3371,6 +3771,18 @@ async function startCoverArt() {
 }
 
 els.refresh.addEventListener('click', loadAll);
+els.refreshJobs.addEventListener('click', async () => {
+  els.refreshJobs.disabled = true;
+  try {
+    await loadJobs();
+    render();
+    setStatus('Task runs refreshed.');
+  } catch (error) {
+    reportError(error);
+  } finally {
+    els.refreshJobs.disabled = false;
+  }
+});
 els.importLegacy.addEventListener('click', importLegacyData);
 els.newShowToggle.addEventListener('click', () => {
   state.showSetupOpen = true;
@@ -3414,6 +3826,7 @@ els.showSelect.addEventListener('change', async () => {
   await loadStoryCandidates();
   await loadResearchPackets();
   await loadScheduledPipelines();
+  await loadJobs();
   await loadEpisodes();
   await loadScripts();
   render();

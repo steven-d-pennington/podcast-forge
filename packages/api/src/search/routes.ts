@@ -14,6 +14,7 @@ import type { ModelProfileStore } from '../models/store.js';
 import { createPromptRegistry } from '../prompts/registry.js';
 import type { PromptTemplateStore } from '../prompts/types.js';
 import type { SourceStore } from '../sources/store.js';
+import { normalizeJobRecord } from '../jobs/summary.js';
 
 class ApiError extends Error {
   constructor(
@@ -46,6 +47,8 @@ const manualCandidateSchema = z.object({
   message: 'Provide showId or showSlug.',
   path: ['showSlug'],
 });
+
+const jobStatusSchema = z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']);
 
 function sendError(reply: FastifyReply, error: unknown) {
   if (error instanceof ZodError) {
@@ -99,6 +102,26 @@ function requireSearchStore(store: SourceStore & Partial<SearchJobStore>): Sourc
   }
 
   return store as SourceStore & SearchJobStore;
+}
+
+function parseLimit(raw: string | undefined, fallback = 50) {
+  if (!raw) {
+    return fallback;
+  }
+
+  const value = Number(raw);
+
+  return Number.isInteger(value) && value > 0 ? Math.min(value, 100) : fallback;
+}
+
+function parseJobStatus(raw: string | undefined) {
+  return raw ? jobStatusSchema.parse(raw) : undefined;
+}
+
+function parseJobTypes(raw: string | undefined) {
+  return raw
+    ? raw.split(',').map((type) => type.trim()).filter(Boolean)
+    : undefined;
 }
 
 function candidateScorerFor(
@@ -251,6 +274,26 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
     }
   });
 
+  app.get<{ Querystring: { showId?: string; showSlug?: string; status?: string; types?: string; limit?: string } }>('/jobs', async (request, reply) => {
+    try {
+      const store = requireSearchStore(options.getStore());
+      const showId = request.query.showId || request.query.showSlug
+        ? await resolveShowId(store, request.query.showId, request.query.showSlug)
+        : undefined;
+      const status = parseJobStatus(request.query.status);
+      const jobs = await store.listJobs({
+        showId,
+        types: parseJobTypes(request.query.types),
+        limit: parseLimit(request.query.limit),
+      });
+      const filtered = status ? jobs.filter((job) => job.status === status) : jobs;
+
+      return { ok: true, jobs: filtered.map(normalizeJobRecord) };
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
   app.get<{ Params: { id: string } }>('/jobs/:id', async (request, reply) => {
     try {
       const store = requireSearchStore(options.getStore());
@@ -260,7 +303,7 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
         throw new ApiError(404, 'JOB_NOT_FOUND', `Job not found: ${request.params.id}`);
       }
 
-      return { ok: true, job };
+      return { ok: true, job: normalizeJobRecord(job) };
     } catch (error) {
       return sendError(reply, error);
     }
