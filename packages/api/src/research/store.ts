@@ -101,6 +101,12 @@ export interface OverrideResearchWarningInput {
   reason: string;
 }
 
+export interface ApproveResearchPacketInput {
+  actor: string;
+  reason?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ResearchPacketListFilter {
   showId?: string;
   showSlug?: string;
@@ -114,4 +120,5 @@ export interface ResearchStore {
   getResearchPacket(id: string): Promise<ResearchPacketRecord | undefined>;
   listResearchPackets(filter?: ResearchPacketListFilter): Promise<ResearchPacketRecord[]>;
   overrideResearchWarning(id: string, input: OverrideResearchWarningInput): Promise<ResearchPacketRecord | undefined>;
+  approveResearchPacket(id: string, input: ApproveResearchPacketInput): Promise<ResearchPacketRecord | undefined>;
 }

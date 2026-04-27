@@ -54,6 +54,11 @@ const overrideWarningSchema = z.object({
   path: ['warningId'],
 });
 
+const approveResearchSchema = z.object({
+  actor: z.string().trim().min(1).default('local-user'),
+  reason: z.string().trim().min(1).nullable().optional(),
+});
+
 function sendError(reply: FastifyReply, error: unknown) {
   if (error instanceof ZodError) {
     return reply.code(400).send({
@@ -83,6 +88,7 @@ function requireResearchStore(store: Partial<ResearchStore>): ResearchStore {
     'getResearchPacket',
     'listResearchPackets',
     'overrideResearchWarning',
+    'approveResearchPacket',
   ];
 
   for (const method of required) {
@@ -92,6 +98,19 @@ function requireResearchStore(store: Partial<ResearchStore>): ResearchStore {
   }
 
   return store as ResearchStore;
+}
+
+function readinessStatus(packet: { status: string; content: Record<string, unknown> }) {
+  const readiness = packet.content.readiness;
+  const contentStatus = readiness && typeof readiness === 'object' && !Array.isArray(readiness)
+    ? (readiness as Record<string, unknown>).status
+    : undefined;
+
+  return typeof contentStatus === 'string' ? contentStatus : packet.status;
+}
+
+function unresolvedWarnings(packet: { warnings: ResearchWarning[] }) {
+  return packet.warnings.filter((warning) => !warning.override);
 }
 
 function hasResearchJobStore(store: object): store is Pick<SearchJobStore, 'createJob' | 'updateJob'> {
@@ -501,6 +520,47 @@ export function registerResearchRoutes(app: FastifyInstance, options: ResearchRo
       }
 
       return { ok: true, researchPacket: packet };
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post<{ Params: { id: string } }>('/research-packets/:id/approve', async (request, reply) => {
+    try {
+      const store = requireResearchStore(options.getStore());
+      const body = approveResearchSchema.parse(request.body ?? {});
+      const packet = await store.getResearchPacket(request.params.id);
+
+      if (!packet) {
+        throw new ApiError(404, 'RESEARCH_PACKET_NOT_FOUND', `Research packet not found: ${request.params.id}`);
+      }
+
+      const status = readinessStatus(packet);
+      const unresolved = unresolvedWarnings(packet);
+
+      if (!['ready', 'approved', 'research-ready'].includes(status) || unresolved.length > 0) {
+        throw new ApiError(
+          409,
+          'RESEARCH_APPROVAL_BLOCKED',
+          'Research brief cannot be approved until it is ready and warnings are overridden.',
+        );
+      }
+
+      const approved = await store.approveResearchPacket(packet.id, {
+        actor: body.actor,
+        reason: body.reason ?? null,
+        metadata: {
+          previousStatus: packet.status,
+          readinessStatus: status,
+          warningCount: packet.warnings.length,
+        },
+      });
+
+      if (!approved) {
+        throw new ApiError(404, 'RESEARCH_PACKET_NOT_FOUND', `Research packet not found: ${request.params.id}`);
+      }
+
+      return reply.code(201).send({ ok: true, researchPacket: approved });
     } catch (error) {
       return sendError(reply, error);
     }

@@ -530,6 +530,126 @@ textarea {
   margin-top: 0.75rem;
 }
 
+.review-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.review-card {
+  background: #f8fafc;
+  border: 1px solid #d8dde5;
+  border-radius: 6px;
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.85rem;
+}
+
+.review-heading {
+  align-items: start;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.review-heading h3,
+.review-heading p,
+.review-subsection h4,
+.review-subsection p {
+  margin: 0;
+}
+
+.review-heading p,
+.review-subsection p,
+.asset-preview p {
+  color: #586575;
+  font-size: 0.9rem;
+}
+
+.review-subsection,
+.review-list,
+.checklist,
+.asset-preview-grid {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.review-list-item,
+.checklist-item,
+.asset-preview {
+  background: white;
+  border: 1px solid #d8dde5;
+  border-radius: 6px;
+  padding: 0.6rem;
+}
+
+.review-list-item {
+  color: #3f4b5a;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.script-review-body {
+  background: white;
+  border: 1px solid #d8dde5;
+  border-radius: 6px;
+  color: #27303b;
+  max-height: 18rem;
+  overflow: auto;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+}
+
+.asset-preview-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.asset-preview audio,
+.asset-preview img {
+  display: block;
+  margin-top: 0.5rem;
+  max-width: 100%;
+}
+
+.asset-preview img {
+  border-radius: 6px;
+}
+
+.checklist-item {
+  align-items: start;
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.checklist-item p {
+  color: #586575;
+  font-size: 0.88rem;
+  margin: 0.15rem 0 0;
+}
+
+.checklist-mark {
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 0.2rem 0.45rem;
+}
+
+.checklist-item.passed .checklist-mark {
+  background: #e8f6ef;
+  color: #1d6b43;
+}
+
+.checklist-item.blocked .checklist-mark {
+  background: #fff1df;
+  color: #8a4d0a;
+}
+
+.compact-action {
+  margin-left: 0.5rem;
+}
+
 .production-row {
   align-items: center;
   background: #f8fafc;
@@ -946,6 +1066,8 @@ textarea {
   .manual-form,
   .script-generate,
   .script-workspace,
+  .review-grid,
+  .asset-preview-grid,
   .job-layout,
   .job-facts,
   .new-query,
