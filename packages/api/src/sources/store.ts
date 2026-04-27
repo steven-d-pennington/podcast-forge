@@ -108,7 +108,7 @@ export interface SourceStore {
   createSourceProfile(input: CreateSourceProfileInput): Promise<SourceProfileRecord>;
   updateSourceProfile(id: string, input: UpdateSourceProfileInput): Promise<SourceProfileRecord | undefined>;
   listSourceQueries(profileId: string, options?: { enabledOnly?: boolean }): Promise<SourceQueryRecord[]>;
-  getSourceQuery?(id: string): Promise<SourceQueryRecord | undefined>;
+  getSourceQuery(id: string): Promise<SourceQueryRecord | undefined>;
   createSourceQuery(profileId: string, input: CreateSourceQueryInput): Promise<SourceQueryRecord | undefined>;
   updateSourceQuery(id: string, input: UpdateSourceQueryInput): Promise<SourceQueryRecord | undefined>;
   deleteSourceQuery(id: string): Promise<boolean>;

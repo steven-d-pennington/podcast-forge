@@ -109,6 +109,10 @@ class FakeShowOnboardingStore implements SourceStore {
     return this.queries.filter((query) => query.sourceProfileId === profileId);
   }
 
+  async getSourceQuery(id: string) {
+    return this.queries.find((query) => query.id === id);
+  }
+
   async createSourceQuery(profileId: string, input: CreateSourceQueryInput) {
     const profile = await this.getSourceProfile(profileId);
 

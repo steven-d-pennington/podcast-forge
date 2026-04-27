@@ -111,6 +111,10 @@ class FakeSearchStore implements SourceStore, SearchJobStore {
     return this.queries.filter((query) => query.sourceProfileId === profileId && (!options.enabledOnly || query.enabled));
   }
 
+  async getSourceQuery(id: string) {
+    return this.queries.find((query) => query.id === id);
+  }
+
   async createSourceQuery(profileId: string, input: CreateSourceQueryInput) {
     const query = { ...input, id: `query-${this.queries.length + 1}`, sourceProfileId: profileId, createdAt: new Date(), updatedAt: new Date() };
     this.queries.push(query);

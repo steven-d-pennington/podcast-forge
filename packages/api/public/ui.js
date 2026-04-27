@@ -338,6 +338,12 @@ function applySourceControlState(root, type) {
   }
 }
 
+function applySourceControlStateToForms(root, type) {
+  for (const form of root.querySelectorAll('form')) {
+    applySourceControlState(form, type);
+  }
+}
+
 function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
@@ -2414,7 +2420,14 @@ function renderSettingsSources() {
     form.elements.includeDomains.value = listToLines(profile.includeDomains);
     form.elements.excludeDomains.value = listToLines(profile.excludeDomains);
     applySourceControlState(form, profile.type);
-    form.elements.type.addEventListener('change', () => applySourceControlState(form, form.elements.type.value));
+    form.elements.type.addEventListener('change', () => {
+      const type = form.elements.type.value;
+      applySourceControlState(form, type);
+      const queryPanel = form.nextElementSibling;
+      if (queryPanel) {
+        applySourceControlStateToForms(queryPanel, type);
+      }
+    });
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       await saveProfileForm(profile.id, form);
@@ -5104,7 +5117,10 @@ els.showSelect.addEventListener('change', async () => {
   render();
 });
 els.profileForm.addEventListener('submit', saveProfile);
-els.profileType.addEventListener('change', () => applySourceControlState(els.profileForm, els.profileType.value));
+els.profileType.addEventListener('change', () => {
+  applySourceControlState(els.profileForm, els.profileType.value);
+  applySourceControlStateToForms(els.queryList, els.profileType.value);
+});
 els.ingestProfile.addEventListener('click', ingestSelectedProfile);
 els.manualForm.addEventListener('submit', submitManualUrl);
 els.candidateClusterForm.addEventListener('submit', async (event) => {

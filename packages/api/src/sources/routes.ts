@@ -154,20 +154,13 @@ function normalizeQueryInput<T extends CreateSourceQueryInput | UpdateSourceQuer
 }
 
 async function findSourceQueryProfile(store: SourceStore, queryId: string): Promise<z.infer<typeof sourceTypeSchema> | undefined> {
-  const query = store.getSourceQuery ? await store.getSourceQuery(queryId) : undefined;
+  const query = await store.getSourceQuery(queryId);
 
-  if (query) {
-    return (await store.getSourceProfile(query.sourceProfileId))?.type;
+  if (!query) {
+    return undefined;
   }
 
-  for (const profile of await store.listSourceProfiles()) {
-    const queries = await store.listSourceQueries(profile.id);
-    if (queries.some((candidate) => candidate.id === queryId)) {
-      return profile.type;
-    }
-  }
-
-  return undefined;
+  return (await store.getSourceProfile(query.sourceProfileId))?.type;
 }
 
 export interface SourceRoutesOptions {
