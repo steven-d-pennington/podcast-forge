@@ -1195,7 +1195,6 @@ function renderNextAction(stages) {
   kicker.className = 'next-action-kicker';
   kicker.textContent = 'Next best action';
   const title = document.createElement('h3');
-  title.id = 'nextActionTitle';
   title.textContent = stage.status === 'running' ? `Wait for ${stage.title.toLowerCase()}` : stage.actionLabel;
   const reason = document.createElement('p');
   reason.textContent = stage.actionReason || stage.next;
@@ -1221,11 +1220,13 @@ function renderNextAction(stages) {
   button.type = 'button';
 
   if (stage.status === 'running') {
+    const jobTypes = stage.jobTypes || [];
+    const latestRun = latestRunForTypes(jobTypes);
     button.className = 'secondary';
-    button.textContent = latestRunForTypes(stage.jobTypes || []) ? 'View Latest Run' : 'Open Stage Panel';
+    button.textContent = latestRun ? 'View Latest Run' : 'Open Stage Panel';
     button.addEventListener('click', () => {
-      if (latestRunForTypes(stage.jobTypes || [])) {
-        viewLatestJob(stage.jobTypes || []);
+      if (latestRun) {
+        viewLatestJob(jobTypes);
         return;
       }
       scrollToPanel(stage.targetId);
