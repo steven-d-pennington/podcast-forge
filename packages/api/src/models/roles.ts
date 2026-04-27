@@ -1,4 +1,5 @@
 export const MODEL_ROLES = [
+  'episode_planner',
   'candidate_scorer',
   'source_summarizer',
   'claim_extractor',

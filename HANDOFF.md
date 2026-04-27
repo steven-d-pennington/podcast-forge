@@ -401,14 +401,14 @@ Current frontend stack remains static HTML + vanilla JS + plain CSS served by Fa
 Run one issue per coding agent, preferably branch/PR per issue because the static UI files are conflict-prone.
 
 Recommended order:
-1. #38 — Add Integrity Reviewer — AI quality gate between script writing and production
-2. #44 — PF2-01 Make the guided workflow the primary UI
-3. #45 — PF2-02 Add always-visible next-best-action and blocker explanations
-4. #46 — PF2-03 Move admin/settings/debug surfaces out of the production flow
-5. #51 — PF2-08 Fix script edit provenance and citation-map invalidation
+1. #38 — Add Integrity Reviewer — AI quality gate between script writing and production ✅ merged (#56)
+2. #44 — PF2-01 Make the guided workflow the primary UI ✅ merged (#57)
+3. #45 — PF2-02 Add always-visible next-best-action and blocker explanations ✅ merged (#58)
+4. #46 — PF2-03 Move admin/settings/debug surfaces out of the production flow ✅ merged (#59)
+5. #51 — PF2-08 Fix script edit provenance and citation-map invalidation ✅ merged (#60)
 6. #50 — PF2-07 Enforce source query domain/freshness controls or remove dead UI fields ✅ merged (#61)
-7. #52 — PF2-09 Harden publishing validation and scheduled-run status semantics 🚧 active on `issue-52-publishing-scheduler-status` in `/home/steven/clawd/worktrees/podcast-forge-issue-52`
-8. #47 — PF2-04 Add AI story brief / episode plan assistant
+7. #52 — PF2-09 Harden publishing validation and scheduled-run status semantics ✅ merged (#62)
+8. #47 — PF2-04 Add AI story brief / episode plan assistant 🚧 active on `issue-47-ai-story-brief` in `/home/steven/clawd/worktrees/podcast-forge-issue-47`
 9. #48 — PF2-05 Add AI source-gap and claim-coverage surfacing in review UI
 10. #49 — PF2-06 Add AI rewrite/coaching actions for scripts without bypassing approval
 11. #53 — PF2-10 Split UI state/render helpers into testable modules or sections

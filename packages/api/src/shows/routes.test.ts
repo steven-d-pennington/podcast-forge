@@ -281,7 +281,7 @@ describe('show onboarding routes', () => {
     assert.equal(body.feed.publicFeedUrl, 'https://podcast.example.com/future-signals/feed.xml');
     assert.equal(body.sourceProfile.type, 'brave');
     assert.equal(body.sourceQueries[0].query, 'technology policy news');
-    assert.equal(body.modelProfiles.length, 9);
+    assert.equal(body.modelProfiles.length, 10);
     assert.ok(body.show.defaultModelProfile.script_writer);
 
     const showsResponse = await app.inject({ method: 'GET', url: '/shows' });
@@ -293,6 +293,7 @@ describe('show onboarding routes', () => {
     const modelsResponse = await app.inject({ method: 'GET', url: '/model-profiles?showSlug=future-signals' });
     const roles = modelsResponse.json().modelProfiles.map((profile: { role: ModelRole }) => profile.role);
     assert.ok(roles.includes('script_writer'));
+    assert.ok(roles.includes('episode_planner'));
     assert.ok(roles.includes('integrity_reviewer'));
     assert.ok(roles.includes('candidate_scorer'));
   });

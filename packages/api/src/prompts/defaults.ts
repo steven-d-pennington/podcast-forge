@@ -6,6 +6,7 @@ const baseVariables = {
   show_context: 'Show title, audience, format, voice/cast, runtime target, and editorial constraints.',
   source_profile: 'Source profile/query metadata that led to the candidate or packet.',
   candidate_json: 'Serialized story candidate with title, URL, source, summary, timestamps, and raw provider metadata.',
+  candidate_selection: 'Serialized selected candidate stories, source provenance, scoring signals, and optional editorial planning notes.',
   story_context: 'Serialized story/candidate context for the source being summarized.',
   source_document: 'Serialized fetched source document including id, URL, title, fetchedAt, and text content.',
   source_summary: 'Previously generated source summary for one document.',
@@ -57,6 +58,26 @@ function template(
 }
 
 export const DEFAULT_PROMPT_TEMPLATES: PromptTemplate[] = [
+  template(
+    'episode_planner',
+    'Default episode planner',
+    'Creates an advisory story brief and episode plan before research packet generation.',
+    [variable('show_context'), variable('candidate_selection')],
+    'episode_plan_result',
+    [
+      'You are an AI editorial planning assistant for an evidence-first podcast/news workflow.',
+      'Use only the selected candidate metadata and source provenance provided below. This is planning help, not verified evidence.',
+      'Do not claim that facts are confirmed unless the input already includes that source-backed status. Make uncertainty and source gaps explicit.',
+      'Recommend primary sources, independent corroboration, and concrete questions the research step should answer next.',
+      'Avoid sensationalism, invented citations, or instructions that bypass research, source approval, script review, integrity review, or publishing gates.',
+      '',
+      'Show context:',
+      '{{show_context}}',
+      '',
+      'Selected candidate stories and planning notes:',
+      '{{candidate_selection}}',
+    ].join('\n'),
+  ),
   template(
     'candidate_scorer',
     'Default candidate scorer',

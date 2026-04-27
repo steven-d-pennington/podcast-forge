@@ -37,6 +37,7 @@ user-facing labels in the app.
 
 - `source.search`
 - `source.fetch`
+- `episode.plan`
 - `story.score`
 - `episode.cluster`
 - `research.packet`
@@ -54,6 +55,7 @@ user-facing labels in the app.
 Each agent role is an adapter over model providers:
 
 - `query_expander`
+- `episode_planner`
 - `candidate_scorer`
 - `source_summarizer`
 - `claim_extractor`
