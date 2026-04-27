@@ -1127,11 +1127,17 @@ function scrollToPanel(id) {
   }
 
   const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  if (!target.dataset.originalTabindex) {
-    target.dataset.originalTabindex = target.hasAttribute('tabindex') ? target.getAttribute('tabindex') || '' : '__none__';
-  }
   if (target.dataset.panelFocusTimeout) {
     window.clearTimeout(Number(target.dataset.panelFocusTimeout));
+  }
+  if (!target.dataset.panelFocusTracking) {
+    target.dataset.panelFocusTracking = 'true';
+    target.dataset.panelFocusHadTabindex = target.hasAttribute('tabindex') ? 'true' : 'false';
+    if (target.hasAttribute('tabindex')) {
+      target.dataset.panelFocusPreviousTabindex = target.getAttribute('tabindex') || '';
+    } else {
+      delete target.dataset.panelFocusPreviousTabindex;
+    }
   }
 
   target.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth', block: 'start' });
@@ -1140,14 +1146,15 @@ function scrollToPanel(id) {
   target.classList.add('panel-focus');
   target.dataset.panelFocusTimeout = String(window.setTimeout(() => {
     target.classList.remove('panel-focus');
-    const originalTabindex = target.dataset.originalTabindex;
-    if (originalTabindex && originalTabindex !== '__none__') {
-      target.setAttribute('tabindex', originalTabindex);
+    if (target.dataset.panelFocusHadTabindex === 'true') {
+      target.setAttribute('tabindex', target.dataset.panelFocusPreviousTabindex || '');
     } else {
       target.removeAttribute('tabindex');
     }
-    delete target.dataset.originalTabindex;
     delete target.dataset.panelFocusTimeout;
+    delete target.dataset.panelFocusTracking;
+    delete target.dataset.panelFocusHadTabindex;
+    delete target.dataset.panelFocusPreviousTabindex;
   }, 1200));
 }
 
