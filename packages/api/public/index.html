@@ -16,8 +16,13 @@
           <pre id="errorDetailsBody"></pre>
         </details>
       </div>
+      <nav class="surface-nav" aria-label="Workspace sections">
+        <button class="surface-tab active" data-surface-tab="workflow" type="button" aria-pressed="true">Produce Episode</button>
+        <button class="surface-tab" data-surface-tab="settings" type="button" aria-pressed="false">Settings / Admin</button>
+        <button class="surface-tab" data-surface-tab="debug" type="button" aria-pressed="false">Jobs / Debug</button>
+      </nav>
       <div class="actions inline">
-        <button id="importLegacy" class="secondary" type="button">Import Legacy</button>
+        <button id="importLegacy" class="secondary surface-hidden" data-surface="debug" type="button">Import Legacy</button>
         <button id="refresh" type="button">Refresh</button>
       </div>
     </header>
@@ -41,7 +46,7 @@
       </aside>
 
       <section class="workspace">
-        <section id="workflowPanel" class="panel pipeline-panel" aria-labelledby="pipelineTitle">
+        <section id="workflowPanel" class="panel pipeline-panel" data-surface="workflow" aria-labelledby="pipelineTitle">
           <div class="panel-heading">
             <div>
               <h2 id="pipelineTitle">Editorial Production Workflow</h2>
@@ -58,7 +63,7 @@
           </details>
         </section>
 
-        <form id="showSetupForm" class="panel setup-form" hidden>
+        <form id="showSetupForm" class="panel setup-form surface-hidden" data-surface="settings" hidden>
           <div class="panel-heading">
             <div>
               <h2>New Show Setup</h2>
@@ -159,7 +164,7 @@
           </div>
         </form>
 
-        <section id="settingsPanel" class="panel admin-panel" aria-labelledby="settingsTitle">
+        <section id="settingsPanel" class="panel admin-panel surface-hidden" data-surface="settings" aria-labelledby="settingsTitle">
           <div class="panel-heading">
             <div>
               <h2 id="settingsTitle">Settings</h2>
@@ -184,7 +189,7 @@
           <div id="settingsSchedules" class="settings-section" hidden></div>
         </section>
 
-        <form id="profileForm" class="panel" hidden>
+        <form id="profileForm" class="panel admin-panel surface-hidden" data-surface="settings" hidden>
           <div class="panel-heading">
             <div>
               <h2 id="profileTitle">Story Source</h2>
@@ -243,7 +248,7 @@
           </div>
         </form>
 
-        <section id="manualStoryPanel" class="panel">
+        <section id="manualStoryPanel" class="panel" data-surface="workflow">
           <div class="panel-heading">
             <div>
               <h2>Add Manual Story</h2>
@@ -273,7 +278,7 @@
           </form>
         </section>
 
-        <section id="modelRolesPanel" class="panel">
+        <section id="modelRolesPanel" class="panel admin-panel surface-hidden" data-surface="settings">
           <div class="panel-heading">
             <div>
               <h2>AI Role Settings</h2>
@@ -284,7 +289,7 @@
           <div id="modelProfileList" class="model-grid"></div>
         </section>
 
-        <section id="candidatePanel" class="panel">
+        <section id="candidatePanel" class="panel" data-surface="workflow">
           <div class="panel-heading">
             <div>
               <h2>Candidate Stories</h2>
@@ -326,7 +331,7 @@
           <div id="candidateList" class="record-list"></div>
         </section>
 
-        <section id="researchPanel" class="panel">
+        <section id="researchPanel" class="panel" data-surface="workflow">
           <div class="panel-heading">
             <div>
               <h2>Research Briefs</h2>
@@ -337,7 +342,7 @@
           <div id="researchBriefList" class="record-list"></div>
         </section>
 
-        <section id="schedulerPanel" class="panel">
+        <section id="schedulerPanel" class="panel admin-panel surface-hidden" data-surface="settings">
           <div class="panel-heading">
             <div>
               <h2>Scheduled Pipelines</h2>
@@ -349,7 +354,7 @@
           <div id="failedScheduleRuns" class="scheduler-failures"></div>
         </section>
 
-        <section class="panel job-panel" aria-labelledby="jobRunsTitle">
+        <section id="jobsPanel" class="panel job-panel surface-hidden" data-surface="debug" aria-labelledby="jobRunsTitle">
           <div class="panel-heading">
             <div>
               <h2 id="jobRunsTitle">Task Runs</h2>
@@ -366,7 +371,7 @@
           </div>
         </section>
 
-        <section id="episodePanel" class="panel">
+        <section id="episodePanel" class="panel" data-surface="workflow">
           <div class="panel-heading">
             <div>
               <h2>Episodes</h2>
@@ -377,7 +382,7 @@
           <div id="episodeList" class="record-list"></div>
         </section>
 
-        <section id="reviewPanel" class="panel review-panel" aria-labelledby="reviewTitle">
+        <section id="reviewPanel" class="panel review-panel" data-surface="workflow" aria-labelledby="reviewTitle">
           <div class="panel-heading">
             <div>
               <h2 id="reviewTitle">Review Gates</h2>
@@ -393,7 +398,7 @@
           </div>
         </section>
 
-        <section id="queriesPanel" class="panel" hidden>
+        <section id="queriesPanel" class="panel admin-panel surface-hidden" data-surface="settings" hidden>
           <div class="panel-heading">
             <div>
               <h2>Search Queries</h2>
@@ -408,7 +413,7 @@
           <div id="queryList" class="query-list"></div>
         </section>
 
-        <section id="scriptPanel" class="panel">
+        <section id="scriptPanel" class="panel" data-surface="workflow">
           <div class="panel-heading">
             <div>
               <h2>Scripts</h2>

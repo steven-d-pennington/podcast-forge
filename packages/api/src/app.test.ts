@@ -22,10 +22,15 @@ describe('api config endpoints', () => {
 
     assert.equal(response.statusCode, 200);
     assert.match(response.body, /Podcast Forge Command Center/);
-    assert.match(response.body, /Settings/);
+    assert.match(response.body, /Produce Episode/);
+    assert.match(response.body, /Settings \/ Admin/);
+    assert.match(response.body, /Jobs \/ Debug/);
     assert.match(response.body, /Shows &amp; Feeds/);
     assert.match(response.body, /Prompt Templates/);
     assert.match(response.body, /Editorial Production Workflow/);
+    assert.match(response.body, /data-surface="workflow"/);
+    assert.match(response.body, /data-surface="settings"/);
+    assert.match(response.body, /data-surface="debug"/);
     assert.match(response.body, /nextActionPanel/);
     assert.match(response.body, /8-stage journey from show selection through sourced evidence, script, integrity review, production assets, approval, and publishing/);
   });
@@ -39,6 +44,9 @@ describe('api config endpoints', () => {
     assert.match(response.body, /renderSettings/);
     assert.match(response.body, /saveModelProfile/);
     assert.match(response.body, /renderPipeline/);
+    assert.match(response.body, /activeSurface: 'workflow'/);
+    assert.match(response.body, /setActiveSurface/);
+    assert.match(response.body, /renderSurfaceVisibility/);
     assert.match(response.body, /runSelectedIntegrityReview/);
     assert.match(response.body, /workflowStoryContext/);
     assert.match(response.body, /renderNextAction/);
