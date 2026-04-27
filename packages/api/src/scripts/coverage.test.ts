@@ -244,6 +244,51 @@ describe('claim coverage summary', () => {
     assert.equal(summary.counts.needsAttentionFindings, 1);
   });
 
+  it('reports unknown coverage when citation map entries omit claim IDs', () => {
+    const summary = buildClaimCoverageSummary(
+      packet({
+        claims: [{
+          id: 'claim-line-only-map',
+          text: 'A claim mapped only by line-level citation metadata.',
+          sourceDocumentIds: ['source-1', 'source-2'],
+          citationUrls: ['https://primary.example/source', 'https://independent.example/source'],
+          claimType: 'fact',
+          confidence: 'high',
+          supportLevel: 'corroborated',
+          highStakes: false,
+        }],
+        citations: [{
+          sourceDocumentId: 'source-1',
+          url: 'https://primary.example/source',
+          title: 'Primary source',
+          fetchedAt: '2026-04-20T00:00:00.000Z',
+          status: 'fetched',
+        }, {
+          sourceDocumentId: 'source-2',
+          url: 'https://independent.example/source',
+          title: 'Independent source',
+          fetchedAt: '2026-04-20T00:00:00.000Z',
+          status: 'fetched',
+        }],
+      }),
+      revision({
+        metadata: {
+          citationMap: [{
+            line: 'HOST: A claim mapped only by line-level citation metadata.',
+            sourceDocumentIds: ['source-1', 'source-2'],
+          }],
+          validation: { provenance: { valid: true, warnings: [] } },
+          integrityReview: { status: 'pass', result: { claimIssues: [] } },
+        },
+      }),
+      { now: new Date('2026-04-20T00:00:00Z') },
+    );
+
+    assert.equal(summary.status, 'unknown');
+    assert.ok(summary.unknowns.some((item) => item.code === 'COVERAGE_UNKNOWN_CITATION_MAP_MISSING_CLAIM_IDS'));
+    assert.ok(!summary.needsAttention.some((item) => item.code === 'CLAIM_NOT_MAPPED_TO_SCRIPT'));
+  });
+
   it('reports unknown coverage before non-blocking attention findings', () => {
     const summary = buildClaimCoverageSummary(
       packet({

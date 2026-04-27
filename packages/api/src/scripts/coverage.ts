@@ -566,6 +566,15 @@ function unknownFindings(packet: ResearchPacketRecord, citationMap: CitationMapE
       message: 'Coverage unknown from current metadata: the script revision has no citation map.',
       nextAction: 'Run or rerun script generation/integrity review to produce citation mapping.',
     }));
+  } else if (packet.claims.length > 0 && !citationMap.some((entry) => entry.claimId)) {
+    findings.push(finding({
+      category: 'metadata',
+      status: 'unknown',
+      severity: 'info',
+      code: 'COVERAGE_UNKNOWN_CITATION_MAP_MISSING_CLAIM_IDS',
+      message: 'Coverage unknown from current metadata: the citation map has script lines but no claim IDs.',
+      nextAction: 'Rerun integrity review or rebuild the citation map so claims can be matched to script lines.',
+    }));
   }
 
   return findings;
