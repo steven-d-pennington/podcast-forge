@@ -141,6 +141,7 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
     this.modelProfileRecord('claim_extractor', 'google-vertex', 'gemini-2.5-flash'),
     this.modelProfileRecord('research_synthesizer', 'google-gemini-cli', 'gemini-3-pro-preview'),
     this.modelProfileRecord('script_writer', 'openai-codex', 'gpt-5.3-codex'),
+    this.modelProfileRecord('script_editor', 'openai-codex', 'gpt-5.3-codex'),
     this.modelProfileRecord('integrity_reviewer', 'openai', 'gpt-5.5'),
     this.modelProfileRecord('cover_prompt_writer', 'openai', 'gpt-5.5'),
   ];
@@ -883,6 +884,7 @@ let uploadedPublishAssets: Array<{ feedId: string; episodeId: string; assetId: s
 let rssEntries = new Map<string, RssEpisodeEntry>();
 let validatedPublishUrls: string[] = [];
 let scriptLlmMode: 'valid' | 'malformed' | 'unknown-speaker' = 'valid';
+let scriptEditorMode: 'valid' | 'malformed' | 'unknown-speaker' = 'valid';
 let integrityReviewMode: 'pass' | 'notes' | 'fail' = 'pass';
 
 function quotedValue(content: string, key: string): string | undefined {
@@ -891,6 +893,37 @@ function quotedValue(content: string, key: string): string | undefined {
 }
 
 function scriptWriterResult(request: LlmProviderRequest): LlmProviderResult {
+  if (request.attempt.role === 'script_editor') {
+    if (scriptEditorMode === 'malformed') {
+      return { text: 'not json', rawOutput: 'not json', metadata: { adapter: 'test-fake-script-editor' } };
+    }
+
+    const body = scriptEditorMode === 'unknown-speaker'
+      ? 'BOGUS: This coached draft uses a speaker outside the configured show cast.'
+      : [
+        'DAVID: According to the captured source, this update remains preliminary while editors review the evidence.',
+        'INGRID: The revised intro keeps uncertainty visible and avoids declaring conclusions the packet has not settled.',
+        'MARCUS: The next step is a fresh integrity review before production.',
+      ].join('\n');
+    const output = {
+      title: 'Coached Story Script',
+      body,
+      changeSummary: 'Reduced certainty and made source limits clearer.',
+      speakers: scriptEditorMode === 'unknown-speaker' ? ['BOGUS'] : ['DAVID', 'INGRID', 'MARCUS'],
+      resolvedWarnings: ['unsupported_certainty'],
+      remainingWarnings: [],
+    };
+    const text = JSON.stringify(output);
+
+    return {
+      text,
+      rawOutput: text,
+      metadata: { adapter: 'test-fake-script-editor' },
+      usage: { inputTokens: 11, outputTokens: 17, totalTokens: 28 },
+      cost: { usd: 0, currency: 'USD' },
+    };
+  }
+
   if (request.attempt.role === 'integrity_reviewer') {
     const outputs = {
       pass: {
@@ -1245,6 +1278,7 @@ describe('source profile routes', () => {
     rssEntries = new Map<string, RssEpisodeEntry>();
     validatedPublishUrls = [];
     scriptLlmMode = 'valid';
+    scriptEditorMode = 'valid';
     integrityReviewMode = 'pass';
   });
 
@@ -2394,6 +2428,196 @@ describe('source profile routes', () => {
 
     assert.equal(audioResponse.statusCode, 409);
     assert.equal(audioResponse.json().code, 'INTEGRITY_REVIEW_REQUIRED');
+  });
+
+  it('creates a new draft revision from an AI coaching action', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Coaching Story',
+      status: 'approved',
+      sourceDocumentIds: ['source-document-1'],
+      claims: [{ id: 'claim-1', text: 'A coaching claim exists.', sourceDocumentIds: ['source-document-1'], citationUrls: ['https://example.com/coaching'] }],
+      citations: [{
+        sourceDocumentId: 'source-document-1',
+        url: 'https://example.com/coaching',
+        title: 'Coaching Source',
+        fetchedAt: '2026-01-04T00:00:00.000Z',
+        status: 'fetched',
+      }],
+      warnings: [],
+      content: { summary: 'A packet summary for script coaching.' },
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+    const coachResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/coach`,
+      payload: {
+        action: 'reduce_certainty',
+        actor: 'editor@example.com',
+      },
+    });
+    const coached = coachResponse.json();
+
+    assert.equal(coachResponse.statusCode, 201);
+    assert.equal(coached.revision.version, 2);
+    assert.notEqual(coached.revision.id, initial.revision.id);
+    assert.match(coached.revision.changeSummary, /AI coaching: Reduce certainty/);
+    assert.match(coached.revision.body, /preliminary/);
+    assert.equal(coached.revision.author, 'editor@example.com');
+    assert.equal(coached.script.status, 'draft');
+    assert.equal(coached.script.approvedRevisionId, null);
+    assert.equal(coached.revision.metadata.source, 'llm-coaching');
+    assert.deepEqual(coached.revision.metadata.coachingAction, {
+      action: 'reduce_certainty',
+      label: 'Reduce certainty',
+      description: 'Soften claims that are stronger than the evidence and add caveats where the packet is incomplete.',
+    });
+    assert.equal(coached.revision.metadata.integrityReview, undefined);
+    assert.equal(coached.revision.metadata.citationMap, undefined);
+    assert.equal(coached.revision.metadata.provenance, undefined);
+    assert.deepEqual(coached.revision.metadata.staleCitationMap, initial.revision.metadata.citationMap);
+    assert.equal((coached.revision.metadata.provenanceStatus as { status: string }).status, 'stale');
+    assert.equal((coached.revision.metadata.provenanceStatus as { reason: string }).reason, 'ai_coaching');
+    assert.equal(coached.revision.metadata.validation.speakerLabels.valid, true);
+  });
+
+  it('rejects unsupported AI coaching actions', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Unsupported Coaching Story',
+      status: 'approved',
+      sourceDocumentIds: [],
+      claims: [{ id: 'claim-1', text: 'A claim exists.', sourceDocumentIds: [], citationUrls: ['https://example.com/unsupported-coaching'] }],
+      citations: [],
+      warnings: [],
+      content: { summary: 'A packet summary for unsupported action testing.' },
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+    const coachResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/coach`,
+      payload: {
+        action: 'make_it_viral',
+        actor: 'editor@example.com',
+      },
+    });
+
+    assert.equal(coachResponse.statusCode, 400);
+    assert.equal(coachResponse.json().code, 'VALIDATION_ERROR');
+    assert.equal(store.scriptRevisions.length, 1);
+  });
+
+  it('does not carry prior approval or integrity review forward after AI coaching', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Approved Coaching Story',
+      status: 'approved',
+      sourceDocumentIds: ['source-document-1'],
+      claims: [{ id: 'claim-1', text: 'An approved coaching claim exists.', sourceDocumentIds: ['source-document-1'], citationUrls: ['https://example.com/approved-coaching'] }],
+      citations: [{
+        sourceDocumentId: 'source-document-1',
+        url: 'https://example.com/approved-coaching',
+        title: 'Approved Coaching Source',
+        fetchedAt: '2026-01-04T00:00:00.000Z',
+        status: 'fetched',
+      }],
+      warnings: [],
+      content: { summary: 'A packet summary for approved coaching testing.' },
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+    const integrityResponse = await runIntegrityReview(initial.script.id, initial.revision.id);
+
+    assert.equal(integrityResponse.statusCode, 201);
+    assert.equal(integrityResponse.json().integrityReview.status, 'pass');
+
+    const initialApproval = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/approve-for-audio`,
+      payload: { actor: 'producer@example.com', reason: 'Initial revision reviewed.' },
+    });
+    assert.equal(initialApproval.statusCode, 200);
+    assert.equal(initialApproval.json().script.approvedRevisionId, initial.revision.id);
+
+    const coachResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/coach`,
+      payload: {
+        action: 'add_attribution',
+        actor: 'editor@example.com',
+      },
+    });
+    const coached = coachResponse.json();
+
+    assert.equal(coachResponse.statusCode, 201);
+    assert.equal(coached.script.status, 'draft');
+    assert.equal(coached.script.approvedRevisionId, null);
+    assert.equal(coached.script.approvedAt, null);
+    assert.equal(coached.revision.metadata.integrityReview, undefined);
+    assert.equal(coached.revision.metadata.previousApprovedRevisionId, initial.revision.id);
+    assert.deepEqual(coached.revision.metadata.previousIntegrityReviewSnapshot, integrityResponse.json().integrityReview);
+    assert.deepEqual(coached.revision.metadata.staleCitationMap, initial.revision.metadata.citationMap);
+    assert.equal((coached.revision.metadata.provenanceStatus as { previousApprovedRevisionId: string }).previousApprovedRevisionId, initial.revision.id);
+
+    const audioResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${coached.script.id}/production/audio-preview`,
+      payload: { actor: 'producer@example.com' },
+    });
+
+    assert.equal(audioResponse.statusCode, 409);
+    assert.equal(audioResponse.json().code, 'SCRIPT_NOT_APPROVED_FOR_AUDIO');
+  });
+
+  it('fails safely when AI coaching returns malformed output', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Malformed Coaching Story',
+      status: 'approved',
+      sourceDocumentIds: ['source-document-1'],
+      claims: [{ id: 'claim-1', text: 'A malformed coaching claim exists.', sourceDocumentIds: ['source-document-1'], citationUrls: ['https://example.com/malformed-coaching'] }],
+      citations: [{
+        sourceDocumentId: 'source-document-1',
+        url: 'https://example.com/malformed-coaching',
+        title: 'Malformed Coaching Source',
+        fetchedAt: '2026-01-04T00:00:00.000Z',
+        status: 'fetched',
+      }],
+      warnings: [],
+      content: { summary: 'A packet summary for malformed coaching testing.' },
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+    const initialApproval = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/approve-for-audio`,
+      payload: { actor: 'producer@example.com', reason: 'Approved before failed coaching.' },
+    });
+    assert.equal(initialApproval.statusCode, 200);
+
+    scriptEditorMode = 'malformed';
+    const revisionCount = store.scriptRevisions.length;
+    const coachResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/coach`,
+      payload: {
+        action: 'reduce_sensationalism',
+        actor: 'editor@example.com',
+      },
+    });
+    const scriptAfterFailure = await store.getScript(initial.script.id);
+
+    assert.equal(coachResponse.statusCode, 502);
+    assert.equal(coachResponse.json().code, 'MALFORMED_MODEL_OUTPUT');
+    assert.equal(store.scriptRevisions.length, revisionCount);
+    assert.equal(scriptAfterFailure?.status, 'approved-for-audio');
+    assert.equal(scriptAfterFailure?.approvedRevisionId, initial.revision.id);
   });
 
   it('runs and persists a passing integrity review for a script revision', async () => {

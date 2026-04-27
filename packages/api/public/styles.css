@@ -720,6 +720,41 @@ textarea {
   min-width: 0;
 }
 
+.script-coaching {
+  border-top: 1px solid #d8dde5;
+  display: grid;
+  gap: 0.65rem;
+  padding-top: 0.85rem;
+}
+
+.script-coaching-heading h3 {
+  font-size: 0.95rem;
+  margin: 0 0 0.2rem;
+}
+
+.script-coaching-grid {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.coaching-action {
+  align-items: start;
+  display: grid;
+  gap: 0.2rem;
+  justify-items: start;
+  min-height: 5.25rem;
+  text-align: left;
+  white-space: normal;
+}
+
+.coaching-action span {
+  color: #4b5563;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
 .production-panel {
   border-top: 1px solid #d8dde5;
   margin-top: 0.5rem;
@@ -1320,6 +1355,7 @@ textarea {
   .manual-form,
   .script-generate,
   .script-workspace,
+  .script-coaching-grid,
   .review-grid,
   .asset-preview-grid,
   .job-layout,

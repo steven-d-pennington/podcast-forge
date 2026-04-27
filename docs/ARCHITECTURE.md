@@ -110,6 +110,11 @@ Public publishing requires:
 - publish target configured.
 - user-triggered publish action.
 
+AI script coaching uses the `script_editor` role only to create a new draft
+revision. Coaching never mutates an existing revision, never carries prior
+script approval forward, and marks citation/provenance/integrity metadata stale
+so the normal review and approval gates still apply before production.
+
 Scheduled pipeline publishing follows the same rule. A recurring pipeline can
 prepare or queue publish work, but RSS publication stays blocked on approval
 unless the schedule is explicitly configured for autopublish.
