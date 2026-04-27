@@ -1330,8 +1330,8 @@ describe('source profile routes', () => {
         enabled: false,
         weight: 1.75,
         freshness: 'pw',
-        includeDomains: ['openai.com'],
-        excludeDomains: ['example.com'],
+        includeDomains: ['https://OpenAI.com/news', 'openai.com'],
+        excludeDomains: ['https://Example.com/path'],
       },
     });
     const body = response.json();
@@ -1341,6 +1341,26 @@ describe('source profile routes', () => {
     assert.equal(body.sourceProfile.weight, 1.75);
     assert.deepEqual(body.sourceProfile.includeDomains, ['openai.com']);
     assert.deepEqual(body.sourceProfile.excludeDomains, ['example.com']);
+  });
+
+  it('clears source controls when a profile is changed to an unsupported type', async () => {
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/source-profiles/22222222-2222-4222-8222-222222222222',
+      payload: {
+        type: 'manual',
+        freshness: 'pw',
+        includeDomains: ['openai.com'],
+        excludeDomains: ['example.com'],
+      },
+    });
+    const body = response.json();
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(body.sourceProfile.type, 'manual');
+    assert.equal(body.sourceProfile.freshness, null);
+    assert.deepEqual(body.sourceProfile.includeDomains, []);
+    assert.deepEqual(body.sourceProfile.excludeDomains, []);
   });
 
   it('filters disabled queries from enabledOnly reads', async () => {
@@ -1385,7 +1405,7 @@ describe('source profile routes', () => {
         enabled: true,
         weight: 2,
         freshness: 'pd',
-        includeDomains: ['techcrunch.com'],
+        includeDomains: ['https://TechCrunch.com/startups'],
         excludeDomains: [],
       },
     });

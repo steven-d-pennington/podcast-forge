@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 
 import { buildApp } from '../app.js';
 import type { BraveFetch } from './brave.js';
+import type { RssFetch } from './rss.js';
 import type { CandidateScorer, CandidateScoringRequest } from './scoring.js';
 import type {
   CreateJobInput,
@@ -241,6 +242,16 @@ function braveFetch(results: Array<Record<string, unknown>>): BraveFetch {
   });
 }
 
+function rssFetch(xml: string): RssFetch {
+  return async () => ({
+    ok: true,
+    status: 200,
+    async text() {
+      return xml;
+    },
+  });
+}
+
 const deterministicScorer: CandidateScorer = {
   async score(request: CandidateScoringRequest) {
     if (request.candidate.title.includes('Fail')) {
@@ -271,6 +282,102 @@ const deterministicScorer: CandidateScorer = {
 };
 
 describe('search routes candidate scoring', () => {
+  it('enforces Brave include and exclude domains without substring overmatching', async () => {
+    const store = new FakeSearchStore();
+    store.profiles[0].includeDomains = ['https://AI.com/news'];
+    store.profiles[0].excludeDomains = ['blocked.ai.com'];
+    const app = buildApp({
+      sourceStore: store,
+      braveApiKey: 'test-key',
+      fetchImpl: braveFetch([
+        {
+          title: 'Allowed subdomain story',
+          url: 'https://news.ai.com/story',
+          description: 'A matching subdomain should pass.',
+          age: '2099-04-26T00:00:00Z',
+          meta_url: { hostname: 'news.ai.com' },
+        },
+        {
+          title: 'Unsafe substring story',
+          url: 'https://notai.com/story',
+          description: 'A bare substring must not match ai.com.',
+          age: '2099-04-26T00:00:00Z',
+          meta_url: { hostname: 'notai.com' },
+        },
+        {
+          title: 'Blocked subdomain story',
+          url: 'https://blocked.ai.com/story',
+          description: 'Excluded domains should be filtered.',
+          age: '2099-04-26T00:00:00Z',
+          meta_url: { hostname: 'blocked.ai.com' },
+        },
+      ]),
+    });
+
+    try {
+      const response = await app.inject({ method: 'POST', url: '/source-profiles/22222222-2222-4222-8222-222222222222/search' });
+      const body = response.json();
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(body.inserted, 1);
+      assert.equal(body.candidates[0].url, 'https://news.ai.com/story');
+      assert.deepEqual(body.candidates[0].metadata.sourceControls.applied.includeDomains, ['ai.com']);
+      assert.equal(body.job.output.sourceControls.dropped.includeDomain, 1);
+      assert.equal(body.job.output.sourceControls.dropped.excludeDomain, 1);
+      assert.match(JSON.stringify(body.job.logs), /sourceControls/);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('enforces RSS domain filters and drops stale dated items while warning on undated items', async () => {
+    const store = new FakeSearchStore();
+    store.profiles[0] = {
+      ...store.profiles[0],
+      slug: 'rss-news',
+      name: 'RSS News',
+      type: 'rss',
+      freshness: 'pw',
+      includeDomains: ['ai.com'],
+      excludeDomains: ['blocked.ai.com'],
+    };
+    store.queries[0] = {
+      ...store.queries[0],
+      query: 'https://feeds.example.com/rss.xml',
+      freshness: null,
+    };
+    const app = buildApp({
+      sourceStore: store,
+      rssFetchImpl: rssFetch(`
+        <rss><channel><title>AI Feed</title>
+          <item><title>Allowed fresh story</title><link>https://news.ai.com/fresh</link><pubDate>Tue, 26 Apr 2099 00:00:00 GMT</pubDate></item>
+          <item><title>Allowed old story</title><link>https://news.ai.com/old</link><pubDate>Tue, 26 Apr 2000 00:00:00 GMT</pubDate></item>
+          <item><title>Allowed undated story</title><link>https://ai.com/undated</link></item>
+          <item><title>Substring story</title><link>https://notai.com/story</link><pubDate>Tue, 26 Apr 2099 00:00:00 GMT</pubDate></item>
+          <item><title>Blocked story</title><link>https://blocked.ai.com/story</link><pubDate>Tue, 26 Apr 2099 00:00:00 GMT</pubDate></item>
+        </channel></rss>
+      `),
+    });
+
+    try {
+      const response = await app.inject({ method: 'POST', url: '/source-profiles/22222222-2222-4222-8222-222222222222/ingest' });
+      const body = response.json();
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(body.inserted, 2);
+      assert.deepEqual(body.candidates.map((candidate: { title: string }) => candidate.title), [
+        'Allowed fresh story',
+        'Allowed undated story',
+      ]);
+      assert.equal(body.job.output.sourceControls.dropped.freshness, 1);
+      assert.equal(body.job.output.sourceControls.dropped.includeDomain, 1);
+      assert.equal(body.job.output.sourceControls.dropped.excludeDomain, 1);
+      assert.match(JSON.stringify(body.job.output.sourceControls.warnings), /FRESHNESS_UNVERIFIED/);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('persists scoring metadata and returns score-sorted candidates by default', async () => {
     const store = new FakeSearchStore();
     const app = buildApp({

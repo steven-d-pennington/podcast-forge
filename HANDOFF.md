@@ -406,7 +406,7 @@ Recommended order:
 3. #45 — PF2-02 Add always-visible next-best-action and blocker explanations
 4. #46 — PF2-03 Move admin/settings/debug surfaces out of the production flow
 5. #51 — PF2-08 Fix script edit provenance and citation-map invalidation
-6. #50 — PF2-07 Enforce source query domain/freshness controls or remove dead UI fields
+6. #50 — PF2-07 Enforce source query domain/freshness controls or remove dead UI fields ✅ implemented locally on `issue-50-source-controls`; `npm run check` passed. Commit/push may need recovery if sandbox `.git` permissions block writes.
 7. #52 — PF2-09 Harden publishing validation and scheduled-run status semantics
 8. #47 — PF2-04 Add AI story brief / episode plan assistant
 9. #48 — PF2-05 Add AI source-gap and claim-coverage surfacing in review UI

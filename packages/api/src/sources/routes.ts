@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z, ZodError } from 'zod';
 
+import { normalizeDomainList } from '../search/controls.js';
 import type {
   CreateSourceProfileInput,
   CreateSourceQueryInput,
@@ -82,6 +83,60 @@ class ApiError extends Error {
   ) {
     super(message);
   }
+}
+
+function supportsDiscoveryControls(type: z.infer<typeof sourceTypeSchema> | undefined): boolean {
+  return type === 'brave' || type === 'rss';
+}
+
+function normalizeProfileCreateInput(body: z.infer<typeof profileCreateSchema>): Omit<CreateSourceProfileInput, 'showId'> {
+  return {
+    slug: body.slug,
+    name: body.name,
+    type: body.type,
+    enabled: body.enabled,
+    weight: body.weight,
+    freshness: supportsDiscoveryControls(body.type) ? body.freshness : null,
+    includeDomains: supportsDiscoveryControls(body.type) ? normalizeDomainList(body.includeDomains) : [],
+    excludeDomains: supportsDiscoveryControls(body.type) ? normalizeDomainList(body.excludeDomains) : [],
+    rateLimit: body.rateLimit,
+    config: body.config,
+  };
+}
+
+function normalizeProfilePatchInput(input: z.infer<typeof profilePatchSchema>): UpdateSourceProfileInput {
+  const output: UpdateSourceProfileInput = { ...input };
+  const controlsSupported = supportsDiscoveryControls(output.type);
+
+  if (controlsSupported || output.type === undefined) {
+    if ('includeDomains' in output) {
+      output.includeDomains = normalizeDomainList(output.includeDomains);
+    }
+
+    if ('excludeDomains' in output) {
+      output.excludeDomains = normalizeDomainList(output.excludeDomains);
+    }
+  } else {
+    output.freshness = null;
+    output.includeDomains = [];
+    output.excludeDomains = [];
+  }
+
+  return output;
+}
+
+function normalizeQueryInput<T extends CreateSourceQueryInput | UpdateSourceQueryInput>(input: T): T {
+  const output = { ...input };
+
+  if ('includeDomains' in output) {
+    output.includeDomains = normalizeDomainList(output.includeDomains);
+  }
+
+  if ('excludeDomains' in output) {
+    output.excludeDomains = normalizeDomainList(output.excludeDomains);
+  }
+
+  return output as T;
 }
 
 export interface SourceRoutesOptions {
@@ -198,17 +253,8 @@ export function registerSourceRoutes(app: FastifyInstance, options: SourceRoutes
       const store = getStore();
       const showId = await resolveShowId(store, body.showId, body.showSlug);
       const input: CreateSourceProfileInput = {
+        ...normalizeProfileCreateInput(body),
         showId,
-        slug: body.slug,
-        name: body.name,
-        type: body.type,
-        enabled: body.enabled,
-        weight: body.weight,
-        freshness: body.freshness,
-        includeDomains: body.includeDomains,
-        excludeDomains: body.excludeDomains,
-        rateLimit: body.rateLimit,
-        config: body.config,
       };
       const profile = await store.createSourceProfile(input);
 
@@ -220,7 +266,7 @@ export function registerSourceRoutes(app: FastifyInstance, options: SourceRoutes
 
   app.patch<{ Params: { id: string } }>('/source-profiles/:id', async (request, reply) => {
     try {
-      const input = parseBody(profilePatchSchema, request.body) as UpdateSourceProfileInput;
+      const input = normalizeProfilePatchInput(parseBody(profilePatchSchema, request.body));
       const profile = await getStore().updateSourceProfile(request.params.id, input);
 
       if (!profile) {
@@ -256,7 +302,7 @@ export function registerSourceRoutes(app: FastifyInstance, options: SourceRoutes
 
   app.post<{ Params: { id: string } }>('/source-profiles/:id/queries', async (request, reply) => {
     try {
-      const input = parseBody(queryCreateSchema, request.body) as CreateSourceQueryInput;
+      const input = normalizeQueryInput(parseBody(queryCreateSchema, request.body) as CreateSourceQueryInput);
       const query = await getStore().createSourceQuery(request.params.id, input);
 
       if (!query) {
@@ -271,7 +317,7 @@ export function registerSourceRoutes(app: FastifyInstance, options: SourceRoutes
 
   app.patch<{ Params: { id: string } }>('/source-queries/:id', async (request, reply) => {
     try {
-      const input = parseBody(queryPatchSchema, request.body) as UpdateSourceQueryInput;
+      const input = normalizeQueryInput(parseBody(queryPatchSchema, request.body) as UpdateSourceQueryInput);
       const query = await getStore().updateSourceQuery(request.params.id, input);
 
       if (!query) {

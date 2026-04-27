@@ -301,6 +301,43 @@ function listToLines(value) {
   return (value || []).join('\n');
 }
 
+function sourceControlsSupported(type) {
+  return type === 'brave' || type === 'rss';
+}
+
+function sourceControlHelp(type) {
+  if (type === 'brave') {
+    return 'Freshness is sent to Brave. Domain filters are enforced after results return.';
+  }
+
+  if (type === 'rss') {
+    return 'Domain filters are enforced on item URLs. Freshness is checked when feed items include published dates.';
+  }
+
+  return 'Freshness and domain filters are not applied for manual or local JSON sources.';
+}
+
+function applySourceControlState(root, type) {
+  const supported = sourceControlsSupported(type);
+  const fields = [
+    root.querySelector('[name="freshness"], #profileFreshness'),
+    root.querySelector('[name="includeDomains"], #profileIncludeDomains'),
+    root.querySelector('[name="excludeDomains"], #profileExcludeDomains'),
+  ].filter(Boolean);
+
+  for (const field of fields) {
+    field.disabled = !supported;
+    if (!supported) {
+      field.value = '';
+    }
+  }
+
+  const help = root.querySelector('[data-source-control-help]');
+  if (help) {
+    help.textContent = sourceControlHelp(type);
+  }
+}
+
 function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
@@ -1051,6 +1088,7 @@ function renderProfileForm() {
   els.profileFreshness.value = profile.freshness || '';
   els.profileIncludeDomains.value = listToLines(profile.includeDomains);
   els.profileExcludeDomains.value = listToLines(profile.excludeDomains);
+  applySourceControlState(els.profileForm, profile.type);
   els.ingestProfile.hidden = profile.type !== 'rss';
 }
 
@@ -1850,6 +1888,7 @@ function renderQueries() {
           <textarea name="excludeDomains" rows="2"></textarea>
         </label>
       </div>
+      <p class="help" data-source-control-help></p>
       <div class="actions">
         <button type="submit">Save Search Query</button>
       </div>
@@ -1861,10 +1900,11 @@ function renderQueries() {
     form.elements.freshness.value = query.freshness || '';
     form.elements.includeDomains.value = listToLines(query.includeDomains);
     form.elements.excludeDomains.value = listToLines(query.excludeDomains);
+    applySourceControlState(form, selectedProfile()?.type);
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      await saveQuery(query.id, form);
+      await saveQuery(query.id, form, selectedProfile());
     });
     form.elements.delete.addEventListener('click', async () => {
       await deleteQuery(query.id);
@@ -2347,7 +2387,7 @@ function renderSettingsSources() {
       <div class="settings-card-heading">
         <div>
           <h3></h3>
-          <p class="help">Freshness limits result age; weight affects ranking. Domain filters keep source discovery focused.</p>
+          <p class="help" data-source-control-help></p>
         </div>
         <button type="submit">Save Story Source</button>
       </div>
@@ -2373,6 +2413,8 @@ function renderSettingsSources() {
     form.elements.enabled.checked = profile.enabled;
     form.elements.includeDomains.value = listToLines(profile.includeDomains);
     form.elements.excludeDomains.value = listToLines(profile.excludeDomains);
+    applySourceControlState(form, profile.type);
+    form.elements.type.addEventListener('change', () => applySourceControlState(form, form.elements.type.value));
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       await saveProfileForm(profile.id, form);
@@ -2396,7 +2438,7 @@ function renderSettingsSources() {
     if (state.selectedProfileId === profile.id) {
       queryPanel.append(adminNewQueryForm(profile.id));
       for (const query of queries) {
-        queryPanel.append(adminQueryForm(query));
+        queryPanel.append(adminQueryForm(query, profile));
       }
     }
     els.settingsSources.append(queryPanel);
@@ -2417,7 +2459,7 @@ function adminNewQueryForm(profileId) {
   return form;
 }
 
-function adminQueryForm(query) {
+function adminQueryForm(query, profile = selectedProfile()) {
   const form = document.createElement('form');
   form.className = `query-card${query.enabled ? '' : ' disabled'}`;
   form.innerHTML = `
@@ -2432,6 +2474,7 @@ function adminQueryForm(query) {
       <label class="field"><span>Include domains</span><textarea name="includeDomains" rows="2"></textarea></label>
       <label class="field"><span>Exclude domains</span><textarea name="excludeDomains" rows="2"></textarea></label>
     </div>
+    <p class="help" data-source-control-help></p>
     <div class="actions"><button type="submit">Save Search Query</button></div>
   `;
   form.elements.enabled.checked = query.enabled;
@@ -2440,9 +2483,10 @@ function adminQueryForm(query) {
   form.elements.freshness.value = query.freshness || '';
   form.elements.includeDomains.value = listToLines(query.includeDomains);
   form.elements.excludeDomains.value = listToLines(query.excludeDomains);
+  applySourceControlState(form, profile?.type);
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    await saveQuery(query.id, form);
+    await saveQuery(query.id, form, profile);
   });
   form.elements.delete.addEventListener('click', async () => {
     await deleteQuery(query.id);
@@ -4244,15 +4288,18 @@ async function saveFeedSettings(id, form) {
 }
 
 function profilePayloadFromForm(form) {
+  const type = form.elements.type.value;
+  const controlsSupported = sourceControlsSupported(type);
+
   return {
     enabled: form.elements.enabled.checked,
     name: form.elements.name.value.trim(),
     slug: slugify(form.elements.slug.value.trim()),
-    type: form.elements.type.value,
+    type,
     weight: Number(form.elements.weight.value),
-    freshness: maybeNull(form.elements.freshness.value),
-    includeDomains: linesToList(form.elements.includeDomains.value),
-    excludeDomains: linesToList(form.elements.excludeDomains.value),
+    freshness: controlsSupported ? maybeNull(form.elements.freshness.value) : null,
+    includeDomains: controlsSupported ? linesToList(form.elements.includeDomains.value) : [],
+    excludeDomains: controlsSupported ? linesToList(form.elements.excludeDomains.value) : [],
   };
 }
 
@@ -4291,13 +4338,14 @@ async function createQueryForProfile(profileId, form) {
 
   try {
     const profile = state.profiles.find((candidate) => candidate.id === profileId);
+    const controlsSupported = sourceControlsSupported(profile?.type);
     const body = await api(`/source-profiles/${profileId}/queries`, {
       method: 'POST',
       body: JSON.stringify({
         query,
         enabled: true,
         weight: 1,
-        freshness: profile?.freshness || null,
+        freshness: controlsSupported ? profile?.freshness || null : null,
         includeDomains: [],
         excludeDomains: [],
       }),
@@ -4495,15 +4543,16 @@ async function saveProfile(event) {
     return;
   }
 
+  const controlsSupported = sourceControlsSupported(els.profileType.value);
   const payload = {
     enabled: els.profileEnabled.checked,
     name: els.profileName.value.trim(),
     slug: els.profileSlug.value.trim(),
     type: els.profileType.value,
     weight: Number(els.profileWeight.value),
-    freshness: els.profileFreshness.value.trim() || null,
-    includeDomains: linesToList(els.profileIncludeDomains.value),
-    excludeDomains: linesToList(els.profileExcludeDomains.value),
+    freshness: controlsSupported ? els.profileFreshness.value.trim() || null : null,
+    includeDomains: controlsSupported ? linesToList(els.profileIncludeDomains.value) : [],
+    excludeDomains: controlsSupported ? linesToList(els.profileExcludeDomains.value) : [],
   };
 
   try {
@@ -4579,14 +4628,15 @@ async function submitManualUrl(event) {
   }
 }
 
-async function saveQuery(id, form) {
+async function saveQuery(id, form, profile = selectedProfile()) {
+  const controlsSupported = sourceControlsSupported(profile?.type);
   const payload = {
     enabled: form.elements.enabled.checked,
     query: form.elements.query.value.trim(),
     weight: Number(form.elements.weight.value),
-    freshness: form.elements.freshness.value.trim() || null,
-    includeDomains: linesToList(form.elements.includeDomains.value),
-    excludeDomains: linesToList(form.elements.excludeDomains.value),
+    freshness: controlsSupported ? form.elements.freshness.value.trim() || null : null,
+    includeDomains: controlsSupported ? linesToList(form.elements.includeDomains.value) : [],
+    excludeDomains: controlsSupported ? linesToList(form.elements.excludeDomains.value) : [],
   };
   try {
     const body = await api(`/source-queries/${id}`, {
@@ -4610,13 +4660,15 @@ async function createQuery(event) {
   }
 
   try {
+    const profile = selectedProfile();
+    const controlsSupported = sourceControlsSupported(profile?.type);
     const body = await api(`/source-profiles/${state.selectedProfileId}/queries`, {
       method: 'POST',
       body: JSON.stringify({
         query: els.newQueryText.value.trim(),
         enabled: true,
         weight: 1,
-        freshness: selectedProfile()?.freshness || null,
+        freshness: controlsSupported ? profile?.freshness || null : null,
         includeDomains: [],
         excludeDomains: [],
       }),
@@ -5052,6 +5104,7 @@ els.showSelect.addEventListener('change', async () => {
   render();
 });
 els.profileForm.addEventListener('submit', saveProfile);
+els.profileType.addEventListener('change', () => applySourceControlState(els.profileForm, els.profileType.value));
 els.ingestProfile.addEventListener('click', ingestSelectedProfile);
 els.manualForm.addEventListener('submit', submitManualUrl);
 els.candidateClusterForm.addEventListener('submit', async (event) => {
