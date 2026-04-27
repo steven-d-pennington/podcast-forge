@@ -67,6 +67,7 @@ function openConfirmationDialog({
     dialog.setAttribute('aria-modal', 'true');
     dialog.setAttribute('aria-labelledby', `${dialogId}-title`);
     dialog.setAttribute('aria-describedby', `${dialogId}-description`);
+    dialog.tabIndex = -1;
 
     const form = document.createElement('form');
     form.className = 'confirmation-form';
@@ -105,6 +106,11 @@ function openConfirmationDialog({
       }
       field.append(label, reasonInput);
       form.append(field);
+      reasonInput.addEventListener('input', () => {
+        status.hidden = true;
+        status.textContent = '';
+        reasonInput.removeAttribute('aria-invalid');
+      });
     }
 
     const status = document.createElement('p');
@@ -140,10 +146,36 @@ function openConfirmationDialog({
       resolve(value);
     };
 
+    function dialogFocusableElements() {
+      return Array.from(dialog.querySelectorAll('button, input, textarea, select, a[href], [tabindex]:not([tabindex="-1"])'))
+        .filter((element) => !element.disabled && element.offsetParent !== null);
+    }
+
+    function trapFocus(event) {
+      const focusable = dialogFocusableElements();
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
     function onKeydown(event) {
       if (event.key === 'Escape') {
         event.preventDefault();
         close(null);
+      } else if (event.key === 'Tab') {
+        trapFocus(event);
       }
     }
 
@@ -159,7 +191,7 @@ function openConfirmationDialog({
       if (requireReason && !reason) {
         status.hidden = false;
         status.textContent = emptyReasonMessage;
-        setStatus(emptyReasonMessage);
+        reasonInput?.setAttribute('aria-invalid', 'true');
         reasonInput?.focus();
         return;
       }
