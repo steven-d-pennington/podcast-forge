@@ -413,4 +413,4 @@ Recommended order:
 10. #49 — PF2-06 Add AI rewrite/coaching actions for scripts without bypassing approval ✅ merged (#65)
 11. #53 — PF2-10 Split UI state/render helpers into testable modules or sections ✅ merged (#66)
 12. #54 — PF2-11 Replace destructive/critical prompts with explicit confirmation dialogs ✅ merged (#68)
-13. #55 — PF2-12 Add local UI smoke checks for the guided flow 🚧 active on branch `issue-55-guided-flow-smoke-checks`; `npm run check` passed locally.
+13. #55 — PF2-12 Add local UI smoke checks for the guided flow ✅ merged (#69)
