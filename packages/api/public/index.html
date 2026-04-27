@@ -41,17 +41,18 @@
       </aside>
 
       <section class="workspace">
-        <section class="panel pipeline-panel" aria-labelledby="pipelineTitle">
+        <section id="workflowPanel" class="panel pipeline-panel" aria-labelledby="pipelineTitle">
           <div class="panel-heading">
             <div>
-              <h2 id="pipelineTitle">Guided Episode Pipeline</h2>
+              <h2 id="pipelineTitle">Editorial Production Workflow</h2>
               <p id="pipelineMeta">Choose a show to start an evidence-first episode workflow.</p>
-              <p class="help">Work from story sources to candidate stories, research briefs, script drafts, integrity review, audio/cover preview, review decisions, and RSS publishing.</p>
+              <p class="help">Follow the 8-stage journey from show selection through sourced evidence, script, integrity review, production assets, approval, and publishing.</p>
             </div>
           </div>
+          <div id="workflowContext" class="workflow-context" aria-live="polite"></div>
           <div id="pipelineStages" class="pipeline-grid"></div>
           <details class="debug-details pipeline-debug">
-            <summary>Selected IDs and technical details</summary>
+            <summary>Technical IDs</summary>
             <pre id="pipelineDebug"></pre>
           </details>
         </section>
@@ -241,7 +242,7 @@
           </div>
         </form>
 
-        <section class="panel">
+        <section id="manualStoryPanel" class="panel">
           <div class="panel-heading">
             <div>
               <h2>Add Manual Story</h2>
@@ -271,7 +272,7 @@
           </form>
         </section>
 
-        <section class="panel">
+        <section id="modelRolesPanel" class="panel">
           <div class="panel-heading">
             <div>
               <h2>AI Role Settings</h2>
@@ -282,7 +283,7 @@
           <div id="modelProfileList" class="model-grid"></div>
         </section>
 
-        <section class="panel">
+        <section id="candidatePanel" class="panel">
           <div class="panel-heading">
             <div>
               <h2>Candidate Stories</h2>
@@ -324,7 +325,7 @@
           <div id="candidateList" class="record-list"></div>
         </section>
 
-        <section class="panel">
+        <section id="researchPanel" class="panel">
           <div class="panel-heading">
             <div>
               <h2>Research Briefs</h2>
@@ -335,7 +336,7 @@
           <div id="researchBriefList" class="record-list"></div>
         </section>
 
-        <section class="panel">
+        <section id="schedulerPanel" class="panel">
           <div class="panel-heading">
             <div>
               <h2>Scheduled Pipelines</h2>
@@ -364,7 +365,7 @@
           </div>
         </section>
 
-        <section class="panel">
+        <section id="episodePanel" class="panel">
           <div class="panel-heading">
             <div>
               <h2>Episodes</h2>
@@ -375,7 +376,7 @@
           <div id="episodeList" class="record-list"></div>
         </section>
 
-        <section class="panel review-panel" aria-labelledby="reviewTitle">
+        <section id="reviewPanel" class="panel review-panel" aria-labelledby="reviewTitle">
           <div class="panel-heading">
             <div>
               <h2 id="reviewTitle">Review Gates</h2>
@@ -406,7 +407,7 @@
           <div id="queryList" class="query-list"></div>
         </section>
 
-        <section class="panel">
+        <section id="scriptPanel" class="panel">
           <div class="panel-heading">
             <div>
               <h2>Scripts</h2>

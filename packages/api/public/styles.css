@@ -160,14 +160,47 @@ button:disabled {
   min-width: 0;
 }
 
-.pipeline-panel {
+.panel.pipeline-panel {
   border-color: #b8c7d9;
+  box-shadow: 0 10px 30px rgba(31, 91, 149, 0.08);
+  padding: 1.15rem;
+}
+
+.workflow-context {
+  background: #f8fafc;
+  border: 1px solid #d8dde5;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0 0 1rem;
+  padding: 0.85rem;
+}
+
+.workflow-context-item {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.workflow-context-item span {
+  color: #687486;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.workflow-context-item strong {
+  color: #20242c;
+  font-size: 0.95rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .pipeline-grid {
   display: grid;
   gap: 0.75rem;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
 }
 
 .pipeline-card {
@@ -310,10 +343,17 @@ button:disabled {
 
 .pipeline-card button {
   justify-self: start;
+  min-height: 2.4rem;
 }
 
 .pipeline-debug {
   margin-top: 0.85rem;
+}
+
+.panel-focus {
+  outline: 3px solid rgba(36, 104, 168, 0.28);
+  outline-offset: 3px;
+  transition: outline-color 0.2s ease;
 }
 
 .panel {
@@ -1060,6 +1100,7 @@ textarea {
   .layout,
   .grid,
   .grid.two,
+  .workflow-context,
   .pipeline-grid,
   .model-grid,
   .cluster-grid,
