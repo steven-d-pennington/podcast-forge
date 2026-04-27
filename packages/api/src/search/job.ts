@@ -123,11 +123,31 @@ function addFilterTotals(
 }
 
 function summarizeWarnings(warnings: Array<Record<string, unknown>>, limit = 20) {
+  const items = warnings.slice(0, limit);
+
   return {
     total: warnings.length,
-    items: warnings.slice(0, limit),
-    omitted: Math.max(0, warnings.length - limit),
+    items,
+    omitted: Math.max(0, warnings.length - items.length),
   };
+}
+
+function jobWarningItems(warnings: Array<Record<string, unknown>>, limit = 20): Array<Record<string, unknown>> {
+  const summary = summarizeWarnings(warnings, limit);
+
+  if (summary.omitted === 0) {
+    return summary.items;
+  }
+
+  return [
+    ...summary.items,
+    {
+      code: 'SOURCE_CONTROL_WARNINGS_OMITTED',
+      message: `${summary.omitted} additional source-control warning(s) omitted from job output; see output.sourceControls.warnings for total counts.`,
+      total: summary.total,
+      omitted: summary.omitted,
+    },
+  ];
 }
 
 function filterSummary(total: number, kept: number, dropped: ReturnType<typeof emptyFilterTotals>, warnings: Array<Record<string, unknown>>) {
@@ -291,7 +311,7 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
         output: {
           inserted: insertedCandidates.length,
           skipped,
-          warnings: summarizeWarnings(sourceControlWarnings).items,
+          warnings: jobWarningItems(sourceControlWarnings),
           sourceControls: sourceControlOutput(sourceControlSummaries, sourceControlDropped, sourceControlWarnings),
           modelProfiles,
         },
@@ -330,7 +350,7 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
         inserted: insertedCandidates.length,
         skipped,
         candidateIds: finalCandidates.map((candidate) => candidate.id),
-        warnings: summarizeWarnings(sourceControlWarnings).items,
+        warnings: jobWarningItems(sourceControlWarnings),
         sourceControls: sourceControlOutput(sourceControlSummaries, sourceControlDropped, sourceControlWarnings),
         scoring: scoringSummary(scoring),
         modelProfiles,
@@ -481,7 +501,7 @@ export async function runSourceIngest(options: RunSourceIngestOptions): Promise<
         inserted: insertedCandidates.length,
         skipped,
         candidateIds: finalCandidates.map((candidate) => candidate.id),
-        warnings: summarizeWarnings(sourceControlWarnings).items,
+        warnings: jobWarningItems(sourceControlWarnings),
         sourceControls: sourceControlOutput([...sourceControlSummaries.values()], sourceControlDropped, sourceControlWarnings),
         scoring: scoringSummary(scoring),
         modelProfiles,
