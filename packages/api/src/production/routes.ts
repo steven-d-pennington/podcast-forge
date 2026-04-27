@@ -29,6 +29,7 @@ import {
   type PublishStorageAdapter,
   type PublishUrlValidator,
   type RssUpdateAdapter,
+  type UploadedPublishAsset,
 } from './publishing.js';
 import type {
   CreateEpisodeAssetInput,
@@ -680,17 +681,82 @@ function researchBlockers(episode: EpisodeRecord, researchPacket: ResearchPacket
   return blockers;
 }
 
-function validHttpUrl(value: string | null) {
+function normalizedHttpUrl(value: string | null) {
   if (!value) {
-    return true;
+    return null;
   }
 
   try {
-    const parsed = new URL(value);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    const parsed = new URL(value.trim());
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+      ? parsed.toString()
+      : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+function validOptionalHttpUrl(value: string | null) {
+  return !value || normalizedHttpUrl(value) !== null;
+}
+
+function extensionForAsset(asset: EpisodeAssetRecord) {
+  switch (asset.mimeType) {
+    case 'audio/mpeg':
+      return 'mp3';
+    case 'image/png':
+      return 'png';
+    case 'image/jpeg':
+      return 'jpg';
+    default:
+      return 'bin';
+  }
+}
+
+function defaultPublishObjectKey(episode: EpisodeRecord, asset: EpisodeAssetRecord) {
+  return asset.objectKey ?? `episodes/${episode.slug}/${asset.type}.${extensionForAsset(asset)}`;
+}
+
+function resolvedAssetPublicUrl(feed: FeedRecord, episode: EpisodeRecord, asset: EpisodeAssetRecord) {
+  if (asset.publicUrl) {
+    return normalizedHttpUrl(asset.publicUrl);
+  }
+
+  const publicBaseUrl = normalizedHttpUrl(feed.publicBaseUrl);
+
+  if (!publicBaseUrl) {
+    return null;
+  }
+
+  return normalizedHttpUrl(`${publicBaseUrl.replace(/\/$/, '')}/${defaultPublishObjectKey(episode, asset).replace(/^\//, '')}`);
+}
+
+function resolvedRssPublicUrl(feed: FeedRecord) {
+  const publicFeedUrl = normalizedHttpUrl(feed.publicFeedUrl);
+
+  if (publicFeedUrl) {
+    return publicFeedUrl;
+  }
+
+  const publicBaseUrl = normalizedHttpUrl(feed.publicBaseUrl);
+
+  if (!publicBaseUrl || !feed.rssFeedPath) {
+    return null;
+  }
+
+  return normalizedHttpUrl(`${publicBaseUrl.replace(/\/$/, '')}/feed.xml`);
+}
+
+function assertUploadedAssetReady(label: string, upload: UploadedPublishAsset) {
+  const publicUrl = normalizedHttpUrl(upload.publicUrl);
+
+  if (!publicUrl) {
+    throw new ApiError(502, 'PUBLISHED_ASSET_URL_INVALID', `${label} upload returned a non-public URL.`, {
+      upload,
+    });
+  }
+
+  return { ...upload, publicUrl };
 }
 
 function publishBlockers(
@@ -729,11 +795,19 @@ function publishBlockers(
       message: 'Show has no configured RSS feed.',
     });
   } else {
-    if (!validHttpUrl(feed.publicFeedUrl) || !validHttpUrl(feed.publicBaseUrl)) {
+    if (!validOptionalHttpUrl(feed.publicFeedUrl) || !validOptionalHttpUrl(feed.publicBaseUrl)) {
       blockers.push({
         code: 'PUBLISH_FEED_PUBLIC_URL_INVALID',
         message: 'Feed public URLs must be valid http(s) URLs when configured.',
         metadata: { publicFeedUrl: feed.publicFeedUrl, publicBaseUrl: feed.publicBaseUrl },
+      });
+    }
+
+    if (!resolvedRssPublicUrl(feed)) {
+      blockers.push({
+        code: 'PUBLISH_FEED_PUBLIC_URL_REQUIRED',
+        message: 'RSS publishing requires a public feed URL or a public base URL with an RSS feed path.',
+        metadata: { publicFeedUrl: feed.publicFeedUrl, publicBaseUrl: feed.publicBaseUrl, rssFeedPath: feed.rssFeedPath },
       });
     }
   }
@@ -752,11 +826,25 @@ function publishBlockers(
       });
     }
 
-    if (audioAsset.byteSize !== null && audioAsset.byteSize <= 0) {
+    if (audioAsset.byteSize === null || audioAsset.byteSize <= 0) {
       blockers.push({
         code: 'AUDIO_ASSET_SIZE_INVALID',
-        message: 'Audio asset byte size must be positive when known.',
+        message: 'Audio asset byte size must be known and positive before RSS publishing.',
         metadata: { assetId: audioAsset.id, byteSize: audioAsset.byteSize },
+      });
+    }
+
+    if (audioAsset.publicUrl && !normalizedHttpUrl(audioAsset.publicUrl)) {
+      blockers.push({
+        code: 'AUDIO_ASSET_PUBLIC_URL_INVALID',
+        message: 'Audio asset public URL must be a valid http(s) URL when configured.',
+        metadata: { assetId: audioAsset.id, publicUrl: audioAsset.publicUrl },
+      });
+    } else if (feed && !resolvedAssetPublicUrl(feed, episode, audioAsset)) {
+      blockers.push({
+        code: 'AUDIO_ASSET_PUBLIC_URL_REQUIRED',
+        message: 'Audio asset needs a public URL or a feed public base URL before RSS publishing.',
+        metadata: { assetId: audioAsset.id, objectKey: audioAsset.objectKey, publicBaseUrl: feed.publicBaseUrl },
       });
     }
   }
@@ -771,6 +859,18 @@ function publishBlockers(
       code: 'COVER_ART_ASSET_MIME_INVALID',
       message: 'Cover art asset must have an image MIME type.',
       metadata: { assetId: coverAsset.id, mimeType: coverAsset.mimeType },
+    });
+  } else if (coverAsset.publicUrl && !normalizedHttpUrl(coverAsset.publicUrl)) {
+    blockers.push({
+      code: 'COVER_ART_ASSET_PUBLIC_URL_INVALID',
+      message: 'Cover art asset public URL must be a valid http(s) URL when configured.',
+      metadata: { assetId: coverAsset.id, publicUrl: coverAsset.publicUrl },
+    });
+  } else if (feed && !resolvedAssetPublicUrl(feed, episode, coverAsset)) {
+    blockers.push({
+      code: 'COVER_ART_ASSET_PUBLIC_URL_REQUIRED',
+      message: 'Cover art asset needs a public URL or a feed public base URL before RSS publishing.',
+      metadata: { assetId: coverAsset.id, objectKey: coverAsset.objectKey, publicBaseUrl: feed.publicBaseUrl },
     });
   }
 
@@ -955,6 +1055,17 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
       const audioAsset = selectAsset(assets, ['audio-final', 'audio-preview'], 'audio');
       const coverAsset = selectAsset(assets, ['cover-art'], 'cover art');
       const guid = feedGuid(episode, feed);
+      const expectedRssUrl = resolvedRssPublicUrl(feed);
+
+      if (!expectedRssUrl) {
+        throw new ApiError(409, 'PUBLISH_BLOCKED', 'Episode cannot be published until blocking issues are resolved.', {
+          blockedReasons: [{
+            code: 'PUBLISH_FEED_PUBLIC_URL_REQUIRED',
+            message: 'RSS publishing requires a public feed URL or a public base URL with an RSS feed path.',
+          }],
+        });
+      }
+
       const storageAdapter = options.publishStorageAdapterFactory?.(feed) ?? createPublishStorageAdapter(feed);
 
       if (episode.status === 'published' && episode.feedGuid && !body.republish) {
@@ -1064,11 +1175,31 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
         logs,
         output: { stage },
       }) ?? job;
-      const [audioUpload, coverUpload] = await Promise.all([
+      const [rawAudioUpload, rawCoverUpload] = await Promise.all([
         storageAdapter.uploadAsset({ feed, episode, asset: audioAsset }),
         storageAdapter.uploadAsset({ feed, episode, asset: coverAsset }),
       ]);
+      const audioUpload = assertUploadedAssetReady('Audio asset', rawAudioUpload);
+      const coverUpload = assertUploadedAssetReady('Cover art asset', rawCoverUpload);
       const rssAudioUrl = feed.op3Wrap ? op3Wrap(audioUpload.publicUrl) : audioUpload.publicUrl;
+
+      stage = 'validating-public-urls';
+      logs.push(log('info', 'Validating publish URLs before RSS mutation.', {
+        audioUrl: rssAudioUrl,
+        coverUrl: coverUpload.publicUrl,
+        rssUrl: expectedRssUrl,
+      }));
+      job = await updateJob(jobStore, job.id, {
+        progress: 65,
+        logs,
+        output: { stage },
+      }) ?? job;
+      const validations = await urlValidator.validate([rssAudioUrl, coverUpload.publicUrl, expectedRssUrl]);
+      const invalidUrl = validations.find((validation) => !validation.ok);
+
+      if (invalidUrl) {
+        throw new ApiError(502, 'PUBLISHED_URL_VALIDATION_FAILED', `Published URL failed validation: ${invalidUrl.url}`);
+      }
 
       stage = 'updating-rss';
       logs.push(log('info', 'Updating RSS feed.', {
@@ -1097,12 +1228,8 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
           publishedAt,
         },
       });
-      stage = 'validating-public-urls';
-      const validations = await urlValidator.validate([rssAudioUrl, coverUpload.publicUrl, rss.rssUrl]);
-      const invalidUrl = validations.find((validation) => !validation.ok);
-
-      if (invalidUrl) {
-        throw new ApiError(502, 'PUBLISHED_URL_VALIDATION_FAILED', `Published URL failed validation: ${invalidUrl.url}`);
+      if (!normalizedHttpUrl(rss.rssUrl)) {
+        throw new ApiError(502, 'PUBLISHED_URL_VALIDATION_FAILED', `RSS adapter returned a non-public feed URL: ${rss.rssUrl}`);
       }
 
       const updatedEpisode = await productionStore.updateEpisodeProduction(episode.id, {
