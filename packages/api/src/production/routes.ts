@@ -1278,8 +1278,8 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
           ...publishEvent.metadata,
           jobId: job.id,
           actor: body.actor,
-          audioUpload,
-          coverUpload,
+          audioUpload: sanitizedUploadDetails(audioUpload),
+          coverUpload: sanitizedUploadDetails(coverUpload),
           rss,
           op3: {
             enabled: feed.op3Wrap,
