@@ -2171,7 +2171,15 @@ describe('source profile routes', () => {
     assert.match(store.scriptRevisions[0].body, /This is The Synthetic Lens/);
     assert.equal(edited.revision.metadata.source, 'human-edit');
     assert.equal(edited.revision.metadata.inheritedProvenance, true);
-    assert.deepEqual(edited.revision.metadata.citationMap, initial.revision.metadata.citationMap);
+    assert.equal(edited.revision.metadata.citationMap, undefined);
+    assert.equal(edited.revision.metadata.provenance, undefined);
+    assert.deepEqual(edited.revision.metadata.staleCitationMap, initial.revision.metadata.citationMap);
+    assert.deepEqual(edited.revision.metadata.previousProvenanceSnapshot, initial.revision.metadata.provenance);
+    assert.equal(edited.revision.metadata.previousRevisionId, initial.revision.id);
+    assert.equal(edited.revision.metadata.previousApprovedRevisionId, null);
+    assert.equal((edited.revision.metadata.provenanceStatus as { status: string }).status, 'stale');
+    assert.equal((edited.revision.metadata.provenanceStatus as { verified: boolean }).verified, false);
+    assert.equal((edited.revision.metadata.provenanceStatus as { reason: string }).reason, 'human_edit');
     assert.equal(edited.revision.metadata.validation.speakerLabels.valid, true);
 
     const approveResponse = await app.inject({
@@ -2188,6 +2196,78 @@ describe('source profile routes', () => {
     assert.equal(approved.status, 'approved-for-audio');
     assert.equal(approved.approvedRevisionId, edited.revision.id);
     assert.ok(approved.approvedAt);
+  });
+
+  it('does not carry prior approval or integrity review forward after a human script edit', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Approved Revision Edit Story',
+      status: 'approved',
+      sourceDocumentIds: ['source-document-1'],
+      claims: [{ id: 'claim-1', text: 'An approved revision claim exists.', sourceDocumentIds: ['source-document-1'], citationUrls: ['https://example.com/approved-edit'] }],
+      citations: [{
+        sourceDocumentId: 'source-document-1',
+        url: 'https://example.com/approved-edit',
+        title: 'Approved Edit Source',
+        fetchedAt: '2026-01-04T00:00:00.000Z',
+        status: 'fetched',
+      }],
+      warnings: [],
+      content: { summary: 'A packet summary for approved revision edit testing.' },
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+    const integrityResponse = await runIntegrityReview(initial.script.id, initial.revision.id);
+
+    assert.equal(integrityResponse.statusCode, 201);
+    assert.equal(integrityResponse.json().integrityReview.status, 'pass');
+
+    const initialApproval = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/approve-for-audio`,
+      payload: { actor: 'producer@example.com', reason: 'Initial revision reviewed.' },
+    });
+    assert.equal(initialApproval.statusCode, 200);
+    assert.equal(initialApproval.json().script.approvedRevisionId, initial.revision.id);
+
+    const editResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions`,
+      payload: {
+        body: 'DAVID: A human editor changed the sourced line.\nINGRID: This replacement needs a fresh integrity pass before assets.',
+        actor: 'editor@example.com',
+        changeSummary: 'Changed the sourced line.',
+      },
+    });
+    const edited = editResponse.json();
+
+    assert.equal(editResponse.statusCode, 201);
+    assert.equal(edited.script.status, 'draft');
+    assert.equal(edited.script.approvedRevisionId, null);
+    assert.equal(edited.script.approvedAt, null);
+    assert.equal(edited.revision.metadata.integrityReview, undefined);
+    assert.equal((edited.revision.metadata.provenanceStatus as { status: string }).status, 'stale');
+    assert.equal((edited.revision.metadata.provenanceStatus as { previousApprovedRevisionId: string }).previousApprovedRevisionId, initial.revision.id);
+    assert.equal(edited.revision.metadata.previousApprovedRevisionId, initial.revision.id);
+    assert.deepEqual(edited.revision.metadata.previousIntegrityReviewSnapshot, integrityResponse.json().integrityReview);
+    assert.deepEqual(edited.revision.metadata.staleCitationMap, initial.revision.metadata.citationMap);
+
+    const editedApprovalResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${edited.script.id}/revisions/${edited.revision.id}/approve-for-audio`,
+      payload: { actor: 'producer@example.com', reason: 'Explicitly approving edited revision.' },
+    });
+    assert.equal(editedApprovalResponse.statusCode, 200);
+    assert.equal(editedApprovalResponse.json().script.approvedRevisionId, edited.revision.id);
+    const audioResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${edited.script.id}/production/audio-preview`,
+      payload: { actor: 'producer@example.com' },
+    });
+
+    assert.equal(audioResponse.statusCode, 409);
+    assert.equal(audioResponse.json().code, 'INTEGRITY_REVIEW_REQUIRED');
   });
 
   it('runs and persists a passing integrity review for a script revision', async () => {

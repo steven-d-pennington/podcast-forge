@@ -748,6 +748,22 @@ function integrityReviewLabel(status) {
   return labels[status] || status || 'not run';
 }
 
+function provenanceReviewState(revision = state.selectedRevision) {
+  const status = asObject(revision?.metadata?.provenanceStatus);
+  const stale = status.status === 'stale' || status.verified === false;
+  const message = typeof status.message === 'string' && status.message.trim()
+    ? status.message.trim()
+    : 'This human-edited revision needs fresh citation mapping and provenance review before production.';
+
+  return {
+    stale,
+    status: stale ? 'stale' : status.status || 'current',
+    message,
+    previousRevisionId: status.previousRevisionId || revision?.metadata?.previousRevisionId || null,
+    previousApprovedRevisionId: status.previousApprovedRevisionId || revision?.metadata?.previousApprovedRevisionId || null,
+  };
+}
+
 function integrityIssueItems(review) {
   const result = asObject(review?.result);
   return [
@@ -3280,7 +3296,12 @@ function renderScriptReview() {
   const validation = asObject(revision.metadata?.validation);
   const speakerValidation = asObject(validation.speakerLabels);
   const provenanceValidation = asObject(validation.provenance);
+  const provenanceState = provenanceReviewState(revision);
   const warningItems = [
+    ...(provenanceState.stale ? [{
+      code: 'STALE_SCRIPT_PROVENANCE',
+      message: provenanceState.message,
+    }] : []),
     ...asArray(revision.metadata?.warnings),
     ...asArray(revision.metadata?.provenance?.warnings),
     ...asArray(provenanceValidation.warnings),
@@ -3298,9 +3319,11 @@ function renderScriptReview() {
       ['Integrity review', integrity.status === 'missing' ? 'not run' : `${integrityReviewLabel(integrity.status)}${integrityReview?.reviewedAt ? ` ${formatTime(integrityReview.reviewedAt)}` : ''}`],
       ['Integrity issues', `${integrityCounts.total ?? integrityIssues.length} issue(s), ${integrityCounts.critical ?? 0} critical`],
       ['Speaker validation', speakerValidation.valid === false ? 'failed' : 'passed or not recorded'],
-      ['Provenance validation', provenanceValidation.valid === false ? 'failed' : `${provenanceValidation.warningCount ?? warningItems.length} warning(s)`],
+      ['Citation/provenance status', provenanceState.stale ? 'stale after human edit' : 'current or not flagged'],
+      ['Citation/provenance warning items', provenanceValidation.valid === false ? 'failed' : `${warningItems.length} warning(s)`],
       ['Revision history', `${state.selectedRevisions.length || 1} revision${(state.selectedRevisions.length || 1) === 1 ? '' : 's'}`],
     ]),
+    ...(provenanceState.stale ? [actionBlockerNote(provenanceState.message, false)] : []),
     reviewList('Integrity review issues', integrityIssues, integrity.status === 'missing' ? 'Run the integrity reviewer before production.' : 'No unresolved integrity issues recorded.', integrityIssueText),
     integrity.override ? reviewList('Integrity override', [integrity.override], 'No override recorded.', (item) => `${item.actor || 'editor'} | ${item.reason} | ${formatTime(item.overriddenAt)}`) : settingsEmpty('No integrity override recorded.'),
     reviewList('Revision history', state.selectedRevisions, 'Only the selected revision is loaded.', (item) => `v${item.version} by ${item.author} | ${formatTime(item.createdAt)}${item.changeSummary ? ` | ${item.changeSummary}` : ''}`),
@@ -3336,7 +3359,9 @@ function renderScriptReview() {
     : isActionRunning('approval')
       ? 'Approval is already running.'
       : integrity.blocking
-        ? (integrity.status === 'missing' ? 'Blocked: run the integrity reviewer before production.' : 'Blocked: resolve the failed integrity review or record an explicit override reason.')
+        ? (integrity.status === 'missing'
+          ? (provenanceState.stale ? 'Blocked: human edit invalidated citation/provenance coverage; run the integrity reviewer before production.' : 'Blocked: run the integrity reviewer before production.')
+          : 'Blocked: resolve the failed integrity review or record an explicit override reason.')
         : approved ? 'Script and integrity gates are complete for production.' : 'Ready: approve the reviewed script revision for audio.';
   els.reviewScript.append(body, actions, actionBlockerNote(scriptGateReason, integrity.blocking || (!approved && approve.disabled)));
 }
