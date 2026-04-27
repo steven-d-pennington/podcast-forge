@@ -409,8 +409,8 @@ Recommended order:
 6. #50 — PF2-07 Enforce source query domain/freshness controls or remove dead UI fields ✅ merged (#61)
 7. #52 — PF2-09 Harden publishing validation and scheduled-run status semantics ✅ merged (#62)
 8. #47 — PF2-04 Add AI story brief / episode plan assistant ✅ merged (#63)
-9. #48 — PF2-05 Add AI source-gap and claim-coverage surfacing in review UI 🚧 active on branch `issue-48-source-gap-claim-coverage`
-10. #49 — PF2-06 Add AI rewrite/coaching actions for scripts without bypassing approval ✅ implemented locally on `issue-49-ai-rewrite-coaching`; `npm run check` passed. Commit/push may need recovery if sandbox `.git` permissions block writes.
-11. #53 — PF2-10 Split UI state/render helpers into testable modules or sections
-12. #54 — PF2-11 Replace destructive/critical prompts with explicit confirmation dialogs
-13. #55 — PF2-12 Add local UI smoke checks for the guided flow
+9. #48 — PF2-05 Add AI source-gap and claim-coverage surfacing in review UI ✅ merged (#64)
+10. #49 — PF2-06 Add AI rewrite/coaching actions for scripts without bypassing approval ✅ merged (#65)
+11. #53 — PF2-10 Split UI state/render helpers into testable modules or sections ✅ merged (#66)
+12. #54 — PF2-11 Replace destructive/critical prompts with explicit confirmation dialogs ✅ merged (#68)
+13. #55 — PF2-12 Add local UI smoke checks for the guided flow 🚧 active on branch `issue-55-guided-flow-smoke-checks`; `npm run check` passed locally.
