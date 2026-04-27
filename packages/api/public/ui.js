@@ -1235,6 +1235,18 @@ function renderNextAction(stages) {
     button.className = stage.primary ? '' : 'secondary';
     button.textContent = stage.actionLabel;
     button.addEventListener('click', stage.action);
+  } else if (stage.disabled) {
+    button.className = 'secondary';
+    button.textContent = stage.actionLabel || 'Review Blockers';
+    button.disabled = true;
+    if (stage.targetId && panelIsAvailable(stage.targetId)) {
+      const panelButton = document.createElement('button');
+      panelButton.type = 'button';
+      panelButton.className = 'secondary';
+      panelButton.textContent = 'Open Stage Panel';
+      panelButton.addEventListener('click', () => scrollToPanel(stage.targetId));
+      actions.append(panelButton);
+    }
   } else if (stage.targetId && panelIsAvailable(stage.targetId)) {
     button.className = 'secondary';
     button.textContent = 'Open Stage Panel';
@@ -1245,7 +1257,7 @@ function renderNextAction(stages) {
     button.disabled = true;
   }
 
-  actions.append(button);
+  actions.prepend(button);
   els.nextActionPanel.append(copy, actions);
 }
 
