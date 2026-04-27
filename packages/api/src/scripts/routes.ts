@@ -326,7 +326,7 @@ function inheritedRevisionMetadata(
 export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutesOptions) {
   app.get('/scripts/coaching-actions', async () => ({
     ok: true,
-    actions: listScriptCoachingActions(),
+    actions: listScriptCoachingActions().map(({ action, label, description }) => ({ action, label, description })),
   }));
 
   app.post<{ Params: { id: string } }>('/research-packets/:id/script', async (request, reply) => {
@@ -580,7 +580,7 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
         throw new ApiError(409, 'SCRIPT_COACHING_MODEL_PROFILE_REQUIRED', 'No script_editor model profile is configured for this show.');
       }
 
-      const coached = await buildLlmScriptCoachingRevision(show, packet, script, revision, body.action, body.actor, modelProfile, {
+      const coached = await buildLlmScriptCoachingRevision(show, packet, script, revision, body.action, modelProfile, {
         runtime: options.llmRuntime,
         promptRegistry: createPromptRegistry({ store: rawStore }),
       });

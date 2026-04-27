@@ -132,7 +132,6 @@ function revisionContext(revision: ScriptRevisionRecord) {
 
 function instructionContext(input: {
   action: ScriptCoachingActionDefinition;
-  actor: string;
   show: ShowRecord;
   script: ScriptRecord;
   revision: ScriptRevisionRecord;
@@ -144,7 +143,6 @@ function instructionContext(input: {
       description: input.action.description,
       instruction: input.action.instruction,
     },
-    actor: input.actor,
     safetyRules: [
       'This is coaching/rewrite assistance only, not approval.',
       'Return draft text that still requires normal human review, integrity review, and approval before production.',
@@ -172,7 +170,6 @@ export async function buildLlmScriptCoachingRevision(
   script: ScriptRecord,
   revision: ScriptRevisionRecord,
   actionId: ScriptCoachingAction,
-  actor: string,
   modelProfile: ResolvedModelProfile,
   options: ScriptCoachingRuntimeOptions,
 ): Promise<BuiltScriptCoachingRevision> {
@@ -184,7 +181,7 @@ export async function buildLlmScriptCoachingRevision(
     variables: {
       script_draft: revisionContext(revision),
       research_packet: packetContext(packet),
-      revision_instructions: instructionContext({ action, actor, show, script, revision }),
+      revision_instructions: instructionContext({ action, show, script, revision }),
     },
   });
   const schema = PROMPT_OUTPUT_SCHEMAS.script_revision_result;
