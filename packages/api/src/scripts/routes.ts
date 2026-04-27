@@ -165,8 +165,12 @@ async function coverageSummaryFor(
     return null;
   }
 
-  const packet = await store.getResearchPacket(script.researchPacketId);
-  return packet ? buildClaimCoverageSummary(packet, revision) : null;
+  try {
+    const packet = await store.getResearchPacket(script.researchPacketId);
+    return packet ? buildClaimCoverageSummary(packet, revision) : null;
+  } catch {
+    return null;
+  }
 }
 
 function log(level: 'info' | 'warn' | 'error', message: string, metadata: Record<string, unknown> = {}) {

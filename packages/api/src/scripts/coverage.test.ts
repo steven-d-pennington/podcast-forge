@@ -140,6 +140,47 @@ describe('claim coverage summary', () => {
     assert.ok(summary.needsAttention.some((item) => item.code === 'SOURCE_FETCH_FAILED'));
   });
 
+  it('deduplicates repeated provenance warnings from mirrored metadata fields', () => {
+    const duplicatedWarning = {
+      code: 'CITATION_MAP_STALE',
+      message: 'Citation map should be refreshed after script edits.',
+      severity: 'warning',
+      sourceDocumentId: 'source-1',
+      metadata: { claimId: 'claim-duplicate' },
+    };
+    const summary = buildClaimCoverageSummary(
+      packet({
+        claims: [{
+          id: 'claim-duplicate',
+          text: 'A claim with duplicated provenance metadata.',
+          sourceDocumentIds: ['source-1', 'source-2'],
+          citationUrls: ['https://primary.example/source', 'https://independent.example/source'],
+          claimType: 'fact',
+          confidence: 'high',
+          supportLevel: 'corroborated',
+          highStakes: false,
+        }],
+      }),
+      revision({
+        metadata: {
+          warnings: [duplicatedWarning],
+          provenance: { warnings: [duplicatedWarning] },
+          citationMap: [{
+            line: 'HOST: A claim with duplicated provenance metadata.',
+            claimId: 'claim-duplicate',
+            sourceDocumentIds: ['source-1', 'source-2'],
+          }],
+          validation: { provenance: { valid: true, warnings: [duplicatedWarning] } },
+          integrityReview: { status: 'pass', result: { claimIssues: [] } },
+        },
+      }),
+      { now: new Date('2026-04-20T00:00:00Z') },
+    );
+
+    assert.equal(summary.needsAttention.filter((item) => item.code === 'CITATION_MAP_STALE').length, 1);
+    assert.equal(summary.counts.needsAttentionFindings, 1);
+  });
+
   it('reports unknown coverage before non-blocking attention findings', () => {
     const summary = buildClaimCoverageSummary(
       packet({

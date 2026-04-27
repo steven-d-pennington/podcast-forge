@@ -107,6 +107,29 @@ function finding(input: ClaimCoverageFinding): ClaimCoverageFinding {
   };
 }
 
+function warningKey(warning: Record<string, unknown>): string {
+  const metadata = asObject(warning.metadata);
+  return [
+    asString(warning.code) ?? 'SCRIPT_PROVENANCE_WARNING',
+    asString(warning.sourceDocumentId) ?? asString(metadata.sourceDocumentId) ?? '',
+    asString(metadata.claimId) ?? '',
+    asString(warning.message) ?? 'Script provenance warning requires editorial attention.',
+  ].join('\u0000');
+}
+
+function uniqueWarnings(warnings: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const seen = new Set<string>();
+  return warnings.filter((warning) => {
+    const key = warningKey(warning);
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
 function warningMatchesClaim(warning: ResearchWarning, claim: ResearchClaim): boolean {
   const metadata = asObject(warning.metadata);
   const claimId = asString(metadata.claimId);
@@ -361,11 +384,11 @@ function provenanceFindings(revision: ScriptRevisionRecord): ClaimCoverageFindin
   const provenance = asObject(validation.provenance);
   const status = asObject(revision.metadata.provenanceStatus);
   const stale = status.status === 'stale' || status.verified === false;
-  const warnings = [
+  const warnings = uniqueWarnings([
     ...asRecordArray(revision.metadata.warnings),
     ...asRecordArray(asObject(revision.metadata.provenance).warnings),
     ...asRecordArray(provenance.warnings),
-  ];
+  ]);
   const findings: ClaimCoverageFinding[] = [];
 
   if (stale) {
