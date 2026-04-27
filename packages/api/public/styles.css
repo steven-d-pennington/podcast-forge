@@ -781,6 +781,39 @@ textarea {
   gap: 0.5rem;
 }
 
+.coverage-panel {
+  background: white;
+  border: 1px solid #d8dde5;
+  border-radius: 6px;
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem;
+}
+
+.coverage-panel.blocking {
+  border-color: #e2c391;
+}
+
+.coverage-panel.needs_attention {
+  border-color: #d8cf73;
+}
+
+.coverage-panel.covered {
+  border-color: #9ac8aa;
+}
+
+.coverage-panel-heading {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.coverage-panel-heading h4,
+.coverage-panel p {
+  margin: 0;
+}
+
 .review-list-item,
 .checklist-item,
 .asset-preview {

@@ -18,6 +18,7 @@ const state = {
   selectedScript: null,
   selectedRevision: null,
   selectedRevisions: [],
+  selectedCoverageSummary: null,
   production: {
     episode: null,
     assets: [],
@@ -837,6 +838,73 @@ function integrityIssueText(item) {
   return `${excerpt}${severity}${item.issue || item.message || item.code || JSON.stringify(sanitizedDebug(item))}${fix}`;
 }
 
+function coverageStatusLabel(status) {
+  const labels = {
+    blocking: 'Blocking',
+    needs_attention: 'Needs attention',
+    covered: 'Covered',
+    unknown: 'Coverage unknown',
+  };
+  return labels[status] || 'Coverage unknown';
+}
+
+function coverageFindingText(item) {
+  const claim = item.claimId ? `Claim ${item.claimId}: ` : '';
+  const context = item.context || item.line ? ` | Context: ${item.context || item.line}` : '';
+  const next = item.nextAction ? ` | Next: ${item.nextAction}` : '';
+  return `${claim}${item.message || item.code || 'Coverage finding requires review.'}${context}${next}`;
+}
+
+function coverageClaimText(item) {
+  const sourceCount = item.independentSourceCount === null || item.independentSourceCount === undefined
+    ? 'independent sources unknown'
+    : `${item.independentSourceCount} independent source${item.independentSourceCount === 1 ? '' : 's'}`;
+  const mapped = item.citedInScript ? 'mapped to script' : 'not mapped to script';
+  return `${coverageStatusLabel(item.status)}: ${item.text || item.claimId} | ${sourceCount} | ${mapped}`;
+}
+
+function renderCoverageSummary(summary) {
+  const section = document.createElement('section');
+  section.className = `coverage-panel ${summary?.status || 'unknown'}`;
+
+  const header = document.createElement('div');
+  header.className = 'coverage-panel-heading';
+  const title = document.createElement('h4');
+  title.textContent = 'Claim/source coverage';
+  const pill = document.createElement('span');
+  pill.className = `status-pill ${summary?.status === 'blocking' ? 'blocked' : summary?.status === 'covered' ? 'done' : summary?.status === 'needs_attention' ? 'needs-review' : 'neutral'}`;
+  pill.textContent = coverageStatusLabel(summary?.status);
+  header.append(title, pill);
+
+  const headline = document.createElement('p');
+  headline.textContent = summary?.headline || 'Coverage unknown from current metadata; verify claims manually before approval.';
+  section.append(header, headline);
+
+  if (!summary) {
+    return section;
+  }
+
+  const counts = asObject(summary.counts);
+  section.append(reviewFacts([
+    ['Claims covered', `${counts.covered ?? 0} of ${counts.totalClaims ?? 0}`],
+    ['Need attention', counts.needsAttention ?? 0],
+    ['Blocking findings', counts.blockingFindings ?? 0],
+    ['Integrity findings', counts.integrityFindings ?? 0],
+  ]));
+
+  section.append(
+    reviewList('Blocking coverage findings', asArray(summary.blockers), 'No blocking coverage findings recorded.', coverageFindingText),
+    reviewList('Needs attention', asArray(summary.needsAttention).slice(0, 8), 'No weak, stale, single-source, missing-primary, or uncertain coverage warnings recorded.', coverageFindingText),
+    reviewList('Covered claims', asArray(summary.coveredClaims).slice(0, 6), 'No claims are marked fully covered by current metadata.', coverageClaimText),
+  );
+
+  if (asArray(summary.unknowns).length > 0) {
+    section.append(reviewList('Coverage unknowns', summary.unknowns, 'Coverage can be derived from current metadata.', coverageFindingText));
+  }
+
+  return section;
+}
+
 function publishChecklistState() {
   const packet = selectedResearchPacket();
   const script = state.selectedScript;
@@ -991,6 +1059,7 @@ function clearPipelineSelections() {
   state.selectedScript = null;
   state.selectedRevision = null;
   state.selectedRevisions = [];
+  state.selectedCoverageSummary = null;
   state.selectedEpisodeId = '';
   state.selectedAssetIds = [];
   state.production = { episode: null, assets: [], jobs: [] };
@@ -3489,6 +3558,7 @@ function renderScriptReview() {
       ['Citation/provenance warning items', provenanceValidation.valid === false ? 'failed' : `${warningItems.length} warning(s)`],
       ['Revision history', `${state.selectedRevisions.length || 1} revision${(state.selectedRevisions.length || 1) === 1 ? '' : 's'}`],
     ]),
+    renderCoverageSummary(state.selectedCoverageSummary),
     ...(provenanceState.stale ? [actionBlockerNote(provenanceState.message, false)] : []),
     reviewList('Integrity review issues', integrityIssues, integrity.status === 'missing' ? 'Run the integrity reviewer before production.' : 'No unresolved integrity issues recorded.', integrityIssueText),
     integrity.override ? reviewList('Integrity override', [integrity.override], 'No override recorded.', (item) => `${item.actor || 'editor'} | ${item.reason} | ${formatTime(item.overriddenAt)}`) : settingsEmpty('No integrity override recorded.'),
@@ -3749,6 +3819,7 @@ async function loadScripts() {
     state.selectedScript = null;
     state.selectedRevision = null;
     state.selectedRevisions = [];
+    state.selectedCoverageSummary = null;
     return;
   }
 
@@ -3765,6 +3836,7 @@ async function loadScripts() {
     state.selectedScript = null;
     state.selectedRevision = null;
     state.selectedRevisions = [];
+    state.selectedCoverageSummary = null;
     state.production = { episode: null, assets: [], jobs: [] };
   }
 }
@@ -3974,6 +4046,10 @@ async function loadScript(id) {
   state.selectedScript = body.script;
   state.selectedRevision = body.latestRevision || null;
   state.selectedRevisions = body.revisions || [];
+  state.selectedCoverageSummary = body.coverageSummary || null;
+  if (body.script?.researchPacketId && state.researchPackets.some((packet) => packet.id === body.script.researchPacketId)) {
+    state.selectedResearchPacketId = body.script.researchPacketId;
+  }
   await loadProduction();
 }
 
@@ -4346,6 +4422,7 @@ async function loadAll() {
       state.selectedScript = null;
       state.selectedRevision = null;
       state.selectedRevisions = [];
+      state.selectedCoverageSummary = null;
       state.production = { episode: null, assets: [], jobs: [] };
     });
     render();
@@ -4902,6 +4979,7 @@ async function generateScriptDraft(researchPacketId, format) {
     state.selectedScript = body.script;
     state.selectedRevision = body.revision;
     state.selectedRevisions = [body.revision];
+    state.selectedCoverageSummary = body.coverageSummary || null;
     state.selectedResearchPacketId = researchPacketId;
     state.production = { episode: null, assets: [], jobs: [] };
     els.scriptResearchPacketId.value = '';
@@ -4935,6 +5013,7 @@ async function saveScriptRevision(event) {
     state.selectedScript = body.script;
     state.selectedRevision = body.revision;
     state.selectedRevisions = [body.revision, ...state.selectedRevisions.filter((revision) => revision.id !== body.revision.id)];
+    state.selectedCoverageSummary = body.coverageSummary || null;
     await loadProduction();
     await loadJobs();
     render();
@@ -4962,6 +5041,7 @@ async function approveSelectedScript() {
     });
     state.scripts = state.scripts.map((script) => script.id === body.script.id ? body.script : script);
     state.selectedScript = body.script;
+    state.selectedCoverageSummary = body.coverageSummary || state.selectedCoverageSummary;
     await loadProduction();
     await loadJobs();
     savePipelineState();
@@ -4989,6 +5069,7 @@ async function runSelectedIntegrityReview() {
     });
     state.selectedRevision = body.revision;
     state.selectedRevisions = state.selectedRevisions.map((revision) => revision.id === body.revision.id ? body.revision : revision);
+    state.selectedCoverageSummary = body.coverageSummary || null;
     await loadProduction();
     await loadJobs();
     savePipelineState();
@@ -5025,6 +5106,7 @@ async function overrideSelectedIntegrityReview() {
     });
     state.selectedRevision = body.revision;
     state.selectedRevisions = state.selectedRevisions.map((revision) => revision.id === body.revision.id ? body.revision : revision);
+    state.selectedCoverageSummary = body.coverageSummary || null;
     await loadProduction();
     savePipelineState();
     render();

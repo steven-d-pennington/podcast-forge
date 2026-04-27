@@ -52,6 +52,8 @@ describe('api config endpoints', () => {
     assert.match(response.body, /renderNextAction/);
     assert.match(response.body, /checklistBlockers/);
     assert.match(response.body, /scrollToPanel/);
+    assert.match(response.body, /Claim\/source coverage/);
+    assert.match(response.body, /coverageStatusLabel/);
   });
 
   it('returns the bundled example config', async () => {
