@@ -298,6 +298,7 @@ function inheritedRevisionMetadata(
   const reason = options.reason ?? 'human_edit';
 
   return {
+    ...(options.extra ?? {}),
     source: options.source ?? 'human-edit',
     previousSource: previous?.source ?? null,
     previousRevisionId: previousRevision?.id ?? null,
@@ -319,7 +320,6 @@ function inheritedRevisionMetadata(
     previousIntegrityReviewSnapshot: historicalMetadataValue(previous?.integrityReview),
     inheritedProvenance: inheritedCitationMap || inheritedProvenance,
     validation: validationMetadata(body, show, packet),
-    ...(options.extra ?? {}),
   };
 }
 

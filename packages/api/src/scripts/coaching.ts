@@ -91,7 +91,6 @@ function showContext(show: ShowRecord) {
     format: show.format,
     defaultRuntimeMinutes: show.defaultRuntimeMinutes,
     cast: show.cast.map((member) => ({ name: member.name, role: member.role })),
-    settings: show.settings,
   };
 }
 
@@ -108,7 +107,6 @@ function packetContext(packet: ResearchPacketRecord) {
     summary: asString(packet.content.summary),
     knownFacts: asStringArray(packet.content.knownFacts),
     openQuestions: asStringArray(packet.content.openQuestions),
-    content: packet.content,
   };
 }
 
