@@ -129,8 +129,24 @@ function normalizeProfilePatchInput(
   return output;
 }
 
-function normalizeQueryInput<T extends CreateSourceQueryInput | UpdateSourceQueryInput>(input: T): T {
+function normalizeQueryInput<T extends CreateSourceQueryInput | UpdateSourceQueryInput>(
+  input: T,
+  controlsSupported = true,
+): T {
   const output = { ...input };
+
+  if (!controlsSupported) {
+    if ('freshness' in output) {
+      output.freshness = null;
+    }
+    if ('includeDomains' in output) {
+      output.includeDomains = [];
+    }
+    if ('excludeDomains' in output) {
+      output.excludeDomains = [];
+    }
+    return output as T;
+  }
 
   if ('includeDomains' in output) {
     output.includeDomains = normalizeDomainList(output.includeDomains);
@@ -141,6 +157,17 @@ function normalizeQueryInput<T extends CreateSourceQueryInput | UpdateSourceQuer
   }
 
   return output as T;
+}
+
+async function findSourceQueryProfile(store: SourceStore, queryId: string): Promise<z.infer<typeof sourceTypeSchema> | undefined> {
+  for (const profile of await store.listSourceProfiles()) {
+    const queries = await store.listSourceQueries(profile.id);
+    if (queries.some((query) => query.id === queryId)) {
+      return profile.type;
+    }
+  }
+
+  return undefined;
 }
 
 export interface SourceRoutesOptions {
@@ -280,6 +307,10 @@ export function registerSourceRoutes(app: FastifyInstance, options: SourceRoutes
       const input = normalizeProfilePatchInput(parseBody(profilePatchSchema, request.body), existing.type);
       const profile = await store.updateSourceProfile(request.params.id, input);
 
+      if (!profile) {
+        throw new ApiError(404, 'SOURCE_PROFILE_NOT_FOUND', `Source profile not found: ${request.params.id}`);
+      }
+
       return { ok: true, sourceProfile: profile };
     } catch (error) {
       return sendError(reply, error);
@@ -309,8 +340,18 @@ export function registerSourceRoutes(app: FastifyInstance, options: SourceRoutes
 
   app.post<{ Params: { id: string } }>('/source-profiles/:id/queries', async (request, reply) => {
     try {
-      const input = normalizeQueryInput(parseBody(queryCreateSchema, request.body) as CreateSourceQueryInput);
-      const query = await getStore().createSourceQuery(request.params.id, input);
+      const store = getStore();
+      const profile = await store.getSourceProfile(request.params.id);
+
+      if (!profile) {
+        throw new ApiError(404, 'SOURCE_PROFILE_NOT_FOUND', `Source profile not found: ${request.params.id}`);
+      }
+
+      const input = normalizeQueryInput(
+        parseBody(queryCreateSchema, request.body) as CreateSourceQueryInput,
+        supportsDiscoveryControls(profile.type),
+      );
+      const query = await store.createSourceQuery(request.params.id, input);
 
       if (!query) {
         throw new ApiError(404, 'SOURCE_PROFILE_NOT_FOUND', `Source profile not found: ${request.params.id}`);
@@ -324,8 +365,18 @@ export function registerSourceRoutes(app: FastifyInstance, options: SourceRoutes
 
   app.patch<{ Params: { id: string } }>('/source-queries/:id', async (request, reply) => {
     try {
-      const input = normalizeQueryInput(parseBody(queryPatchSchema, request.body) as UpdateSourceQueryInput);
-      const query = await getStore().updateSourceQuery(request.params.id, input);
+      const store = getStore();
+      const profileType = await findSourceQueryProfile(store, request.params.id);
+
+      if (!profileType) {
+        throw new ApiError(404, 'SOURCE_QUERY_NOT_FOUND', `Source query not found: ${request.params.id}`);
+      }
+
+      const input = normalizeQueryInput(
+        parseBody(queryPatchSchema, request.body) as UpdateSourceQueryInput,
+        supportsDiscoveryControls(profileType),
+      );
+      const query = await store.updateSourceQuery(request.params.id, input);
 
       if (!query) {
         throw new ApiError(404, 'SOURCE_QUERY_NOT_FOUND', `Source query not found: ${request.params.id}`);

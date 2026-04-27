@@ -1378,6 +1378,41 @@ describe('source profile routes', () => {
     assert.equal(followUpBody.sourceProfile.freshness, null);
     assert.deepEqual(followUpBody.sourceProfile.includeDomains, []);
     assert.deepEqual(followUpBody.sourceProfile.excludeDomains, []);
+
+    const createQueryResponse = await app.inject({
+      method: 'POST',
+      url: '/source-profiles/22222222-2222-4222-8222-222222222222/queries',
+      payload: {
+        query: 'https://example.com/manual-story',
+        enabled: true,
+        weight: 1,
+        freshness: 'pd',
+        includeDomains: ['openai.com'],
+        excludeDomains: ['example.com'],
+      },
+    });
+    const createdQuery = createQueryResponse.json().sourceQuery;
+
+    assert.equal(createQueryResponse.statusCode, 201);
+    assert.equal(createdQuery.freshness, null);
+    assert.deepEqual(createdQuery.includeDomains, []);
+    assert.deepEqual(createdQuery.excludeDomains, []);
+
+    const patchQueryResponse = await app.inject({
+      method: 'PATCH',
+      url: `/source-queries/${createdQuery.id}`,
+      payload: {
+        freshness: 'pw',
+        includeDomains: ['openai.com'],
+        excludeDomains: ['example.com'],
+      },
+    });
+    const patchedQuery = patchQueryResponse.json().sourceQuery;
+
+    assert.equal(patchQueryResponse.statusCode, 200);
+    assert.equal(patchedQuery.freshness, null);
+    assert.deepEqual(patchedQuery.includeDomains, []);
+    assert.deepEqual(patchedQuery.excludeDomains, []);
   });
 
   it('filters disabled queries from enabledOnly reads', async () => {
