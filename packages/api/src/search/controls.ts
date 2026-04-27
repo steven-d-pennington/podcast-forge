@@ -1,8 +1,6 @@
 import type { SourceCandidate } from './candidate.js';
 import type { SourceProfileRecord, SourceQueryRecord } from '../sources/store.js';
 
-type JsonObject = Record<string, unknown>;
-
 export interface SourceControlSummary {
   freshness: string | null;
   freshnessCutoff: string | null;
@@ -20,14 +18,6 @@ export interface SourceControlFilterResult<T extends SourceCandidate> {
     freshness: number;
   };
   warnings: Array<Record<string, unknown>>;
-}
-
-function asObject(value: unknown): JsonObject {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {};
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
 function normalizeHostname(value: string): string | null {
@@ -93,8 +83,6 @@ export function hostnameMatchesDomain(hostname: string | null, domain: string): 
 function resolveFreshness(query: SourceQueryRecord | null, profile: SourceProfileRecord): string | null {
   return query?.freshness
     ?? profile.freshness
-    ?? asString(query ? asObject(query.config).freshness : undefined)
-    ?? asString(asObject(profile.config).freshness)
     ?? null;
 }
 

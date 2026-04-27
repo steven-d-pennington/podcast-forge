@@ -136,15 +136,9 @@ function normalizeQueryInput<T extends CreateSourceQueryInput | UpdateSourceQuer
   const output = { ...input };
 
   if (!controlsSupported) {
-    if ('freshness' in output) {
-      output.freshness = null;
-    }
-    if ('includeDomains' in output) {
-      output.includeDomains = [];
-    }
-    if ('excludeDomains' in output) {
-      output.excludeDomains = [];
-    }
+    output.freshness = null;
+    output.includeDomains = [];
+    output.excludeDomains = [];
     return output as T;
   }
 
@@ -160,9 +154,15 @@ function normalizeQueryInput<T extends CreateSourceQueryInput | UpdateSourceQuer
 }
 
 async function findSourceQueryProfile(store: SourceStore, queryId: string): Promise<z.infer<typeof sourceTypeSchema> | undefined> {
+  const query = store.getSourceQuery ? await store.getSourceQuery(queryId) : undefined;
+
+  if (query) {
+    return (await store.getSourceProfile(query.sourceProfileId))?.type;
+  }
+
   for (const profile of await store.listSourceProfiles()) {
     const queries = await store.listSourceQueries(profile.id);
-    if (queries.some((query) => query.id === queryId)) {
+    if (queries.some((candidate) => candidate.id === queryId)) {
       return profile.type;
     }
   }

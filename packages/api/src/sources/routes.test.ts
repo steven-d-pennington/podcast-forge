@@ -261,6 +261,10 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
     });
   }
 
+  async getSourceQuery(id: string) {
+    return this.queries.find((query) => query.id === id);
+  }
+
   async createSourceQuery(profileId: string, input: CreateSourceQueryInput) {
     const profile = await this.getSourceProfile(profileId);
 
