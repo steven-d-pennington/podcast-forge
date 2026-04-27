@@ -91,7 +91,7 @@ describe('claim coverage summary', () => {
     assert.ok(summary.blockers.some((item) => item.code === 'INTEGRITY_CLAIM_ISSUE'));
     assert.ok(summary.needsAttention.some((item) => item.code === 'CLAIM_MISSING_CITATIONS'));
     assert.ok(summary.needsAttention.some((item) => item.code === 'CLAIM_SINGLE_SOURCE'));
-    assert.ok(summary.needsAttention.some((item) => item.code === 'CLAIM_MISSING_PRIMARY_SOURCE'));
+    assert.ok(summary.unknowns.some((item) => item.code === 'CLAIM_MISSING_PRIMARY_SOURCE'));
     assert.match(summary.headline, /blocking coverage finding/);
   });
 

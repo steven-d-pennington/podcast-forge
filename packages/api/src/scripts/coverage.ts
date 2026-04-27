@@ -219,7 +219,7 @@ function claimFindings(packet: ResearchPacketRecord, claim: ResearchClaim, revis
     }));
   }
 
-  if (claim.supportLevel && WEAK_SUPPORT_LEVELS.has(claim.supportLevel)) {
+  if (claim.supportLevel && claim.supportLevel !== 'single_source' && WEAK_SUPPORT_LEVELS.has(claim.supportLevel)) {
     findings.push(finding({
       category: 'claim',
       status: claim.supportLevel === 'contradicted' ? 'blocking' : 'needs_attention',
@@ -251,14 +251,19 @@ function claimFindings(packet: ResearchPacketRecord, claim: ResearchClaim, revis
     }));
   }
 
-  if (claim.highStakes && sourceMetadataHasPrimary(claim) !== true) {
+  const hasPrimarySource = sourceMetadataHasPrimary(claim);
+  if (claim.highStakes && hasPrimarySource !== true) {
     findings.push(finding({
       category: 'claim',
-      status: 'needs_attention',
-      severity: 'warning',
+      status: hasPrimarySource === false ? 'needs_attention' : 'unknown',
+      severity: hasPrimarySource === false ? 'warning' : 'info',
       code: 'CLAIM_MISSING_PRIMARY_SOURCE',
-      message: 'This high-stakes claim has no primary-source backing visible in current metadata.',
-      nextAction: 'Fetch a primary source or add an explicit editorial caveat before relying on the claim.',
+      message: hasPrimarySource === false
+        ? 'This high-stakes claim has no primary-source backing visible in current metadata.'
+        : 'Primary-source coverage is unknown for this high-stakes claim from current metadata.',
+      nextAction: hasPrimarySource === false
+        ? 'Fetch a primary source or add an explicit editorial caveat before relying on the claim.'
+        : 'Verify primary-source backing manually or rebuild research metadata before relying on the claim.',
       claimId: claim.id,
       claimText: claim.text,
       sourceDocumentIds: claim.sourceDocumentIds,
@@ -537,11 +542,11 @@ function headlineFor(status: ClaimCoverageStatus, counts: ClaimCoverageSummary['
   }
 
   if (status === 'needs_attention') {
-    return `${counts.needsAttentionFindings} coverage finding${counts.needsAttentionFindings === 1 ? '' : 's'} need editorial attention before relying on this draft.`;
+    return `${counts.needsAttentionFindings} coverage finding${counts.needsAttentionFindings === 1 ? ' needs' : 's need'} editorial attention before relying on this draft.`;
   }
 
   if (status === 'covered') {
-    return `${counts.covered} claim${counts.covered === 1 ? '' : 's'} have adequate citation coverage from current metadata.`;
+    return `${counts.covered} claim${counts.covered === 1 ? ' has' : 's have'} adequate citation coverage from current metadata.`;
   }
 
   return 'Coverage unknown from current metadata; verify claims manually before approval.';
@@ -559,14 +564,15 @@ export function buildClaimCoverageSummary(
     ...provenanceFindings(revision),
     ...integrityFindings(revision),
   ];
-  const unknowns = unknownFindings(packet, revision);
+  const metadataUnknowns = unknownFindings(packet, revision);
   const allFindings = [
     ...claims.flatMap((claim) => claim.findings),
     ...blockerFindings,
-    ...unknowns,
+    ...metadataUnknowns,
   ];
   const blockers = allFindings.filter((item) => item.status === 'blocking');
   const needsAttention = allFindings.filter((item) => item.status === 'needs_attention');
+  const unknowns = allFindings.filter((item) => item.status === 'unknown');
   const coveredClaims = claims.filter((claim) => claim.status === 'covered');
   const counts = {
     totalClaims: claims.length,
