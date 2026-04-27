@@ -406,8 +406,8 @@ Recommended order:
 3. #45 — PF2-02 Add always-visible next-best-action and blocker explanations
 4. #46 — PF2-03 Move admin/settings/debug surfaces out of the production flow
 5. #51 — PF2-08 Fix script edit provenance and citation-map invalidation
-6. #50 — PF2-07 Enforce source query domain/freshness controls or remove dead UI fields ✅ PR #61 opened; source controls are enforced in search/source flows with local checks passing.
-7. #52 — PF2-09 Harden publishing validation and scheduled-run status semantics
+6. #50 — PF2-07 Enforce source query domain/freshness controls or remove dead UI fields ✅ merged (#61)
+7. #52 — PF2-09 Harden publishing validation and scheduled-run status semantics 🚧 active on `issue-52-publishing-scheduler-status` in `/home/steven/clawd/worktrees/podcast-forge-issue-52`
 8. #47 — PF2-04 Add AI story brief / episode plan assistant
 9. #48 — PF2-05 Add AI source-gap and claim-coverage surfacing in review UI
 10. #49 — PF2-06 Add AI rewrite/coaching actions for scripts without bypassing approval
