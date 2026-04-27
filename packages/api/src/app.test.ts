@@ -40,10 +40,9 @@ describe('api config endpoints', () => {
 
     assert.equal(response.statusCode, 200);
     assert.match(String(response.headers['content-type'] ?? ''), /application\/javascript/);
-    assert.match(response.body, /from '.\/ui-api\.js'/);
-    assert.match(response.body, /from '.\/ui-constants\.js'/);
-    assert.match(response.body, /from '.\/ui-state\.js'/);
-    assert.match(response.body, /from '.\/ui-formatters\.js'/);
+    for (const modulePath of ['./ui-api.js', './ui-constants.js', './ui-state.js', './ui-formatters.js']) {
+      assert.match(response.body, new RegExp(`from\\s+['\"]${modulePath.replace(/[./]/g, '\\$&')}['\"]`));
+    }
     assert.match(response.body, /renderSettings/);
     assert.match(response.body, /saveModelProfile/);
     assert.match(response.body, /renderPipeline/);
