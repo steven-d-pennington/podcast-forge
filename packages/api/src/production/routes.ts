@@ -67,6 +67,7 @@ export interface ProductionRoutesOptions {
 
 const requestSchema = z.object({
   actor: z.string().trim().min(1).default('local-user'),
+  retryOfJobId: z.string().trim().min(1).optional(),
 });
 const approvePublishSchema = requestSchema.extend({
   reason: z.string().trim().min(1).optional(),
@@ -1135,6 +1136,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
           episodeId: episode.id,
           provider: production.ttsProvider ?? 'vertex-gemini-tts',
           actor: body.actor,
+          retryOfJobId: body.retryOfJobId,
           stage,
           warnings,
         },
@@ -1276,6 +1278,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
           promptMetadata: resolvedPrompt.promptMetadata,
           modelProfile,
           actor: body.actor,
+          retryOfJobId: body.retryOfJobId,
           stage,
         },
         logs,

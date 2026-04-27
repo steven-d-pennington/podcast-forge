@@ -347,6 +347,23 @@
           <div id="failedScheduleRuns" class="scheduler-failures"></div>
         </section>
 
+        <section class="panel job-panel" aria-labelledby="jobRunsTitle">
+          <div class="panel-heading">
+            <div>
+              <h2 id="jobRunsTitle">Task Runs</h2>
+              <p id="jobRunsMeta"></p>
+              <p class="help">Recent source, scheduled, research, script, production, and publishing runs with progress, warnings, failure details, and safe retry actions.</p>
+            </div>
+            <div class="actions inline">
+              <button id="refreshJobs" class="secondary" type="button">Refresh Runs</button>
+            </div>
+          </div>
+          <div class="job-layout">
+            <div id="jobRunList" class="record-list"></div>
+            <article id="jobRunDetail" class="job-detail"></article>
+          </div>
+        </section>
+
         <section class="panel">
           <div class="panel-heading">
             <div>

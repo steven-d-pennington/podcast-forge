@@ -251,9 +251,20 @@ Search/job endpoints:
 - `POST /source-profiles/:id/search`
 - `POST /source-profiles/:id/ingest`
 - `POST /story-candidates/manual`
+- `GET /jobs?showSlug=the-synthetic-lens&limit=30`
 - `GET /jobs/:id`
 - `GET /story-candidates?showSlug=the-synthetic-lens`
 - `POST /research-packets` accepts `{ candidateIds, extraUrls, angle, notes, targetFormat, targetRuntime }`
+
+The local UI includes a show-scoped **Task Runs** panel at `/ui`. It lists
+recent source, scheduled, research, script, production, and publishing jobs,
+polls active runs every five seconds, and opens a detail view with logs,
+warnings, stack-safe failure messages, retryability, linked artifact IDs, and
+collapsed sanitized debug metadata. Scheduled-run retries use
+`POST /scheduled-pipeline-runs/:jobId/retry`; failed audio and cover jobs retry
+through the existing production endpoints and send `retryOfJobId` so the new
+job can be linked back to the original. RSS publish jobs are never auto-retried
+from the task panel.
 
 `GET /story-candidates` defaults to `sort=score`, returning scored candidates
 highest first with unscored candidates last. Use `sort=discovered` to show the

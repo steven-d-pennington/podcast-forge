@@ -173,8 +173,12 @@ class FakeSearchStore implements SourceStore, SearchJobStore {
     return this.jobs.find((job) => job.id === id);
   }
 
-  async listJobs() {
-    return this.jobs;
+  async listJobs(filter: Parameters<SearchJobStore['listJobs']>[0] = {}) {
+    return this.jobs
+      .filter((job) => !filter.showId || job.showId === filter.showId)
+      .filter((job) => !filter.episodeId || job.episodeId === filter.episodeId)
+      .filter((job) => !filter.types || filter.types.includes(job.type))
+      .slice(0, filter.limit ?? 50);
   }
 
   async listStoryCandidateDedupeKeys(showId: string) {
@@ -340,6 +344,62 @@ describe('search routes candidate scoring', () => {
       assert.equal(body.candidates[0].metadata.scoringStatus, 'failed');
       assert.equal(body.candidates[0].scoreBreakdown.scorer.fallback, true);
       assert.match(JSON.stringify(body.job.logs), /Injected scorer failure/);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('lists recent jobs with sanitized debug fields, warnings, artifacts, and retry status', async () => {
+    const store = new FakeSearchStore();
+    store.jobs.push({
+      id: 'job-secret',
+      showId: show.id,
+      episodeId: 'episode-1',
+      type: 'audio.preview',
+      status: 'failed',
+      progress: 45,
+      attempts: 1,
+      maxAttempts: 1,
+      input: {
+        scriptId: 'script-1',
+        provider: 'fake-tts',
+        apiKey: 'should-not-leak',
+        localPath: '/tmp/private/input.json',
+      },
+      output: {
+        stage: 'rendering-audio',
+        warnings: [{ code: 'SYNTHETIC_WARNING', message: 'Review audio timing.' }],
+        failure: { message: 'Synthetic TTS failure', code: 'Error', retryable: true },
+        providerResponse: { token: 'hidden' },
+      },
+      logs: [{ at: '2026-04-26T00:00:00.000Z', level: 'warn', message: 'Timing may need review.' }],
+      error: 'Synthetic TTS failure',
+      lockedBy: null,
+      lockedAt: null,
+      startedAt: new Date('2026-04-26T00:00:00Z'),
+      finishedAt: new Date('2026-04-26T00:01:00Z'),
+      createdAt: new Date('2026-04-26T00:00:00Z'),
+      updatedAt: new Date('2026-04-26T00:01:00Z'),
+    });
+    const app = buildApp({ sourceStore: store });
+
+    try {
+      const response = await app.inject({ method: 'GET', url: '/jobs?showSlug=example-show&limit=5' });
+      const body = response.json();
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(body.jobs.length, 1);
+      assert.equal(body.jobs[0].input.apiKey, '[hidden]');
+      assert.equal(body.jobs[0].input.localPath, '[hidden local path]');
+      assert.equal(body.jobs[0].output.providerResponse, '[hidden]');
+      assert.equal(body.jobs[0].summary.warnings.length, 2);
+      assert.deepEqual(body.jobs[0].summary.artifacts.find((item: { label: string }) => item.label === 'script'), {
+        label: 'script',
+        value: 'script-1',
+      });
+      assert.equal(body.jobs[0].summary.retry.supported, true);
+      assert.equal(body.jobs[0].summary.retry.endpoint, '/scripts/script-1/production/audio-preview');
+      assert.doesNotMatch(JSON.stringify(body), /should-not-leak|\/tmp\/private/);
     } finally {
       await app.close();
     }
