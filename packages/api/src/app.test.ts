@@ -57,6 +57,11 @@ describe('api config endpoints', () => {
     assert.match(response.body, /coverageStatusLabel/);
     assert.match(response.body, /scriptCoachingActions/);
     assert.match(response.body, /runScriptCoachingAction/);
+    assert.match(response.body, /openConfirmationDialog/);
+    assert.match(response.body, /Delete Search Query/);
+    assert.match(response.body, /Override Integrity Gate/);
+    assert.match(response.body, /Approve Research Brief/);
+    assert.doesNotMatch(response.body, /window\.prompt|prompt\(/);
   });
 
   it('serves guided pipeline module dependencies', async () => {

@@ -42,6 +42,170 @@ function reportError(error, fallback = 'Something went wrong. Open technical det
   return fallback;
 }
 
+function openConfirmationDialog({
+  title,
+  description,
+  consequence = '',
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+  danger = false,
+  reasonLabel = '',
+  defaultReason = '',
+  reasonPlaceholder = '',
+  requireReason = false,
+  emptyReasonMessage = 'Enter a reason before continuing.',
+}) {
+  return new Promise((resolve) => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialogId = `confirmation-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const overlay = document.createElement('div');
+    overlay.className = 'confirmation-overlay';
+
+    const dialog = document.createElement('section');
+    dialog.className = 'confirmation-dialog';
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    dialog.setAttribute('aria-labelledby', `${dialogId}-title`);
+    dialog.setAttribute('aria-describedby', `${dialogId}-description`);
+    dialog.tabIndex = -1;
+
+    const form = document.createElement('form');
+    form.className = 'confirmation-form';
+    form.noValidate = true;
+
+    const heading = document.createElement('h2');
+    heading.id = `${dialogId}-title`;
+    heading.textContent = title;
+
+    const body = document.createElement('p');
+    body.id = `${dialogId}-description`;
+    body.textContent = description;
+
+    form.append(heading, body);
+
+    if (consequence) {
+      const consequenceText = document.createElement('p');
+      consequenceText.className = 'confirmation-consequence';
+      consequenceText.textContent = consequence;
+      form.append(consequenceText);
+    }
+
+    let reasonInput = null;
+    if (reasonLabel) {
+      const field = document.createElement('label');
+      field.className = 'field';
+      const label = document.createElement('span');
+      label.textContent = reasonLabel;
+      reasonInput = document.createElement('input');
+      reasonInput.type = 'text';
+      reasonInput.value = defaultReason;
+      reasonInput.placeholder = reasonPlaceholder;
+      reasonInput.setAttribute('autocomplete', 'off');
+      if (requireReason) {
+        reasonInput.required = true;
+      }
+      field.append(label, reasonInput);
+      form.append(field);
+      reasonInput.addEventListener('input', () => {
+        status.hidden = true;
+        status.textContent = '';
+        reasonInput.removeAttribute('aria-invalid');
+      });
+    }
+
+    const status = document.createElement('p');
+    status.className = 'confirmation-status';
+    status.setAttribute('role', 'alert');
+    status.hidden = true;
+    form.append(status);
+
+    const actions = document.createElement('div');
+    actions.className = 'actions inline confirmation-actions';
+
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'secondary';
+    cancel.textContent = cancelLabel;
+
+    const confirm = document.createElement('button');
+    confirm.type = 'submit';
+    confirm.className = danger ? 'danger' : '';
+    confirm.textContent = confirmLabel;
+
+    actions.append(cancel, confirm);
+    form.append(actions);
+    dialog.append(form);
+    overlay.append(dialog);
+
+    const close = (value) => {
+      document.removeEventListener('keydown', onKeydown);
+      overlay.remove();
+      if (previousFocus?.isConnected) {
+        previousFocus.focus();
+      }
+      resolve(value);
+    };
+
+    function dialogFocusableElements() {
+      return Array.from(dialog.querySelectorAll('button, input, textarea, select, a[href], [tabindex]:not([tabindex="-1"])'))
+        .filter((element) => !element.disabled && element.offsetParent !== null);
+    }
+
+    function trapFocus(event) {
+      const focusable = dialogFocusableElements();
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    function onKeydown(event) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        close(null);
+      } else if (event.key === 'Tab') {
+        trapFocus(event);
+      }
+    }
+
+    cancel.addEventListener('click', () => close(null));
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) {
+        close(null);
+      }
+    });
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const reason = reasonInput?.value.trim() ?? '';
+      if (requireReason && !reason) {
+        status.hidden = false;
+        status.textContent = emptyReasonMessage;
+        reasonInput?.setAttribute('aria-invalid', 'true');
+        reasonInput?.focus();
+        return;
+      }
+      close(reasonInput ? reason : true);
+    });
+
+    document.addEventListener('keydown', onKeydown);
+    document.body.append(overlay);
+    window.setTimeout(() => {
+      (reasonInput || confirm).focus();
+    }, 0);
+  });
+}
+
 function selectedProfile() {
   return state.profiles.find((profile) => profile.id === state.selectedProfileId);
 }
@@ -1531,7 +1695,7 @@ function renderQueries() {
       await saveQuery(query.id, form, selectedProfile());
     });
     form.elements.delete.addEventListener('click', async () => {
-      await deleteQuery(query.id);
+      await confirmDeleteQuery(query);
     });
     els.queryList.append(form);
   }
@@ -2215,7 +2379,7 @@ function adminQueryForm(query, profile = selectedProfile()) {
     await saveQuery(query.id, form, profile);
   });
   form.elements.delete.addEventListener('click', async () => {
-    await deleteQuery(query.id);
+    await confirmDeleteQuery(query);
   });
   return form;
 }
@@ -4503,6 +4667,29 @@ async function createQuery(event) {
   }
 }
 
+function truncateConfirmationText(text, maxLength = 180) {
+  const value = String(text || '').replace(/\s+/g, ' ').trim();
+  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+}
+
+async function confirmDeleteQuery(query) {
+  const queryText = truncateConfirmationText(query.query);
+  const confirmed = await openConfirmationDialog({
+    title: 'Delete Search Query',
+    description: 'This removes the saved source query/search recipe from this story source.',
+    consequence: `"${queryText}" will no longer run for future story discovery. Existing candidate stories and audit records are not deleted, but this destructive change removes the query from the profile.`,
+    confirmLabel: 'Delete Source Query',
+    danger: true,
+  });
+
+  if (!confirmed) {
+    setStatus('Search query deletion cancelled.');
+    return;
+  }
+
+  await deleteQuery(query.id);
+}
+
 async function deleteQuery(id) {
   try {
     await api(`/source-queries/${id}`, { method: 'DELETE' });
@@ -4704,9 +4891,19 @@ async function overrideSelectedIntegrityReview() {
     return;
   }
 
-  const reason = window.prompt('Integrity review override reason:');
-  if (!reason || !reason.trim()) {
-    setStatus('Integrity override cancelled. A reason is required.');
+  const reason = await openConfirmationDialog({
+    title: 'Override Integrity Gate',
+    description: 'This records an explicit override of a blocking integrity review gate and allows production to proceed despite blocking findings.',
+    consequence: 'The failed or missing integrity review record stays in the audit trail; this does not erase it.',
+    confirmLabel: 'Override Integrity Gate',
+    danger: true,
+    reasonLabel: 'Override reason',
+    reasonPlaceholder: 'Explain why production may continue despite the blocking gate.',
+    requireReason: true,
+    emptyReasonMessage: 'Enter an integrity override reason before continuing.',
+  });
+  if (reason === null) {
+    setStatus('Integrity override cancelled.');
     return;
   }
 
@@ -4718,7 +4915,7 @@ async function overrideSelectedIntegrityReview() {
       method: 'POST',
       body: JSON.stringify({
         actor: 'local-user',
-        reason: reason.trim(),
+        reason,
       }),
     });
     state.selectedRevision = body.revision;
@@ -4736,10 +4933,20 @@ async function overrideSelectedIntegrityReview() {
 }
 
 async function overrideResearchWarning(packetId, warning) {
-  const reason = window.prompt('Override reason for this research warning:');
+  const reason = await openConfirmationDialog({
+    title: 'Override Research Warning',
+    description: 'This records an editorial override for a warning and allows the brief to proceed despite that warning. It does not remove the original warning or audit trail.',
+    consequence: `${warning.code || 'warning'}: ${warning.message || 'No warning message recorded.'}`,
+    confirmLabel: 'Override Warning',
+    danger: true,
+    reasonLabel: 'Override reason',
+    reasonPlaceholder: 'Explain the editorial basis for overriding this warning.',
+    requireReason: true,
+    emptyReasonMessage: 'Enter a research warning override reason before continuing.',
+  });
 
-  if (!reason || !reason.trim()) {
-    setStatus('Warning override cancelled. A reason is required.');
+  if (reason === null) {
+    setStatus('Warning override cancelled.');
     return;
   }
 
@@ -4753,7 +4960,7 @@ async function overrideResearchWarning(packetId, warning) {
         warningId: warning.id,
         warningCode: warning.code,
         actor: 'local-user',
-        reason: reason.trim(),
+        reason,
       }),
     });
     state.researchPackets = state.researchPackets.map((packet) => packet.id === body.researchPacket.id ? body.researchPacket : packet);
@@ -4776,7 +4983,15 @@ async function approveSelectedResearch() {
     return;
   }
 
-  const reason = window.prompt('Research approval note:', 'Sources, claims, citations, and warnings reviewed.');
+  const defaultResearchApprovalNote = 'Sources, claims, citations, and warnings reviewed.';
+  const reason = await openConfirmationDialog({
+    title: 'Approve Research Brief',
+    description: 'Record research approval only after source, claim, citation, and warning review.',
+    consequence: 'This saves a review decision for the selected research brief; source snapshots, claims, and warning records remain available for audit.',
+    confirmLabel: 'Approve Research Brief',
+    reasonLabel: 'Approval note',
+    defaultReason: defaultResearchApprovalNote,
+  });
 
   if (reason === null) {
     setStatus('Research approval cancelled.');
@@ -4791,7 +5006,7 @@ async function approveSelectedResearch() {
       method: 'POST',
       body: JSON.stringify({
         actor: 'local-user',
-        reason: reason.trim() || 'Sources, claims, citations, and warnings reviewed.',
+        reason: reason.trim() || defaultResearchApprovalNote,
       }),
     });
     state.researchPackets = state.researchPackets.map((candidate) => candidate.id === body.researchPacket.id ? body.researchPacket : candidate);
