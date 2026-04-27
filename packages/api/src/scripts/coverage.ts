@@ -52,7 +52,6 @@ export interface ClaimCoverageSummary {
   blockers: ClaimCoverageFinding[];
   needsAttention: ClaimCoverageFinding[];
   unknowns: ClaimCoverageFinding[];
-  coveredClaims: ClaimCoverageItem[];
   claims: ClaimCoverageItem[];
 }
 
@@ -193,6 +192,7 @@ function claimFindings(
 ): ClaimCoverageFinding[] {
   const findings: ClaimCoverageFinding[] = [];
   const citedEntries = citationMap.filter((entry) => entry.claimId === claim.id);
+  const citationMapHasClaimIds = citationMap.some((entry) => Boolean(entry.claimId));
   const sourceCount = independentSourceCount(claim.citationUrls);
 
   if (claim.sourceDocumentIds.length === 0 || claim.citationUrls.length === 0) {
@@ -293,7 +293,7 @@ function claimFindings(
     }));
   }
 
-  if (citationMap.length > 0 && citedEntries.length === 0) {
+  if (citationMapHasClaimIds && citedEntries.length === 0) {
     findings.push(finding({
       category: 'provenance',
       status: 'needs_attention',
@@ -585,10 +585,9 @@ export function buildClaimCoverageSummary(
   const blockers = allFindings.filter((item) => item.status === 'blocking');
   const needsAttention = allFindings.filter((item) => item.status === 'needs_attention');
   const unknowns = allFindings.filter((item) => item.status === 'unknown');
-  const coveredClaims = claims.filter((claim) => claim.status === 'covered');
   const counts = {
     totalClaims: claims.length,
-    covered: coveredClaims.length,
+    covered: claims.filter((claim) => claim.status === 'covered').length,
     needsAttention: claims.filter((claim) => claim.status === 'needs_attention').length,
     blocking: claims.filter((claim) => claim.status === 'blocking').length,
     unknown: claims.filter((claim) => claim.status === 'unknown').length,
@@ -611,7 +610,6 @@ export function buildClaimCoverageSummary(
     blockers,
     needsAttention,
     unknowns,
-    coveredClaims,
     claims,
   };
 }

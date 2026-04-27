@@ -895,7 +895,7 @@ function renderCoverageSummary(summary) {
   section.append(
     reviewList('Blocking coverage findings', asArray(summary.blockers), 'No blocking coverage findings recorded.', coverageFindingText),
     reviewList('Needs attention', asArray(summary.needsAttention), 'No weak, stale, single-source, missing-primary, or uncertain coverage warnings recorded.', coverageFindingText),
-    reviewList('Covered claims', asArray(summary.coveredClaims), 'No claims are marked fully covered by current metadata.', coverageClaimText),
+    reviewList('Covered claims', asArray(summary.claims).filter((claim) => claim.status === 'covered'), 'No claims are marked fully covered by current metadata.', coverageClaimText),
   );
 
   const unknowns = asArray(summary.unknowns);
@@ -4047,7 +4047,7 @@ async function loadScript(id) {
   state.selectedScript = body.script;
   state.selectedRevision = body.latestRevision || null;
   state.selectedRevisions = body.revisions || [];
-  state.selectedCoverageSummary = body.coverageSummary || null;
+  state.selectedCoverageSummary = body.coverageSummary ?? null;
   if (body.script?.researchPacketId && state.researchPackets.some((packet) => packet.id === body.script.researchPacketId)) {
     state.selectedResearchPacketId = body.script.researchPacketId;
   }
@@ -4980,7 +4980,7 @@ async function generateScriptDraft(researchPacketId, format) {
     state.selectedScript = body.script;
     state.selectedRevision = body.revision;
     state.selectedRevisions = [body.revision];
-    state.selectedCoverageSummary = body.coverageSummary || null;
+    state.selectedCoverageSummary = body.coverageSummary ?? null;
     state.selectedResearchPacketId = researchPacketId;
     state.production = { episode: null, assets: [], jobs: [] };
     els.scriptResearchPacketId.value = '';
@@ -5014,7 +5014,7 @@ async function saveScriptRevision(event) {
     state.selectedScript = body.script;
     state.selectedRevision = body.revision;
     state.selectedRevisions = [body.revision, ...state.selectedRevisions.filter((revision) => revision.id !== body.revision.id)];
-    state.selectedCoverageSummary = body.coverageSummary || null;
+    state.selectedCoverageSummary = body.coverageSummary ?? null;
     await loadProduction();
     await loadJobs();
     render();
@@ -5042,7 +5042,7 @@ async function approveSelectedScript() {
     });
     state.scripts = state.scripts.map((script) => script.id === body.script.id ? body.script : script);
     state.selectedScript = body.script;
-    state.selectedCoverageSummary = body.coverageSummary || state.selectedCoverageSummary;
+    state.selectedCoverageSummary = body.coverageSummary ?? null;
     await loadProduction();
     await loadJobs();
     savePipelineState();
@@ -5070,7 +5070,7 @@ async function runSelectedIntegrityReview() {
     });
     state.selectedRevision = body.revision;
     state.selectedRevisions = state.selectedRevisions.map((revision) => revision.id === body.revision.id ? body.revision : revision);
-    state.selectedCoverageSummary = body.coverageSummary || null;
+    state.selectedCoverageSummary = body.coverageSummary ?? null;
     await loadProduction();
     await loadJobs();
     savePipelineState();
@@ -5107,7 +5107,7 @@ async function overrideSelectedIntegrityReview() {
     });
     state.selectedRevision = body.revision;
     state.selectedRevisions = state.selectedRevisions.map((revision) => revision.id === body.revision.id ? body.revision : revision);
-    state.selectedCoverageSummary = body.coverageSummary || null;
+    state.selectedCoverageSummary = body.coverageSummary ?? null;
     await loadProduction();
     savePipelineState();
     render();
