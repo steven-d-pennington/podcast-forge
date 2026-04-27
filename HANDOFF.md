@@ -408,8 +408,8 @@ Recommended order:
 5. #51 — PF2-08 Fix script edit provenance and citation-map invalidation ✅ merged (#60)
 6. #50 — PF2-07 Enforce source query domain/freshness controls or remove dead UI fields ✅ merged (#61)
 7. #52 — PF2-09 Harden publishing validation and scheduled-run status semantics ✅ merged (#62)
-8. #47 — PF2-04 Add AI story brief / episode plan assistant 🚧 active on branch `issue-47-ai-story-brief`
-9. #48 — PF2-05 Add AI source-gap and claim-coverage surfacing in review UI
+8. #47 — PF2-04 Add AI story brief / episode plan assistant ✅ merged (#63)
+9. #48 — PF2-05 Add AI source-gap and claim-coverage surfacing in review UI 🚧 active on branch `issue-48-source-gap-claim-coverage`
 10. #49 — PF2-06 Add AI rewrite/coaching actions for scripts without bypassing approval
 11. #53 — PF2-10 Split UI state/render helpers into testable modules or sections
 12. #54 — PF2-11 Replace destructive/critical prompts with explicit confirmation dialogs
