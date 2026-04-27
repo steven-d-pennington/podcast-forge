@@ -3323,7 +3323,7 @@ function renderScriptReview() {
       ['Citation/provenance warning items', provenanceValidation.valid === false ? 'failed' : `${warningItems.length} warning(s)`],
       ['Revision history', `${state.selectedRevisions.length || 1} revision${(state.selectedRevisions.length || 1) === 1 ? '' : 's'}`],
     ]),
-    ...(provenanceState.stale ? [actionBlockerNote(provenanceState.message, true)] : []),
+    ...(provenanceState.stale ? [actionBlockerNote(provenanceState.message, false)] : []),
     reviewList('Integrity review issues', integrityIssues, integrity.status === 'missing' ? 'Run the integrity reviewer before production.' : 'No unresolved integrity issues recorded.', integrityIssueText),
     integrity.override ? reviewList('Integrity override', [integrity.override], 'No override recorded.', (item) => `${item.actor || 'editor'} | ${item.reason} | ${formatTime(item.overriddenAt)}`) : settingsEmpty('No integrity override recorded.'),
     reviewList('Revision history', state.selectedRevisions, 'Only the selected revision is loaded.', (item) => `v${item.version} by ${item.author} | ${formatTime(item.createdAt)}${item.changeSummary ? ` | ${item.changeSummary}` : ''}`),
