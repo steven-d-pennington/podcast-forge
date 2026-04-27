@@ -2620,6 +2620,43 @@ describe('source profile routes', () => {
     assert.equal(scriptAfterFailure?.approvedRevisionId, initial.revision.id);
   });
 
+  it('rejects AI coaching output with speaker labels outside the show cast', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Unknown Speaker Coaching Story',
+      status: 'approved',
+      sourceDocumentIds: ['source-document-1'],
+      claims: [{ id: 'claim-1', text: 'An unknown speaker coaching claim exists.', sourceDocumentIds: ['source-document-1'], citationUrls: ['https://example.com/unknown-speaker-coaching'] }],
+      citations: [{
+        sourceDocumentId: 'source-document-1',
+        url: 'https://example.com/unknown-speaker-coaching',
+        title: 'Unknown Speaker Coaching Source',
+        fetchedAt: '2026-01-04T00:00:00.000Z',
+        status: 'fetched',
+      }],
+      warnings: [],
+      content: { summary: 'A packet summary for unknown speaker coaching testing.' },
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+    const revisionCount = store.scriptRevisions.length;
+
+    scriptEditorMode = 'unknown-speaker';
+    const coachResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/coach`,
+      payload: {
+        action: 'add_attribution',
+        actor: 'editor@example.com',
+      },
+    });
+
+    assert.equal(coachResponse.statusCode, 400);
+    assert.equal(coachResponse.json().code, 'INVALID_SCRIPT_SPEAKER');
+    assert.equal(store.scriptRevisions.length, revisionCount);
+  });
+
   it('runs and persists a passing integrity review for a script revision', async () => {
     const packet = await store.createResearchPacket({
       showId: store.shows[0].id,

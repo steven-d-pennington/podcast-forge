@@ -564,6 +564,7 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
       if (!packet) {
         throw new ApiError(404, 'RESEARCH_PACKET_NOT_FOUND', `Research packet not found: ${script.researchPacketId}`);
       }
+      assertPacketCanGenerate(packet);
 
       const show = await getShow(rawStore, script.showId);
       assertCast(show);
