@@ -10,6 +10,16 @@ import type { ScriptRecord, ScriptRevisionRecord } from './store.js';
 export type IntegrityReviewVerdict = 'PASS' | 'PASS_WITH_NOTES' | 'FAIL';
 export type IntegrityGateStatus = 'pass' | 'pass_with_notes' | 'fail' | 'missing' | 'overridden';
 
+const NON_OVERRIDE_INTEGRITY_STATUSES = new Set<IntegrityGateStatus>(['pass', 'pass_with_notes', 'fail', 'missing']);
+
+function validNonOverrideIntegrityStatus(value: unknown): IntegrityGateStatus {
+  if (typeof value === 'string' && NON_OVERRIDE_INTEGRITY_STATUSES.has(value as IntegrityGateStatus)) {
+    return value as IntegrityGateStatus;
+  }
+
+  return 'missing';
+}
+
 export interface IntegrityReviewSummary {
   verdict: IntegrityReviewVerdict;
   status: IntegrityGateStatus;
@@ -168,7 +178,7 @@ export function integrityGateState(revision: ScriptRevisionRecord): {
     };
   }
 
-  const status = typeof reviewObject.status === 'string' ? reviewObject.status as IntegrityGateStatus : 'missing';
+  const status = validNonOverrideIntegrityStatus(reviewObject.status);
   return {
     status,
     blocking: status === 'fail' || status === 'missing',

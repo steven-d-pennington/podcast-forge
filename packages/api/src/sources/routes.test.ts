@@ -2397,6 +2397,46 @@ describe('source profile routes', () => {
     assert.equal(audioResponse.json().code, 'INTEGRITY_REVIEW_REQUIRED');
   });
 
+  it('treats malformed integrity review status and empty overrides as blocking', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Malformed Integrity Story',
+      status: 'approved',
+      sourceDocumentIds: [],
+      claims: [{ id: 'claim-1', text: 'A malformed review claim exists.', sourceDocumentIds: [], citationUrls: ['https://example.com/malformed-review'] }],
+      citations: [],
+      warnings: [],
+      content: { summary: 'A packet summary for malformed review testing.' },
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+
+    await store.updateScriptRevisionMetadata(initial.revision.id, {
+      ...initial.revision.metadata,
+      integrityReview: {
+        status: 'overridden',
+        verdict: 'PASS',
+        override: { reason: '   ' },
+      },
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/approve-for-audio`,
+      payload: { actor: 'producer@example.com' },
+    });
+    const audioResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/audio-preview`,
+      payload: { actor: 'producer@example.com' },
+    });
+
+    assert.equal(audioResponse.statusCode, 409);
+    assert.equal(audioResponse.json().code, 'INTEGRITY_REVIEW_REQUIRED');
+    assert.equal(audioResponse.json().blockedReasons[0].metadata.status, 'missing');
+  });
+
   it('produces preview audio and cover art as durable jobs linked to an episode', async () => {
     const packet = await store.createResearchPacket({
       showId: store.shows[0].id,

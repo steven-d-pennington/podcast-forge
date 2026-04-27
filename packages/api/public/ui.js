@@ -704,8 +704,9 @@ function validHttpUrl(value) {
 function integrityReviewState(revision = state.selectedRevision) {
   const review = asObject(revision?.metadata?.integrityReview);
   const override = asObject(review.override);
+  const overrideReason = typeof override.reason === 'string' ? override.reason.trim() : '';
 
-  if (override.reason) {
+  if (overrideReason) {
     return {
       status: 'overridden',
       blocking: false,
@@ -714,19 +715,13 @@ function integrityReviewState(revision = state.selectedRevision) {
     };
   }
 
-  if (!review.status) {
-    return {
-      status: 'missing',
-      blocking: true,
-      review: null,
-      override: null,
-    };
-  }
+  const allowedStatuses = new Set(['pass', 'pass_with_notes', 'fail', 'missing']);
+  const status = allowedStatuses.has(review.status) ? review.status : 'missing';
 
   return {
-    status: review.status,
-    blocking: review.status === 'fail' || review.status === 'missing',
-    review,
+    status,
+    blocking: status === 'fail' || status === 'missing',
+    review: status === 'missing' && !review.status ? null : review,
     override: null,
   };
 }
