@@ -17,6 +17,7 @@ import {
   invalidSpeakerLabels,
   provenanceWarnings,
 } from './builder.js';
+import { buildIntegrityReview } from './integrity.js';
 import type { ScriptStore } from './store.js';
 
 class ApiError extends Error {
@@ -55,6 +56,15 @@ const createRevisionSchema = z.object({
 const approveSchema = z.object({
   actor: z.string().trim().min(1).default('local-user'),
   reason: z.string().trim().min(1).nullable().optional(),
+});
+
+const integrityReviewSchema = z.object({
+  actor: z.string().trim().min(1).default('local-user'),
+});
+
+const overrideIntegrityReviewSchema = z.object({
+  actor: z.string().trim().min(1).default('local-user'),
+  reason: z.string().trim().min(1),
 });
 
 function sendError(reply: FastifyReply, error: unknown) {
@@ -122,6 +132,8 @@ function requireScriptStore(store: Partial<ScriptStore>): ScriptStore {
     'listScriptRevisions',
     'getScriptRevision',
     'createScriptRevision',
+    'updateScriptRevisionMetadata',
+    'overrideIntegrityReview',
     'approveScriptRevision',
   ];
 
@@ -450,6 +462,81 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
       }
 
       return reply.code(201).send({ ok: true, script: result.script, revision: result.revision });
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post<{ Params: { id: string; revisionId: string } }>('/scripts/:id/revisions/:revisionId/integrity-review', async (request, reply) => {
+    try {
+      const rawStore = options.getStore();
+      const scriptStore = requireScriptStore(rawStore);
+      const researchStore = requireResearchStore(rawStore);
+      const body = integrityReviewSchema.parse(request.body ?? {});
+      const script = await scriptStore.getScript(request.params.id);
+
+      if (!script) {
+        throw new ApiError(404, 'SCRIPT_NOT_FOUND', `Script not found: ${request.params.id}`);
+      }
+
+      const revision = await scriptStore.getScriptRevision(request.params.revisionId);
+
+      if (!revision || revision.scriptId !== script.id) {
+        throw new ApiError(404, 'SCRIPT_REVISION_NOT_FOUND', `Script revision not found: ${request.params.revisionId}`);
+      }
+
+      const packet = await researchStore.getResearchPacket(script.researchPacketId);
+
+      if (!packet) {
+        throw new ApiError(404, 'RESEARCH_PACKET_NOT_FOUND', `Research packet not found: ${script.researchPacketId}`);
+      }
+
+      const show = await getShow(rawStore, script.showId);
+      const modelProfile = hasModelProfileStore(rawStore)
+        ? await resolveModelProfile(rawStore, { showId: script.showId, role: 'integrity_reviewer' })
+        : undefined;
+
+      if (!options.llmRuntime) {
+        throw new ApiError(503, 'INTEGRITY_REVIEW_RUNTIME_UNAVAILABLE', 'Integrity review requires an injected LLM runtime.');
+      }
+
+      if (!modelProfile) {
+        throw new ApiError(409, 'INTEGRITY_REVIEW_MODEL_PROFILE_REQUIRED', 'No integrity_reviewer model profile is configured for this show.');
+      }
+
+      const review = await buildIntegrityReview(show, packet, script, revision, modelProfile, body.actor, {
+        runtime: options.llmRuntime,
+        promptRegistry: createPromptRegistry({ store: rawStore }),
+      });
+      const updatedRevision = await scriptStore.updateScriptRevisionMetadata(revision.id, {
+        ...revision.metadata,
+        integrityReview: review,
+      });
+
+      if (!updatedRevision) {
+        throw new ApiError(404, 'SCRIPT_REVISION_NOT_FOUND', `Script revision not found: ${request.params.revisionId}`);
+      }
+
+      return reply.code(201).send({ ok: true, script, revision: updatedRevision, integrityReview: review });
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post<{ Params: { id: string; revisionId: string } }>('/scripts/:id/revisions/:revisionId/integrity-review/override', async (request, reply) => {
+    try {
+      const scriptStore = requireScriptStore(options.getStore());
+      const body = overrideIntegrityReviewSchema.parse(request.body ?? {});
+      const revision = await scriptStore.overrideIntegrityReview(request.params.id, request.params.revisionId, {
+        actor: body.actor,
+        reason: body.reason,
+      });
+
+      if (!revision) {
+        throw new ApiError(404, 'SCRIPT_REVISION_NOT_FOUND', `Script revision not found: ${request.params.revisionId}`);
+      }
+
+      return reply.code(201).send({ ok: true, revision, integrityReview: revision.metadata.integrityReview });
     } catch (error) {
       return sendError(reply, error);
     }

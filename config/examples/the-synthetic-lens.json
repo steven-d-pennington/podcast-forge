@@ -85,6 +85,14 @@
       "promptTemplate": "script_editor.default",
       "budgetUsd": 2
     },
+    "integrity_reviewer": {
+      "provider": "openai",
+      "model": "gpt-5.5",
+      "temperature": 0.2,
+      "maxTokens": 4000,
+      "promptTemplate": "integrity_reviewer.default",
+      "budgetUsd": 1
+    },
     "metadata_writer": {
       "provider": "openai",
       "model": "gpt-5.5",

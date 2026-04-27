@@ -48,6 +48,7 @@ import type {
   CreateScriptRevisionInput,
   CreateScriptWithRevisionInput,
   ListScriptsFilter,
+  OverrideIntegrityReviewInput,
   ScriptRecord,
   ScriptRevisionRecord,
   ScriptStore,
@@ -1232,6 +1233,53 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
         script: mapScript(scriptRow),
         revision: mapScriptRevision(revisionRow),
       };
+    },
+
+    async updateScriptRevisionMetadata(revisionId: string, metadata: Record<string, unknown>) {
+      const [row] = await db.update(scriptRevisions)
+        .set({ metadata })
+        .where(eq(scriptRevisions.id, revisionId))
+        .returning();
+
+      return row ? mapScriptRevision(row) : undefined;
+    },
+
+    async overrideIntegrityReview(scriptId: string, revisionId: string, input: OverrideIntegrityReviewInput) {
+      const revision = await this.getScriptRevision(revisionId);
+
+      if (!revision || revision.scriptId !== scriptId) {
+        return undefined;
+      }
+
+      const overriddenAt = new Date();
+      const integrityReview = asJsonObject(revision.metadata.integrityReview);
+      await db.insert(approvalEvents).values({
+        researchPacketId: null,
+        action: 'override',
+        gate: 'integrity-review',
+        actor: input.actor,
+        reason: input.reason,
+        metadata: {
+          scriptId,
+          revisionId,
+          version: revision.version,
+          previousStatus: integrityReview.status ?? null,
+        },
+      });
+
+      return this.updateScriptRevisionMetadata(revisionId, {
+        ...revision.metadata,
+        integrityReview: {
+          ...integrityReview,
+          status: 'overridden',
+          blocking: false,
+          override: {
+            actor: input.actor,
+            reason: input.reason,
+            overriddenAt: overriddenAt.toISOString(),
+          },
+        },
+      });
     },
 
     async approveScriptRevision(scriptId: string, revisionId: string, input: ApproveScriptRevisionInput) {

@@ -175,6 +175,10 @@ const MODEL_ROLE_LABELS = {
     title: 'Script editor',
     description: 'Revises drafts while preserving citation and provenance metadata.',
   },
+  integrity_reviewer: {
+    title: 'Integrity reviewer',
+    description: 'Checks script drafts against source evidence before production.',
+  },
   metadata_writer: {
     title: 'Metadata writer',
     description: 'Creates episode titles, summaries, and feed metadata.',
@@ -697,6 +701,71 @@ function validHttpUrl(value) {
   }
 }
 
+function integrityReviewState(revision = state.selectedRevision) {
+  const review = asObject(revision?.metadata?.integrityReview);
+  const override = asObject(review.override);
+
+  if (override.reason) {
+    return {
+      status: 'overridden',
+      blocking: false,
+      review,
+      override,
+    };
+  }
+
+  if (!review.status) {
+    return {
+      status: 'missing',
+      blocking: true,
+      review: null,
+      override: null,
+    };
+  }
+
+  return {
+    status: review.status,
+    blocking: review.status === 'fail' || review.status === 'missing',
+    review,
+    override: null,
+  };
+}
+
+function integrityReviewPassed(revision = state.selectedRevision) {
+  const integrity = integrityReviewState(revision);
+  return !integrity.blocking;
+}
+
+function integrityReviewLabel(status) {
+  const labels = {
+    pass: 'passed',
+    pass_with_notes: 'passed with notes',
+    fail: 'failed',
+    missing: 'not run',
+    overridden: 'overridden',
+  };
+  return labels[status] || status || 'not run';
+}
+
+function integrityIssueItems(review) {
+  const result = asObject(review?.result);
+  return [
+    ...asArray(result.claimIssues),
+    ...asArray(result.missingCitations),
+    ...asArray(result.unsupportedCertainty),
+    ...asArray(result.attributionWarnings),
+    ...asArray(result.balanceWarnings),
+    ...asArray(result.biasSensationalismWarnings),
+  ];
+}
+
+function integrityIssueText(item) {
+  const excerpt = item.scriptExcerpt ? `${item.scriptExcerpt} | ` : '';
+  const severity = item.severity ? `${item.severity}: ` : '';
+  const fix = item.suggestedFix ? ` | Fix: ${item.suggestedFix}` : '';
+  return `${excerpt}${severity}${item.issue || item.message || item.code || JSON.stringify(sanitizedDebug(item))}${fix}`;
+}
+
 function publishChecklistState() {
   const packet = selectedResearchPacket();
   const script = state.selectedScript;
@@ -709,6 +778,7 @@ function publishChecklistState() {
   const unresolvedWarnings = unresolvedResearchWarnings(packet);
   const productionWarnings = productionWarningItems();
   const scriptApproved = Boolean(script && revision && script.status === 'approved-for-audio' && script.approvedRevisionId === revision.id);
+  const integrity = integrityReviewState(revision);
   const feedPublicUrl = feed?.publicFeedUrl || '';
   const publicBaseUrl = publicAssetBaseForFeed(feed || {});
   const feedConfigured = Boolean(feed);
@@ -735,6 +805,18 @@ function publishChecklistState() {
       label: 'Script approved for audio',
       passed: scriptApproved,
       reason: scriptApproved ? 'Script review decision recorded.' : 'Approve the selected script revision.',
+    },
+    {
+      key: 'integrity',
+      label: 'Integrity review passed or overridden',
+      passed: Boolean(revision && !integrity.blocking),
+      reason: !revision
+        ? 'Select a script revision.'
+        : integrity.status === 'missing'
+          ? 'Run the integrity reviewer before production.'
+          : integrity.status === 'fail'
+            ? 'Resolve the failed integrity review or record an explicit override reason.'
+            : integrity.status === 'overridden' ? 'Integrity review override reason recorded.' : `Integrity review ${integrityReviewLabel(integrity.status)}.`,
     },
     {
       key: 'audio',
@@ -1148,6 +1230,8 @@ function buildPipelineStages() {
   const coverAsset = assets.find((asset) => asset.type === 'cover-art');
   const scriptApproved = state.selectedScript?.status === 'approved-for-audio'
     && state.selectedScript?.approvedRevisionId === state.selectedRevision?.id;
+  const integrity = integrityReviewState(state.selectedRevision);
+  const scriptReadyForProduction = Boolean(scriptApproved && !integrity.blocking);
   const productionRunning = state.production.jobs.some((job) => !isTerminalJob(job));
   const discoverRunning = isActionRunning('discover');
   const researchRunning = isActionRunning('research');
@@ -1232,10 +1316,10 @@ function buildPipelineStages() {
     {
       number: 5,
       title: 'Generate or revise script draft',
-      status: scriptRunning ? 'running' : state.selectedScript && scriptApproved ? 'done' : state.selectedScript ? 'needs review' : packet && !packetBlocked ? 'ready' : 'blocked',
+      status: scriptRunning ? 'running' : state.selectedScript && scriptReadyForProduction ? 'done' : state.selectedScript ? 'needs review' : packet && !packetBlocked ? 'ready' : 'blocked',
       artifact: latestScriptText(),
       next: state.selectedScript
-        ? (scriptApproved ? 'Approved script draft can move into audio and cover production.' : 'Review and approve the selected script revision before audio.')
+        ? (scriptReadyForProduction ? 'Approved script draft passed integrity review and can move into production.' : integrity.blocking ? 'Run the integrity reviewer or record an override before production.' : 'Review and approve the selected script revision before audio.')
         : packet && !packetBlocked ? 'Generate an episode draft from the selected research brief.' : 'Select a ready research brief first.',
       actionLabel: state.selectedScript ? 'Review Draft' : 'Generate Script Draft',
       action: state.selectedScript ? focusScriptEditor : generateScriptFromSelectedResearch,
@@ -1246,25 +1330,25 @@ function buildPipelineStages() {
     {
       number: 6,
       title: 'Generate audio and cover preview',
-      status: productionActionRunning ? 'running' : audioAsset && coverAsset ? 'done' : scriptApproved ? 'ready' : 'blocked',
+      status: productionActionRunning ? 'running' : audioAsset && coverAsset ? 'done' : scriptReadyForProduction ? 'ready' : 'blocked',
       artifact: latestProductionText(),
       next: audioAsset && coverAsset
         ? 'Preview audio and cover art are ready for publish review.'
-        : scriptApproved ? 'Create the missing preview audio and cover art assets.' : 'Approve a script revision for audio first.',
+        : scriptReadyForProduction ? 'Create the missing preview audio and cover art assets.' : integrity.blocking ? 'Complete the integrity review gate before production.' : 'Approve a script revision for audio first.',
       actionLabel: audioAsset && coverAsset ? 'Refresh Assets' : 'Create Missing Assets',
       action: audioAsset && coverAsset ? refreshProductionUntilSettled : createMissingProductionAssets,
-      disabled: productionActionRunning || (!scriptApproved && !(audioAsset && coverAsset)),
+      disabled: productionActionRunning || (!scriptReadyForProduction && !(audioAsset && coverAsset)),
       active: Boolean(audioAsset || coverAsset),
       jobTypes: ['audio.preview', 'art.generate'],
     },
     {
       number: 7,
       title: 'Review approvals',
-      status: approvalsRunning ? 'running' : episode?.status === 'approved-for-publish' || episode?.status === 'published' ? 'done' : episode?.status === 'audio-ready' && publishPreApprovalReady ? 'ready' : state.selectedScript && !scriptApproved ? 'needs review' : 'blocked',
+      status: approvalsRunning ? 'running' : episode?.status === 'approved-for-publish' || episode?.status === 'published' ? 'done' : episode?.status === 'audio-ready' && publishPreApprovalReady ? 'ready' : state.selectedScript && !scriptReadyForProduction ? 'needs review' : 'blocked',
       artifact: episode ? `${episode.title} (${episode.status})` : latestScriptText(),
       next: episode?.status === 'audio-ready'
         ? (publishPreApprovalReady ? 'Approve the episode for publishing after reviewing assets.' : firstChecklistBlocker || 'Complete the publish checklist before approval.')
-        : state.selectedScript && !scriptApproved ? 'Approve the script revision before production can run.' : 'Finish script approval and production assets first.',
+        : state.selectedScript && !scriptReadyForProduction ? 'Finish script approval and integrity review before production can run.' : 'Finish script approval and production assets first.',
       actionLabel: episode?.status === 'audio-ready' ? 'Approve for Publishing' : 'Approve Script for Audio',
       action: episode?.status === 'audio-ready' ? approveEpisodeForPublishing : approveSelectedScript,
       disabled: approvalsRunning || !(episode?.status === 'audio-ready' ? publishPreApprovalReady : (state.selectedScript && state.selectedRevision && !scriptApproved)),
@@ -2328,16 +2412,20 @@ function renderProduction() {
 
   const approved = state.selectedScript.status === 'approved-for-audio'
     && state.selectedScript.approvedRevisionId === state.selectedRevision.id;
+  const integrity = integrityReviewState();
+  const readyForProduction = approved && !integrity.blocking;
   const audioJob = latestJob('audio.preview');
   const artJob = latestJob('art.generate');
   const audioRunning = audioJob && !isTerminalJob(audioJob);
   const artRunning = artJob && !isTerminalJob(artJob);
 
-  els.generateAudioPreview.disabled = !approved || audioRunning;
-  els.generateCoverArt.disabled = !approved || artRunning;
-  els.productionMeta.textContent = approved
+  els.generateAudioPreview.disabled = !readyForProduction || audioRunning;
+  els.generateCoverArt.disabled = !readyForProduction || artRunning;
+  els.productionMeta.textContent = readyForProduction
     ? (state.production.episode ? `Episode ${state.production.episode.slug}` : 'No audio or cover asset tasks yet.')
-    : 'Approval gate: approve the selected revision before creating audio or cover assets.';
+    : approved
+      ? `Integrity gate: ${integrityReviewLabel(integrity.status)}. Run review or override before creating assets.`
+      : 'Approval gate: approve the selected revision before creating audio or cover assets.';
 
   els.productionJobs.innerHTML = '';
   if (state.production.jobs.length === 0) {
@@ -2775,16 +2863,24 @@ function renderScriptReview() {
     ...asArray(revision.metadata?.provenance?.warnings),
     ...asArray(provenanceValidation.warnings),
   ];
+  const integrity = integrityReviewState(revision);
+  const integrityReview = integrity.review;
+  const integrityIssues = integrityIssueItems(integrityReview);
+  const integrityCounts = asObject(integrityReview?.issueCounts);
   const approved = script.status === 'approved-for-audio' && script.approvedRevisionId === revision.id;
 
   els.reviewScript.append(
-    reviewSectionHeading('Script Draft', approved ? 'done' : warningItems.length > 0 ? 'needs review' : 'ready', `${script.title} | revision ${revision.version}`),
+    reviewSectionHeading('Script Draft', approved && !integrity.blocking ? 'done' : warningItems.length > 0 || integrity.blocking ? 'needs review' : 'ready', `${script.title} | revision ${revision.version}`),
     reviewFacts([
       ['Review decision', approved ? `approved ${formatTime(script.approvedAt)}` : 'not approved'],
+      ['Integrity review', integrity.status === 'missing' ? 'not run' : `${integrityReviewLabel(integrity.status)}${integrityReview?.reviewedAt ? ` ${formatTime(integrityReview.reviewedAt)}` : ''}`],
+      ['Integrity issues', `${integrityCounts.total ?? integrityIssues.length} issue(s), ${integrityCounts.critical ?? 0} critical`],
       ['Speaker validation', speakerValidation.valid === false ? 'failed' : 'passed or not recorded'],
       ['Provenance validation', provenanceValidation.valid === false ? 'failed' : `${provenanceValidation.warningCount ?? warningItems.length} warning(s)`],
       ['Revision history', `${state.selectedRevisions.length || 1} revision${(state.selectedRevisions.length || 1) === 1 ? '' : 's'}`],
     ]),
+    reviewList('Integrity review issues', integrityIssues, integrity.status === 'missing' ? 'Run the integrity reviewer before production.' : 'No unresolved integrity issues recorded.', integrityIssueText),
+    integrity.override ? reviewList('Integrity override', [integrity.override], 'No override recorded.', (item) => `${item.actor || 'editor'} | ${item.reason} | ${formatTime(item.overriddenAt)}`) : settingsEmpty('No integrity override recorded.'),
     reviewList('Revision history', state.selectedRevisions, 'Only the selected revision is loaded.', (item) => `v${item.version} by ${item.author} | ${formatTime(item.createdAt)}${item.changeSummary ? ` | ${item.changeSummary}` : ''}`),
     reviewList('Citation map and provenance warnings', warningItems, 'No missing-provenance warnings recorded.', (item) => item.message || item.code || JSON.stringify(sanitizedDebug(item))),
   );
@@ -2800,7 +2896,19 @@ function renderScriptReview() {
   approve.textContent = approved ? 'Script Approved' : 'Approve Script for Audio';
   approve.disabled = approved || isActionRunning('approval');
   approve.addEventListener('click', approveSelectedScript);
-  actions.append(approve);
+  const runIntegrity = document.createElement('button');
+  runIntegrity.type = 'button';
+  runIntegrity.className = 'secondary';
+  runIntegrity.textContent = integrity.status === 'missing' ? 'Run Integrity Review' : 'Rerun Integrity Review';
+  runIntegrity.disabled = isActionRunning('integrity');
+  runIntegrity.addEventListener('click', runSelectedIntegrityReview);
+  const overrideIntegrity = document.createElement('button');
+  overrideIntegrity.type = 'button';
+  overrideIntegrity.className = 'secondary danger';
+  overrideIntegrity.textContent = 'Override Integrity Gate';
+  overrideIntegrity.disabled = !integrity.blocking || isActionRunning('integrity');
+  overrideIntegrity.addEventListener('click', overrideSelectedIntegrityReview);
+  actions.append(runIntegrity, overrideIntegrity, approve);
   els.reviewScript.append(body, actions);
 }
 
@@ -3379,6 +3487,13 @@ async function createMissingProductionAssets() {
     return;
   }
 
+  const integrity = integrityReviewState();
+  if (integrity.blocking) {
+    setStatus(`Production blocked: integrity review ${integrityReviewLabel(integrity.status)}.`);
+    render();
+    return;
+  }
+
   setActionRunning('production', true);
   setStatus('Creating missing audio and cover assets...');
 
@@ -3848,6 +3963,7 @@ async function createShow(event) {
       research_synthesizer: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
       script_writer: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
       script_editor: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
+      integrity_reviewer: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
       metadata_writer: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
       cover_prompt_writer: { provider, model, params: reasoningEffort ? { reasoningEffort } : {} },
     },
@@ -4171,6 +4287,68 @@ async function approveSelectedScript() {
   }
 }
 
+async function runSelectedIntegrityReview() {
+  if (!state.selectedScript || !state.selectedRevision) {
+    return;
+  }
+
+  setActionRunning('integrity', true);
+  setStatus('Running integrity review...');
+
+  try {
+    const body = await api(`/scripts/${state.selectedScript.id}/revisions/${state.selectedRevision.id}/integrity-review`, {
+      method: 'POST',
+      body: JSON.stringify({ actor: 'local-user' }),
+    });
+    state.selectedRevision = body.revision;
+    state.selectedRevisions = state.selectedRevisions.map((revision) => revision.id === body.revision.id ? body.revision : revision);
+    await loadProduction();
+    await loadJobs();
+    savePipelineState();
+    render();
+    setStatus(`Integrity review ${integrityReviewLabel(body.integrityReview.status)}.`);
+  } catch (error) {
+    reportError(error);
+  } finally {
+    setActionRunning('integrity', false);
+  }
+}
+
+async function overrideSelectedIntegrityReview() {
+  if (!state.selectedScript || !state.selectedRevision) {
+    return;
+  }
+
+  const reason = window.prompt('Integrity review override reason:');
+  if (!reason || !reason.trim()) {
+    setStatus('Integrity override cancelled. A reason is required.');
+    return;
+  }
+
+  setActionRunning('integrity', true);
+  setStatus('Saving integrity review override...');
+
+  try {
+    const body = await api(`/scripts/${state.selectedScript.id}/revisions/${state.selectedRevision.id}/integrity-review/override`, {
+      method: 'POST',
+      body: JSON.stringify({
+        actor: 'local-user',
+        reason: reason.trim(),
+      }),
+    });
+    state.selectedRevision = body.revision;
+    state.selectedRevisions = state.selectedRevisions.map((revision) => revision.id === body.revision.id ? body.revision : revision);
+    await loadProduction();
+    savePipelineState();
+    render();
+    setStatus('Integrity review override recorded.');
+  } catch (error) {
+    reportError(error);
+  } finally {
+    setActionRunning('integrity', false);
+  }
+}
+
 async function overrideResearchWarning(packetId, warning) {
   const reason = window.prompt('Override reason for this research warning:');
 
@@ -4275,6 +4453,13 @@ async function startAudioPreview() {
     return;
   }
 
+  const integrity = integrityReviewState();
+  if (integrity.blocking) {
+    setStatus(`Preview audio blocked: integrity review ${integrityReviewLabel(integrity.status)}.`);
+    render();
+    return;
+  }
+
   els.generateAudioPreview.disabled = true;
   setStatus('Starting preview audio job...');
 
@@ -4295,6 +4480,13 @@ async function startAudioPreview() {
 
 async function startCoverArt() {
   if (!state.selectedScript) {
+    return;
+  }
+
+  const integrity = integrityReviewState();
+  if (integrity.blocking) {
+    setStatus(`Cover art blocked: integrity review ${integrityReviewLabel(integrity.status)}.`);
+    render();
     return;
   }
 

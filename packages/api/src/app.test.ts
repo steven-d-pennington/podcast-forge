@@ -26,7 +26,7 @@ describe('api config endpoints', () => {
     assert.match(response.body, /Shows &amp; Feeds/);
     assert.match(response.body, /Prompt Templates/);
     assert.match(response.body, /Guided Episode Pipeline/);
-    assert.match(response.body, /story sources to candidate stories, research briefs, script drafts/);
+    assert.match(response.body, /story sources to candidate stories, research briefs, script drafts, integrity review/);
   });
 
   it('serves guided pipeline client state helpers', async () => {
@@ -38,6 +38,7 @@ describe('api config endpoints', () => {
     assert.match(response.body, /renderSettings/);
     assert.match(response.body, /saveModelProfile/);
     assert.match(response.body, /renderPipeline/);
+    assert.match(response.body, /runSelectedIntegrityReview/);
   });
 
   it('returns the bundled example config', async () => {

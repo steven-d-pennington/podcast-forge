@@ -60,6 +60,7 @@ Each agent role is an adapter over model providers:
 - `research_synthesizer`
 - `script_writer`
 - `script_editor`
+- `integrity_reviewer`
 - `metadata_writer`
 - `cover_prompt_writer`
 

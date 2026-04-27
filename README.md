@@ -135,8 +135,8 @@ included in source discovery.
 
 Model choices are runtime configuration, not code constants. The supported
 roles are `candidate_scorer`, `source_summarizer`, `claim_extractor`,
-`research_synthesizer`, `script_writer`, `script_editor`, `metadata_writer`,
-and `cover_prompt_writer`.
+`research_synthesizer`, `script_writer`, `script_editor`,
+`integrity_reviewer`, `metadata_writer`, and `cover_prompt_writer`.
 
 Seeded configs write each `models` entry into `model_profiles` with
 provider/model, params, fallbacks, prompt template key, and budget. Worker-style
@@ -514,10 +514,26 @@ revision's citation/provenance metadata and add fresh validation metadata.
 Speaker labels such as `DAVID:` must match a configured cast member for the
 show; unknown model-generated or human-entered speaker labels are rejected.
 
+Before production, an approved script revision must have a passing integrity
+review or an explicit override reason. The integrity reviewer resolves the
+show-specific `integrity_reviewer` model profile, validates structured output,
+and persists the verdict, claim issues, missing citations, unsupported
+certainty, attribution/balance/sensationalism warnings, suggested fixes, model
+runtime metadata, and source/research/script links in
+`script_revisions.metadata.integrityReview`.
+
 ```sh
 curl -X POST http://localhost:3450/scripts/:id/revisions \
   -H 'content-type: application/json' \
   -d '{"body":"DAVID: Revised opening.","actor":"editor@example.com"}'
+
+curl -X POST http://localhost:3450/scripts/:id/revisions/:revisionId/integrity-review \
+  -H 'content-type: application/json' \
+  -d '{"actor":"editor@example.com"}'
+
+curl -X POST http://localhost:3450/scripts/:id/revisions/:revisionId/integrity-review/override \
+  -H 'content-type: application/json' \
+  -d '{"actor":"editor@example.com","reason":"Human editor verified the flagged claim against the source snapshot."}'
 
 curl -X POST http://localhost:3450/scripts/:id/revisions/:revisionId/approve-for-audio \
   -H 'content-type: application/json' \
@@ -531,12 +547,15 @@ Script endpoints:
 - `GET /scripts/:id`
 - `GET /scripts/:id/revisions`
 - `POST /scripts/:id/revisions`
+- `POST /scripts/:id/revisions/:revisionId/integrity-review`
+- `POST /scripts/:id/revisions/:revisionId/integrity-review/override`
 - `POST /scripts/:id/revisions/:revisionId/approve-for-audio`
 
 ## Preview audio and cover art
 
-Approved script revisions can produce durable production jobs. The API creates
-or reuses an episode record for the script, writes `audio.preview` and
+Approved script revisions with a passing or explicitly overridden integrity
+review can produce durable production jobs. The API creates or reuses an
+episode record for the script, writes `audio.preview` and
 `art.generate` jobs with stage/progress logs, provider metadata, retryable
 failure metadata, and links output rows in `episode_assets`.
 
