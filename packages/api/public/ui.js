@@ -36,6 +36,7 @@ const state = {
   selectedAssetIds: [],
   selectedShowSlug: '',
   selectedProfileId: '',
+  activeSurface: 'workflow',
   activeSettingsTab: 'shows',
   showSetupOpen: false,
   runningActions: {},
@@ -47,6 +48,7 @@ const els = {
   errorDetailsBody: document.querySelector('#errorDetailsBody'),
   refresh: document.querySelector('#refresh'),
   importLegacy: document.querySelector('#importLegacy'),
+  surfaceTabs: document.querySelectorAll('.surface-tab'),
   showSelect: document.querySelector('#showSelect'),
   newShowToggle: document.querySelector('#newShowToggle'),
   showSetupForm: document.querySelector('#showSetupForm'),
@@ -199,6 +201,8 @@ const SETTINGS_SECTIONS = {
   publishing: 'Publishing/storage',
   schedules: 'Scheduled pipelines',
 };
+
+const SURFACES = new Set(['workflow', 'settings', 'debug']);
 
 class ApiRequestError extends Error {
   constructor(message, debugDetails) {
@@ -1107,7 +1111,9 @@ function viewLatestJob(types) {
     return;
   }
 
+  setActiveSurface('debug');
   selectJob(job.id);
+  scrollToPanel('jobsPanel');
 }
 
 function latestStageJob(types) {
@@ -1115,15 +1121,55 @@ function latestStageJob(types) {
   return job ? `${taskLabel(job.type)} ${job.status}, ${job.progress}%` : 'No recorded task run yet.';
 }
 
+function targetSurface(target) {
+  return target?.closest('[data-surface]')?.dataset.surface || '';
+}
+
+function isHiddenForNavigation(target) {
+  return Boolean(target?.closest('[hidden]'));
+}
+
+function renderSurfaceVisibility() {
+  for (const button of els.surfaceTabs) {
+    const active = button.dataset.surfaceTab === state.activeSurface;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  }
+
+  for (const node of document.querySelectorAll('[data-surface]')) {
+    const active = node.dataset.surface === state.activeSurface;
+    node.classList.toggle('surface-hidden', !active);
+    node.setAttribute('aria-hidden', active && !node.closest('[hidden]') ? 'false' : 'true');
+  }
+}
+
+function setActiveSurface(surface) {
+  if (!SURFACES.has(surface)) {
+    return;
+  }
+
+  state.activeSurface = surface;
+  renderSurfaceVisibility();
+}
+
 function panelIsAvailable(id) {
   const target = document.getElementById(id);
-  return Boolean(target && !target.closest('[hidden]'));
+  return Boolean(target && !isHiddenForNavigation(target));
 }
 
 function scrollToPanel(id) {
   const target = document.getElementById(id);
 
-  if (!target || target.closest('[hidden]')) {
+  if (!target) {
+    return;
+  }
+
+  const surface = targetSurface(target);
+  if (surface && surface !== state.activeSurface) {
+    setActiveSurface(surface);
+  }
+
+  if (isHiddenForNavigation(target)) {
     return;
   }
 
@@ -3460,6 +3506,7 @@ function render() {
   renderModelProfiles();
   renderQueries();
   renderScripts();
+  renderSurfaceVisibility();
 }
 
 async function loadShows() {
@@ -3757,12 +3804,16 @@ async function loadProduction() {
 }
 
 function focusManualStoryForm() {
+  setActiveSurface('workflow');
+  scrollToPanel('manualStoryPanel');
   els.manualUrl.focus();
   setStatus('Paste a source URL in Add Manual Story to create a candidate story.');
 }
 
 function focusScriptEditor() {
   if (state.selectedScript && state.selectedRevision) {
+    setActiveSurface('workflow');
+    scrollToPanel('scriptPanel');
     els.scriptTitle.focus();
     setStatus('Review the selected script draft and save a revision or approve it for audio.');
   }
@@ -4921,9 +4972,16 @@ els.refreshJobs.addEventListener('click', async () => {
   }
 });
 els.importLegacy.addEventListener('click', importLegacyData);
+for (const button of els.surfaceTabs) {
+  button.addEventListener('click', () => {
+    setActiveSurface(button.dataset.surfaceTab);
+  });
+}
 els.newShowToggle.addEventListener('click', () => {
   state.showSetupOpen = true;
-  render();
+  setActiveSurface('settings');
+  renderShowSetup();
+  scrollToPanel('showSetupForm');
 });
 els.cancelShowSetup.addEventListener('click', () => {
   state.showSetupOpen = false;
