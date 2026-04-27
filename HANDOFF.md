@@ -1,6 +1,6 @@
 # Podcast Forge — Orchestration Handoff
 
-Last updated: 2026-04-26
+Last updated: 2026-04-27
 
 This is the mission-control document for orchestrating the next Podcast Forge build wave. It sits above the GitHub issues and tells Sam/agents what order to run them in, what depends on what, and how to verify progress.
 
@@ -91,7 +91,7 @@ Open build wave:
 - #19 Real production adapters for audio, cover art, and publishing ✅ implemented locally on `main` worktree because sandbox `.git/FETCH_HEAD` was read-only; `npm run check` passed. Commit/push may need recovery if sandbox `.git` permissions block writes.
 - #20 Guided episode pipeline UI ✅ implemented locally on `issue-20-guided-pipeline-ui`; `npm run check` passed.
 - #21 Multi-select candidate clustering UI ✅ implemented locally on `issue-21-candidate-clustering-ui`; `npm run check` passed.
-- #22 Settings/admin UI for shows, sources, models, prompts, publishing
+- #22 Settings/admin UI for shows, sources, models, prompts, publishing ✅ implemented locally on `issue-22-settings-admin-ui`; `npm run check` passed.
 - #23 Job progress, logs, warnings, and retry UI
 - #24 Review and approval gates UI
 - #25 UX terminology and inline help cleanup

@@ -1,10 +1,12 @@
 const state = {
   shows: [],
+  feeds: [],
   profiles: [],
   queries: [],
   scripts: [],
   researchPackets: [],
   modelProfiles: [],
+  promptTemplates: [],
   scheduledPipelines: [],
   failedScheduledRuns: [],
   storyCandidates: [],
@@ -30,6 +32,7 @@ const state = {
   selectedAssetIds: [],
   selectedShowSlug: '',
   selectedProfileId: '',
+  activeSettingsTab: 'shows',
   showSetupOpen: false,
   runningActions: {},
 };
@@ -61,6 +64,14 @@ const els = {
   showModelName: document.querySelector('#showModelName'),
   showReasoningEffort: document.querySelector('#showReasoningEffort'),
   cancelShowSetup: document.querySelector('#cancelShowSetup'),
+  settingsMeta: document.querySelector('#settingsMeta'),
+  settingsTabs: document.querySelectorAll('.settings-tab'),
+  settingsShows: document.querySelector('#settingsShows'),
+  settingsSources: document.querySelector('#settingsSources'),
+  settingsModels: document.querySelector('#settingsModels'),
+  settingsPrompts: document.querySelector('#settingsPrompts'),
+  settingsPublishing: document.querySelector('#settingsPublishing'),
+  settingsSchedules: document.querySelector('#settingsSchedules'),
   pipelineMeta: document.querySelector('#pipelineMeta'),
   pipelineStages: document.querySelector('#pipelineStages'),
   pipelineDebug: document.querySelector('#pipelineDebug'),
@@ -126,6 +137,50 @@ const els = {
   productionAssets: document.querySelector('#productionAssets'),
 };
 
+const MODEL_ROLE_LABELS = {
+  candidate_scorer: {
+    title: 'Candidate scorer',
+    description: 'Ranks possible stories for editorial fit, significance, novelty, source quality, and urgency.',
+  },
+  source_summarizer: {
+    title: 'Source summarizer',
+    description: 'Summarizes fetched source snapshots without adding unsupported claims.',
+  },
+  claim_extractor: {
+    title: 'Claim extractor',
+    description: 'Turns source material into attributed claims for the research brief.',
+  },
+  research_synthesizer: {
+    title: 'Research synthesizer',
+    description: 'Builds the evidence-first research brief and preserves uncertainty.',
+  },
+  script_writer: {
+    title: 'Script writer',
+    description: 'Drafts the episode script from approved research brief material.',
+  },
+  script_editor: {
+    title: 'Script editor',
+    description: 'Revises drafts while preserving citation and provenance metadata.',
+  },
+  metadata_writer: {
+    title: 'Metadata writer',
+    description: 'Creates episode titles, summaries, and feed metadata.',
+  },
+  cover_prompt_writer: {
+    title: 'Cover prompt writer',
+    description: 'Writes art direction for cover image generation.',
+  },
+};
+
+const SETTINGS_SECTIONS = {
+  shows: 'Shows & feeds',
+  sources: 'Story sources/search recipes',
+  models: 'Model roles',
+  prompts: 'Prompt templates',
+  publishing: 'Publishing/storage',
+  schedules: 'Scheduled pipelines',
+};
+
 class ApiRequestError extends Error {
   constructor(message, debugDetails) {
     super(message);
@@ -181,6 +236,13 @@ function friendlyApiMessage(body, status) {
     RESEARCH_PACKET_OR_WARNING_NOT_FOUND: 'That research brief or warning could not be found.',
     SCHEDULED_PIPELINE_NOT_FOUND: 'That scheduled pipeline could not be found. Refresh and try again.',
     SCHEDULED_RUN_NOT_FOUND: 'That scheduled run could not be found. Refresh and try again.',
+    DUPLICATE_SHOW_SLUG: 'Another show already uses that slug. Choose a unique show slug.',
+    DUPLICATE_SOURCE: 'A story source or search query with that unique key already exists.',
+    DUPLICATE_SLUG: 'A record with that slug already exists in this show.',
+    FEED_NOT_FOUND: 'That feed could not be found. Refresh and try again.',
+    MODEL_PROFILE_NOT_FOUND: 'That AI role setting could not be found. Refresh and try again.',
+    INVALID_CRON: 'The cron schedule is not valid. Check the cadence and try again.',
+    SCHEDULED_RUN_NOT_FAILED: 'Only failed scheduled runs can be retried.',
     PUBLISH_BLOCKED: 'Publishing is blocked until the checklist items are complete.',
   };
 
@@ -222,12 +284,112 @@ function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function maybeNull(value) {
+  const trimmed = String(value || '').trim();
+  return trimmed ? trimmed : null;
+}
+
+function optionalNumber(value) {
+  const trimmed = String(value || '').trim();
+  return trimmed ? Number(trimmed) : null;
+}
+
 function slugify(value) {
   return value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .replace(/-{2,}/g, '-');
+}
+
+function roleInfo(role) {
+  return MODEL_ROLE_LABELS[role] || {
+    title: role.replaceAll('_', ' '),
+    description: 'Configured AI role for this show.',
+  };
+}
+
+function formatRole(role) {
+  return roleInfo(role).title;
+}
+
+function readOnboardingSetting(show, key, fallback = '') {
+  const onboarding = asObject(show?.settings?.onboarding);
+  return typeof onboarding[key] === 'string' ? onboarding[key] : fallback;
+}
+
+function readPublishingMode(show) {
+  return readOnboardingSetting(show, 'publishingMode', 'approval-gated');
+}
+
+function outputPathForFeed(feed) {
+  const metadata = asObject(feed.metadata);
+  const storageConfig = asObject(feed.storageConfig);
+  const value = metadata.outputPath || storageConfig.outputPath || feed.rssFeedPath || '';
+  return typeof value === 'string' ? safeVisiblePath(value) : '';
+}
+
+function publicAssetBaseForFeed(feed) {
+  const metadata = asObject(feed.metadata);
+  return typeof metadata.publicAssetBaseUrl === 'string' ? metadata.publicAssetBaseUrl : feed.publicBaseUrl || '';
+}
+
+function safeVisiblePath(value) {
+  const text = String(value || '').trim();
+
+  if (!text) {
+    return '';
+  }
+
+  if (text.startsWith('/') || text.startsWith('~') || /^[A-Za-z]:[\\/]/.test(text)) {
+    return '';
+  }
+
+  return text;
+}
+
+function sanitizedDebug(value) {
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(sanitizedDebug);
+  }
+
+  const result = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (/secret|token|password|credential|api.?key|local.?path|private.?key/i.test(key)) {
+      result[key] = '[hidden]';
+    } else if (typeof item === 'string' && (item.startsWith('/') || item.startsWith('~'))) {
+      result[key] = '[hidden local path]';
+    } else {
+      result[key] = sanitizedDebug(item);
+    }
+  }
+
+  return result;
+}
+
+function castToLines(cast) {
+  return asArray(cast)
+    .map((member) => [member.name, member.role || '', member.voice].filter((part) => part !== '').join(' | '))
+    .join('\n');
+}
+
+function linesToCast(value) {
+  return value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [name, roleOrVoice, voice] = line.split('|').map((part) => part.trim());
+      return {
+        name,
+        ...(voice ? { role: roleOrVoice } : {}),
+        voice: voice || roleOrVoice || name,
+      };
+    });
 }
 
 async function api(path, options = {}) {
@@ -1263,12 +1425,568 @@ function renderModelProfiles() {
     meta.textContent = `${profile.provider} | ${profile.model}`;
 
     const detail = document.createElement('p');
-    const params = profile.config?.params ? JSON.stringify(profile.config.params) : 'No custom settings';
-    detail.textContent = `${profile.promptTemplateKey || 'default agent instructions'} | ${params}`;
+    const params = asObject(profile.config?.params);
+    const reasoning = typeof params.reasoningEffort === 'string' ? ` | reasoning ${params.reasoningEffort}` : '';
+    detail.textContent = `${profile.promptTemplateKey || 'default agent instructions'}${reasoning}`;
 
     row.append(title, meta, detail);
     els.modelProfileList.append(row);
   }
+}
+
+function settingsEmpty(message) {
+  const empty = document.createElement('div');
+  empty.className = 'empty';
+  empty.textContent = message;
+  return empty;
+}
+
+function setActiveSettingsTab(tab) {
+  state.activeSettingsTab = tab;
+  renderSettings();
+}
+
+function renderSettingsTabs() {
+  for (const button of els.settingsTabs) {
+    const active = button.dataset.settingsTab === state.activeSettingsTab;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', active ? 'true' : 'false');
+  }
+
+  const sections = {
+    shows: els.settingsShows,
+    sources: els.settingsSources,
+    models: els.settingsModels,
+    prompts: els.settingsPrompts,
+    publishing: els.settingsPublishing,
+    schedules: els.settingsSchedules,
+  };
+
+  for (const [key, section] of Object.entries(sections)) {
+    section.hidden = key !== state.activeSettingsTab;
+  }
+}
+
+function renderSettingsShows() {
+  els.settingsShows.innerHTML = '';
+  const show = selectedShow();
+
+  if (!show) {
+    els.settingsShows.append(settingsEmpty('Create or select a show before editing settings.'));
+    return;
+  }
+
+  const form = document.createElement('form');
+  form.className = 'settings-card settings-form';
+  form.innerHTML = `
+    <div class="settings-card-heading">
+      <div>
+        <h3></h3>
+        <p class="help">Slug changes can affect feed URLs, scheduled runs, and external references. Confirm downstream links after saving.</p>
+      </div>
+      <button type="submit">Save Show</button>
+    </div>
+    <div class="grid">
+      <label class="field"><span>Show title</span><input name="title" type="text" required></label>
+      <label class="field"><span>Slug</span><input name="slug" type="text" pattern="[a-z0-9]+(-[a-z0-9]+)*" required></label>
+      <label class="field"><span>Setup status</span><select name="setupStatus"><option value="draft">draft</option><option value="active">active</option></select></label>
+      <label class="field"><span>Format</span><input name="format" type="text" placeholder="daily-briefing"></label>
+      <label class="field"><span>Runtime minutes</span><input name="defaultRuntimeMinutes" type="number" min="1" step="1"></label>
+      <label class="field"><span>Publishing mode</span><select name="publishingMode"><option value="approval-gated">Approval required</option><option value="autopublish-later">Autopublish later</option></select></label>
+    </div>
+    <label class="field"><span>Description</span><textarea name="description" rows="2"></textarea></label>
+    <div class="grid two">
+      <label class="field"><span>Cast basics</span><textarea name="cast" rows="3"></textarea><small>One per line: Name | role | voice.</small></label>
+      <label class="field"><span>Tone and style</span><textarea name="toneStyleNotes" rows="3"></textarea></label>
+      <label class="field"><span>Script format notes</span><textarea name="scriptFormatNotes" rows="3"></textarea></label>
+    </div>
+  `;
+  form.querySelector('h3').textContent = 'Show identity and format';
+  form.elements.title.value = show.title;
+  form.elements.slug.value = show.slug;
+  form.elements.setupStatus.value = show.setupStatus;
+  form.elements.format.value = show.format || '';
+  form.elements.defaultRuntimeMinutes.value = show.defaultRuntimeMinutes || '';
+  form.elements.publishingMode.value = readPublishingMode(show);
+  form.elements.description.value = show.description || '';
+  form.elements.cast.value = castToLines(show.cast);
+  form.elements.toneStyleNotes.value = readOnboardingSetting(show, 'toneStyleNotes');
+  form.elements.scriptFormatNotes.value = readOnboardingSetting(show, 'scriptFormatNotes');
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await saveShowSettings(show.id, form);
+  });
+  els.settingsShows.append(form);
+
+  const feedHeading = document.createElement('div');
+  feedHeading.className = 'settings-subhead';
+  feedHeading.innerHTML = '<h3>Feeds</h3><p class="help">Public URLs and storage targets are shown without secrets or local credential paths.</p>';
+  els.settingsShows.append(feedHeading);
+
+  if (state.feeds.length === 0) {
+    els.settingsShows.append(settingsEmpty('No feeds configured for this show. New Show creates a starter feed, or feeds can be added through the API.'));
+    return;
+  }
+
+  for (const feed of state.feeds) {
+    els.settingsShows.append(feedSettingsForm(feed));
+  }
+}
+
+function feedSettingsForm(feed) {
+  const form = document.createElement('form');
+  form.className = 'settings-card settings-form';
+  form.innerHTML = `
+    <div class="settings-card-heading">
+      <div>
+        <h3></h3>
+        <p class="help">Storage credentials, keys, and local credential paths are intentionally hidden.</p>
+      </div>
+      <button type="submit">Save Feed</button>
+    </div>
+    <div class="grid">
+      <label class="field"><span>Feed title</span><input name="title" type="text" required></label>
+      <label class="field"><span>Feed slug</span><input name="slug" type="text" required></label>
+      <label class="field"><span>Storage target</span><input name="storageType" type="text" required></label>
+      <label class="field"><span>Public feed URL</span><input name="publicFeedUrl" type="url"></label>
+      <label class="field"><span>Public asset base URL</span><input name="publicBaseUrl" type="url"></label>
+      <label class="field"><span>RSS path</span><input name="rssFeedPath" type="text"></label>
+      <label class="field"><span>RSS output path</span><input name="outputPath" type="text"></label>
+      <label class="field"><span>Episode numbering</span><input name="episodeNumberPolicy" type="text"></label>
+      <label class="toggle admin-toggle"><input name="op3Wrap" type="checkbox"><span>OP3 wrapping enabled</span></label>
+    </div>
+    <label class="field"><span>Description</span><textarea name="description" rows="2"></textarea></label>
+    <details class="debug-details">
+      <summary>Sanitized feed metadata</summary>
+      <pre></pre>
+    </details>
+  `;
+  form.querySelector('h3').textContent = feed.title;
+  form.elements.title.value = feed.title;
+  form.elements.slug.value = feed.slug;
+  form.elements.storageType.value = feed.storageType;
+  form.elements.publicFeedUrl.value = feed.publicFeedUrl || '';
+  form.elements.publicBaseUrl.value = publicAssetBaseForFeed(feed);
+  form.elements.rssFeedPath.value = feed.rssFeedPath || '';
+  form.elements.outputPath.value = outputPathForFeed(feed);
+  form.elements.episodeNumberPolicy.value = feed.episodeNumberPolicy || 'increment';
+  form.elements.op3Wrap.checked = Boolean(feed.op3Wrap);
+  form.elements.description.value = feed.description || '';
+  form.querySelector('pre').textContent = JSON.stringify(sanitizedDebug({
+    metadata: feed.metadata,
+    storageConfig: feed.storageConfig,
+  }), null, 2);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await saveFeedSettings(feed.id, form);
+  });
+  return form;
+}
+
+function renderSettingsSources() {
+  els.settingsSources.innerHTML = '';
+
+  if (!state.selectedShowSlug) {
+    els.settingsSources.append(settingsEmpty('Select a show before editing story sources.'));
+    return;
+  }
+
+  if (state.profiles.length === 0) {
+    els.settingsSources.append(settingsEmpty('No story sources/search recipes yet. Use New Show to seed one, or create a source profile through the API.'));
+    return;
+  }
+
+  for (const profile of state.profiles) {
+    const form = document.createElement('form');
+    form.className = 'settings-card settings-form';
+    form.innerHTML = `
+      <div class="settings-card-heading">
+        <div>
+          <h3></h3>
+          <p class="help">Freshness limits result age; weight affects ranking. Domain filters keep source discovery focused.</p>
+        </div>
+        <button type="submit">Save Story Source</button>
+      </div>
+      <div class="grid">
+        <label class="field"><span>Name</span><input name="name" type="text" required></label>
+        <label class="field"><span>Slug</span><input name="slug" type="text" required></label>
+        <label class="field"><span>Type</span><select name="type"><option value="brave">Brave</option><option value="rss">RSS</option><option value="manual">Manual</option><option value="local-json">Local JSON</option></select></label>
+        <label class="field"><span>Weight</span><input name="weight" type="number" min="0" step="0.001" required></label>
+        <label class="field"><span>Freshness window</span><input name="freshness" type="text" placeholder="pd, pw, pm"></label>
+        <label class="toggle admin-toggle"><input name="enabled" type="checkbox"><span>Enabled</span></label>
+      </div>
+      <div class="grid two">
+        <label class="field"><span>Include domains</span><textarea name="includeDomains" rows="2"></textarea></label>
+        <label class="field"><span>Exclude domains</span><textarea name="excludeDomains" rows="2"></textarea></label>
+      </div>
+    `;
+    form.querySelector('h3').textContent = profile.name;
+    form.elements.name.value = profile.name;
+    form.elements.slug.value = profile.slug;
+    form.elements.type.value = profile.type;
+    form.elements.weight.value = profile.weight;
+    form.elements.freshness.value = profile.freshness || '';
+    form.elements.enabled.checked = profile.enabled;
+    form.elements.includeDomains.value = listToLines(profile.includeDomains);
+    form.elements.excludeDomains.value = listToLines(profile.excludeDomains);
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      await saveProfileForm(profile.id, form);
+    });
+    els.settingsSources.append(form);
+
+    const queries = state.selectedProfileId === profile.id ? state.queries : [];
+    const queryPanel = document.createElement('div');
+    queryPanel.className = 'settings-nested';
+    const choose = document.createElement('button');
+    choose.type = 'button';
+    choose.className = 'secondary';
+    choose.textContent = state.selectedProfileId === profile.id ? 'Selected Source' : 'Edit Search Queries';
+    choose.addEventListener('click', async () => {
+      state.selectedProfileId = profile.id;
+      await loadQueries();
+      render();
+    });
+    queryPanel.append(choose);
+
+    if (state.selectedProfileId === profile.id) {
+      queryPanel.append(adminNewQueryForm(profile.id));
+      for (const query of queries) {
+        queryPanel.append(adminQueryForm(query));
+      }
+    }
+    els.settingsSources.append(queryPanel);
+  }
+}
+
+function adminNewQueryForm(profileId) {
+  const form = document.createElement('form');
+  form.className = 'query-card';
+  form.innerHTML = `
+    <label class="field"><span>New search query</span><textarea name="query" rows="2" required></textarea></label>
+    <div class="actions"><button type="submit">Create Search Query</button></div>
+  `;
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await createQueryForProfile(profileId, form);
+  });
+  return form;
+}
+
+function adminQueryForm(query) {
+  const form = document.createElement('form');
+  form.className = `query-card${query.enabled ? '' : ' disabled'}`;
+  form.innerHTML = `
+    <div class="query-top">
+      <label class="toggle"><input name="enabled" type="checkbox"><span>Enabled</span></label>
+      <button class="danger" name="delete" type="button">Delete</button>
+    </div>
+    <label class="field"><span>Search query</span><textarea name="query" rows="2" required></textarea></label>
+    <div class="query-grid">
+      <label class="field"><span>Weight</span><input name="weight" type="number" min="0" step="0.001" required></label>
+      <label class="field"><span>Freshness</span><input name="freshness" type="text"></label>
+      <label class="field"><span>Include domains</span><textarea name="includeDomains" rows="2"></textarea></label>
+      <label class="field"><span>Exclude domains</span><textarea name="excludeDomains" rows="2"></textarea></label>
+    </div>
+    <div class="actions"><button type="submit">Save Search Query</button></div>
+  `;
+  form.elements.enabled.checked = query.enabled;
+  form.elements.query.value = query.query;
+  form.elements.weight.value = query.weight;
+  form.elements.freshness.value = query.freshness || '';
+  form.elements.includeDomains.value = listToLines(query.includeDomains);
+  form.elements.excludeDomains.value = listToLines(query.excludeDomains);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await saveQuery(query.id, form);
+  });
+  form.elements.delete.addEventListener('click', async () => {
+    await deleteQuery(query.id);
+  });
+  return form;
+}
+
+function renderSettingsModels() {
+  els.settingsModels.innerHTML = '';
+
+  if (!state.selectedShowSlug) {
+    els.settingsModels.append(settingsEmpty('Select a show before editing AI role settings.'));
+    return;
+  }
+
+  if (state.modelProfiles.length === 0) {
+    els.settingsModels.append(settingsEmpty('No AI role settings configured. Use New Show to seed defaults or create model profiles through the API.'));
+    return;
+  }
+
+  for (const profile of state.modelProfiles) {
+    const info = roleInfo(profile.role);
+    const params = asObject(profile.config?.params);
+    const form = document.createElement('form');
+    form.className = 'settings-card settings-form';
+    form.innerHTML = `
+      <div class="settings-card-heading">
+        <div>
+          <h3></h3>
+          <p class="help"></p>
+        </div>
+        <button type="submit">Save Model Role</button>
+      </div>
+      <div class="grid">
+        <label class="field"><span>Provider</span><input name="provider" type="text" required></label>
+        <label class="field"><span>Model</span><input name="model" type="text" required></label>
+        <label class="field"><span>Prompt template key</span><input name="promptTemplateKey" type="text"></label>
+        <label class="field"><span>Temperature</span><input name="temperature" type="number" step="0.01"></label>
+        <label class="field"><span>Max tokens</span><input name="maxTokens" type="number" min="1" step="1"></label>
+        <label class="field"><span>Budget USD</span><input name="budgetUsd" type="number" min="0" step="0.01"></label>
+        <label class="field"><span>Reasoning setting</span><input name="reasoningEffort" type="text"></label>
+        <label class="field wide"><span>Fallback models</span><textarea name="fallbacks" rows="2"></textarea><small>One fallback per line. Use provider/model only when provider changes.</small></label>
+      </div>
+    `;
+    form.querySelector('h3').textContent = info.title;
+    form.querySelector('.help').textContent = info.description;
+    form.elements.provider.value = profile.provider;
+    form.elements.model.value = profile.model;
+    form.elements.promptTemplateKey.value = profile.promptTemplateKey || '';
+    form.elements.temperature.value = profile.temperature ?? '';
+    form.elements.maxTokens.value = profile.maxTokens ?? '';
+    form.elements.budgetUsd.value = profile.budgetUsd ?? '';
+    form.elements.reasoningEffort.value = typeof params.reasoningEffort === 'string' ? params.reasoningEffort : '';
+    form.elements.fallbacks.value = listToLines(profile.fallbacks);
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      await saveModelProfile(profile.id, form);
+    });
+    els.settingsModels.append(form);
+  }
+}
+
+function renderSettingsPrompts() {
+  els.settingsPrompts.innerHTML = '';
+
+  if (!state.selectedShowSlug) {
+    els.settingsPrompts.append(settingsEmpty('Select a show before reviewing prompt templates.'));
+    return;
+  }
+
+  if (state.promptTemplates.length === 0) {
+    els.settingsPrompts.append(settingsEmpty('Prompt template endpoints are available, but no templates were returned. Prompt editing remains pending backend write endpoints.'));
+    return;
+  }
+
+  const note = document.createElement('div');
+  note.className = 'settings-note';
+  note.textContent = 'Prompt templates are read-only in this UI because the backend currently exposes list/detail/render endpoints, not create/update endpoints.';
+  els.settingsPrompts.append(note);
+
+  for (const template of state.promptTemplates) {
+    const card = document.createElement('article');
+    card.className = 'settings-card prompt-card';
+    card.innerHTML = `
+      <div class="settings-card-heading">
+        <div>
+          <h3></h3>
+          <p class="help"></p>
+        </div>
+        <span class="status-pill ready"></span>
+      </div>
+      <div class="settings-kv"></div>
+      <label class="field"><span>Agent instructions</span><textarea rows="8" readonly></textarea></label>
+      <details class="debug-details"><summary>Output schema summary</summary><pre></pre></details>
+    `;
+    card.querySelector('h3').textContent = template.title || template.key;
+    card.querySelector('.help').textContent = template.description || 'No description recorded.';
+    card.querySelector('.status-pill').textContent = template.showId ? 'show override' : 'global default';
+    const kv = card.querySelector('.settings-kv');
+    for (const [label, value] of [
+      ['Role', formatRole(template.role)],
+      ['Key', template.key],
+      ['Version', template.version],
+      ['Output format', template.outputFormat],
+      ['Schema', template.outputSchemaName || 'none'],
+    ]) {
+      const item = document.createElement('span');
+      item.textContent = `${label}: ${value}`;
+      kv.append(item);
+    }
+    card.querySelector('textarea').value = template.body || '';
+    card.querySelector('pre').textContent = JSON.stringify(sanitizedDebug({
+      inputVariables: template.inputVariables,
+      outputSchemaHint: template.outputSchemaHint,
+    }), null, 2);
+    els.settingsPrompts.append(card);
+  }
+}
+
+function renderSettingsPublishing() {
+  els.settingsPublishing.innerHTML = '';
+  const show = selectedShow();
+
+  if (!show) {
+    els.settingsPublishing.append(settingsEmpty('Select a show before reviewing publishing settings.'));
+    return;
+  }
+
+  const safety = document.createElement('article');
+  safety.className = 'settings-card';
+  safety.innerHTML = `
+    <div class="settings-card-heading">
+      <div>
+        <h3>Publishing safety</h3>
+        <p class="help"></p>
+      </div>
+      <button class="secondary" type="button">Edit Show & Feeds</button>
+    </div>
+    <div class="settings-kv"></div>
+  `;
+  const publishingMode = readPublishingMode(show);
+  safety.querySelector('.help').textContent = publishingMode === 'approval-gated'
+    ? 'Public RSS publishing requires an explicit review decision before the publish action.'
+    : 'Autopublish intent is recorded, but publishing still depends on configured schedule and backend gates.';
+  safety.querySelector('button').addEventListener('click', () => setActiveSettingsTab('shows'));
+  const safetyKv = safety.querySelector('.settings-kv');
+  for (const [label, value] of [
+    ['Show', show.title],
+    ['Mode', publishingMode === 'approval-gated' ? 'Approval required' : 'Autopublish configured'],
+    ['Setup status', show.setupStatus],
+  ]) {
+    const item = document.createElement('span');
+    item.textContent = `${label}: ${value}`;
+    safetyKv.append(item);
+  }
+  els.settingsPublishing.append(safety);
+
+  if (state.feeds.length === 0) {
+    els.settingsPublishing.append(settingsEmpty('No publishing feed is configured for this show.'));
+    return;
+  }
+
+  for (const feed of state.feeds) {
+    const card = document.createElement('article');
+    card.className = 'settings-card';
+    card.innerHTML = `
+      <div class="settings-card-heading">
+        <div>
+          <h3></h3>
+          <p class="help">Only public URLs and non-secret storage labels are shown here.</p>
+        </div>
+      </div>
+      <div class="settings-kv"></div>
+    `;
+    card.querySelector('h3').textContent = feed.title;
+    const kv = card.querySelector('.settings-kv');
+    const outputPath = outputPathForFeed(feed);
+    for (const [label, value] of [
+      ['Public feed URL', feed.publicFeedUrl || 'not configured'],
+      ['Public asset base URL', publicAssetBaseForFeed(feed) || 'not configured'],
+      ['RSS path', feed.rssFeedPath || outputPath || 'not configured'],
+      ['Storage target', feed.storageType],
+      ['OP3 wrapping', feed.op3Wrap ? 'enabled' : 'disabled'],
+      ['Episode numbering', feed.episodeNumberPolicy || 'increment'],
+    ]) {
+      const item = document.createElement('span');
+      item.textContent = `${label}: ${value}`;
+      kv.append(item);
+    }
+    els.settingsPublishing.append(card);
+  }
+}
+
+function renderSettingsSchedules() {
+  els.settingsSchedules.innerHTML = '';
+
+  if (!state.selectedShowSlug) {
+    els.settingsSchedules.append(settingsEmpty('Select a show before editing scheduled pipelines.'));
+    return;
+  }
+
+  if (state.scheduledPipelines.length === 0) {
+    els.settingsSchedules.append(settingsEmpty('No scheduled pipelines yet. Create one through the API, then edit cadence and safety settings here.'));
+  }
+
+  for (const pipeline of state.scheduledPipelines) {
+    const form = document.createElement('form');
+    form.className = 'settings-card settings-form';
+    form.innerHTML = `
+      <div class="settings-card-heading">
+        <div>
+          <h3></h3>
+          <p class="help">Autopublish should stay off unless the show is explicitly approved for unattended publishing.</p>
+        </div>
+        <div class="actions inline">
+          <button class="secondary" name="run" type="button">Run Now</button>
+          <button type="submit">Save Schedule</button>
+        </div>
+      </div>
+      <div class="grid">
+        <label class="field"><span>Name</span><input name="name" type="text" required></label>
+        <label class="field"><span>Slug</span><input name="slug" type="text" required></label>
+        <label class="field"><span>Cron</span><input name="cron" type="text" required></label>
+        <label class="field"><span>Timezone</span><input name="timezone" type="text" required></label>
+        <label class="field"><span>Workflow</span><input name="workflow" type="text" required></label>
+        <label class="toggle admin-toggle"><input name="enabled" type="checkbox"><span>Enabled</span></label>
+        <label class="toggle admin-toggle"><input name="autopublish" type="checkbox"><span>Autopublish</span></label>
+      </div>
+    `;
+    const nextRun = pipeline.nextRunAt ? new Date(pipeline.nextRunAt).toLocaleString() : 'not scheduled';
+    form.querySelector('h3').textContent = `${pipeline.name} | next ${nextRun}`;
+    form.elements.name.value = pipeline.name;
+    form.elements.slug.value = pipeline.slug;
+    form.elements.cron.value = pipeline.cron;
+    form.elements.timezone.value = pipeline.timezone;
+    form.elements.workflow.value = pipeline.workflow.join(', ');
+    form.elements.enabled.checked = pipeline.enabled;
+    form.elements.autopublish.checked = pipeline.autopublish;
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      await saveScheduledPipeline(pipeline.id, form);
+    });
+    form.elements.run.addEventListener('click', async () => {
+      await runScheduledPipeline(pipeline.id, form.elements.run);
+    });
+    els.settingsSchedules.append(form);
+  }
+
+  if (state.failedScheduledRuns.length === 0) {
+    return;
+  }
+
+  const heading = document.createElement('div');
+  heading.className = 'settings-subhead';
+  heading.innerHTML = '<h3>Failed scheduled runs</h3><p class="help">Retry actions use the existing scheduler retry endpoint.</p>';
+  els.settingsSchedules.append(heading);
+
+  for (const job of state.failedScheduledRuns) {
+    const row = document.createElement('div');
+    row.className = 'production-row failed';
+    const title = document.createElement('strong');
+    title.textContent = `${job.input.scheduledPipelineSlug || job.input.scheduledPipelineId} | failed`;
+    const meta = document.createElement('span');
+    meta.textContent = `Updated ${new Date(job.updatedAt).toLocaleString()}`;
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'secondary';
+    retry.textContent = 'Retry';
+    retry.addEventListener('click', async () => {
+      await retryScheduledRun(job.id, retry);
+    });
+    row.append(title, meta, retry);
+    els.settingsSchedules.append(row);
+  }
+}
+
+function renderSettings() {
+  const show = selectedShow();
+  els.settingsMeta.textContent = show
+    ? `${show.title} | ${SETTINGS_SECTIONS[state.activeSettingsTab]}`
+    : 'Choose a show to edit show-scoped settings.';
+  renderSettingsTabs();
+  renderSettingsShows();
+  renderSettingsSources();
+  renderSettingsModels();
+  renderSettingsPrompts();
+  renderSettingsPublishing();
+  renderSettingsSchedules();
 }
 
 function renderScheduler() {
@@ -1409,7 +2127,7 @@ function renderProduction() {
       const details = document.createElement('details');
       details.className = 'debug-details row-debug';
       details.innerHTML = '<summary>Technical details</summary><pre></pre>';
-      details.querySelector('pre').textContent = JSON.stringify({ error: job.error, logs: job.logs, output: job.output }, null, 2);
+      details.querySelector('pre').textContent = JSON.stringify(sanitizedDebug({ error: job.error, logs: job.logs, output: job.output }), null, 2);
       row.append(details);
     }
     els.productionJobs.append(row);
@@ -1431,7 +2149,7 @@ function renderProduction() {
     const title = document.createElement('strong');
     title.textContent = asset.label || asset.type;
     const meta = document.createElement('span');
-    meta.textContent = asset.publicUrl || asset.objectKey || asset.localPath || asset.mimeType || 'Asset recorded';
+    meta.textContent = asset.publicUrl || asset.objectKey || asset.mimeType || 'Asset recorded; local path hidden';
     row.append(title, meta);
     els.productionAssets.append(row);
   }
@@ -1476,6 +2194,7 @@ function renderScripts() {
 
 function render() {
   renderShows();
+  renderSettings();
   renderPipeline();
   renderShowSetup();
   renderProfiles();
@@ -1509,6 +2228,16 @@ async function loadProfiles() {
   if (!state.profiles.some((profile) => profile.id === state.selectedProfileId)) {
     state.selectedProfileId = state.profiles[0]?.id || '';
   }
+}
+
+async function loadFeeds() {
+  if (!state.selectedShowSlug) {
+    state.feeds = [];
+    return;
+  }
+
+  const body = await api(`/shows/${encodeURIComponent(state.selectedShowSlug)}/feeds`);
+  state.feeds = body.feeds;
 }
 
 async function loadQueries() {
@@ -1554,6 +2283,16 @@ async function loadModelProfiles() {
 
   const body = await api(`/model-profiles?showSlug=${encodeURIComponent(state.selectedShowSlug)}`);
   state.modelProfiles = body.modelProfiles;
+}
+
+async function loadPromptTemplates() {
+  if (!state.selectedShowSlug) {
+    state.promptTemplates = [];
+    return;
+  }
+
+  const body = await api(`/prompt-templates?showSlug=${encodeURIComponent(state.selectedShowSlug)}&includeGlobal=true`);
+  state.promptTemplates = body.templates;
 }
 
 async function loadStoryCandidates() {
@@ -1923,8 +2662,14 @@ async function loadAll() {
     await safeLoad('search queries', loadQueries, () => {
       state.queries = [];
     });
+    await safeLoad('feeds', loadFeeds, () => {
+      state.feeds = [];
+    });
     await safeLoad('AI role settings', loadModelProfiles, () => {
       state.modelProfiles = [];
+    });
+    await safeLoad('prompt templates', loadPromptTemplates, () => {
+      state.promptTemplates = [];
     });
     await safeLoad('candidate stories', loadStoryCandidates, () => {
       state.storyCandidates = [];
@@ -1956,6 +2701,249 @@ async function loadAll() {
     reportError(error, 'Could not load the workspace. Open technical details for the API response.');
   } finally {
     els.refresh.disabled = false;
+  }
+}
+
+async function saveShowSettings(id, form) {
+  const runtime = optionalNumber(form.elements.defaultRuntimeMinutes.value);
+
+  if (runtime !== null && (!Number.isInteger(runtime) || runtime <= 0)) {
+    setStatus('Runtime minutes must be a positive whole number.');
+    return;
+  }
+
+  const payload = {
+    title: form.elements.title.value.trim(),
+    slug: slugify(form.elements.slug.value.trim()),
+    description: maybeNull(form.elements.description.value),
+    setupStatus: form.elements.setupStatus.value,
+    format: maybeNull(form.elements.format.value),
+    defaultRuntimeMinutes: runtime,
+    cast: linesToCast(form.elements.cast.value),
+    toneStyleNotes: form.elements.toneStyleNotes.value.trim() || undefined,
+    scriptFormatNotes: form.elements.scriptFormatNotes.value.trim() || undefined,
+    publishingMode: form.elements.publishingMode.value,
+  };
+
+  if (!payload.title || !payload.slug) {
+    setStatus('Show title and slug are required.');
+    return;
+  }
+
+  setStatus('Saving show settings...');
+
+  try {
+    const body = await api(`/shows/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    const oldSlug = state.selectedShowSlug;
+    state.shows = state.shows.map((show) => show.id === id ? body.show : show);
+    state.selectedShowSlug = body.show.slug;
+    if (body.show.slug !== oldSlug) {
+      clearPipelineSelections();
+    }
+    await loadAll();
+    setStatus('Show settings saved.');
+  } catch (error) {
+    reportError(error);
+  }
+}
+
+async function saveFeedSettings(id, form) {
+  const payload = {
+    title: form.elements.title.value.trim(),
+    slug: slugify(form.elements.slug.value.trim()),
+    description: maybeNull(form.elements.description.value),
+    rssFeedPath: maybeNull(form.elements.rssFeedPath.value),
+    publicFeedUrl: maybeNull(form.elements.publicFeedUrl.value),
+    publicBaseUrl: maybeNull(form.elements.publicBaseUrl.value),
+    publicAssetBaseUrl: maybeNull(form.elements.publicBaseUrl.value),
+    storageType: form.elements.storageType.value.trim(),
+    op3Wrap: form.elements.op3Wrap.checked,
+    episodeNumberPolicy: form.elements.episodeNumberPolicy.value.trim() || 'increment',
+  };
+  const outputPath = safeVisiblePath(form.elements.outputPath.value);
+
+  if (outputPath) {
+    payload.outputPath = outputPath;
+  }
+
+  if (!payload.title || !payload.slug || !payload.storageType) {
+    setStatus('Feed title, slug, and storage target are required.');
+    return;
+  }
+
+  setStatus('Saving feed settings...');
+
+  try {
+    const body = await api(`/feeds/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    state.feeds = state.feeds.map((feed) => feed.id === id ? body.feed : feed);
+    render();
+    setStatus('Feed settings saved.');
+  } catch (error) {
+    reportError(error);
+  }
+}
+
+function profilePayloadFromForm(form) {
+  return {
+    enabled: form.elements.enabled.checked,
+    name: form.elements.name.value.trim(),
+    slug: slugify(form.elements.slug.value.trim()),
+    type: form.elements.type.value,
+    weight: Number(form.elements.weight.value),
+    freshness: maybeNull(form.elements.freshness.value),
+    includeDomains: linesToList(form.elements.includeDomains.value),
+    excludeDomains: linesToList(form.elements.excludeDomains.value),
+  };
+}
+
+async function saveProfileForm(id, form) {
+  const payload = profilePayloadFromForm(form);
+
+  if (!payload.name || !payload.slug || Number.isNaN(payload.weight) || payload.weight < 0) {
+    setStatus('Story source name, slug, type, and non-negative weight are required.');
+    return;
+  }
+
+  setStatus('Saving story source...');
+
+  try {
+    const body = await api(`/source-profiles/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    state.profiles = state.profiles.map((profile) => profile.id === id ? body.sourceProfile : profile);
+    render();
+    setStatus('Story source saved.');
+  } catch (error) {
+    reportError(error);
+  }
+}
+
+async function createQueryForProfile(profileId, form) {
+  const query = form.elements.query.value.trim();
+
+  if (!query) {
+    setStatus('Search query text is required.');
+    return;
+  }
+
+  setStatus('Creating search query...');
+
+  try {
+    const profile = state.profiles.find((candidate) => candidate.id === profileId);
+    const body = await api(`/source-profiles/${profileId}/queries`, {
+      method: 'POST',
+      body: JSON.stringify({
+        query,
+        enabled: true,
+        weight: 1,
+        freshness: profile?.freshness || null,
+        includeDomains: [],
+        excludeDomains: [],
+      }),
+    });
+    if (profileId === state.selectedProfileId) {
+      state.queries.push(body.sourceQuery);
+    }
+    render();
+    setStatus('Search query created.');
+  } catch (error) {
+    reportError(error);
+  }
+}
+
+async function saveModelProfile(id, form) {
+  const temperature = optionalNumber(form.elements.temperature.value);
+  const maxTokens = optionalNumber(form.elements.maxTokens.value);
+  const budgetUsd = optionalNumber(form.elements.budgetUsd.value);
+  const provider = form.elements.provider.value.trim();
+  const model = form.elements.model.value.trim();
+
+  if (!provider || !model) {
+    setStatus('Provider and model are required for AI role settings.');
+    return;
+  }
+
+  if ((temperature !== null && Number.isNaN(temperature))
+    || (maxTokens !== null && (!Number.isInteger(maxTokens) || maxTokens <= 0))
+    || (budgetUsd !== null && (Number.isNaN(budgetUsd) || budgetUsd < 0))) {
+    setStatus('Check numeric AI role fields: max tokens must be positive and budget cannot be negative.');
+    return;
+  }
+
+  const payload = {
+    provider,
+    model,
+    temperature,
+    maxTokens,
+    budgetUsd,
+    fallbacks: linesToList(form.elements.fallbacks.value),
+    promptTemplateKey: maybeNull(form.elements.promptTemplateKey.value),
+    params: {
+      reasoningEffort: maybeNull(form.elements.reasoningEffort.value) || undefined,
+    },
+  };
+
+  setStatus('Saving AI role settings...');
+
+  try {
+    const body = await api(`/model-profiles/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    state.modelProfiles = state.modelProfiles.map((profile) => profile.id === id ? body.modelProfile : profile);
+    render();
+    setStatus('AI role settings saved.');
+  } catch (error) {
+    reportError(error);
+  }
+}
+
+async function saveScheduledPipeline(id, form) {
+  const workflow = form.elements.workflow.value
+    .split(/,|->/)
+    .map((stage) => stage.trim())
+    .filter(Boolean);
+  const validStages = new Set(['ingest', 'research', 'script', 'audio', 'publish']);
+
+  if (workflow.length === 0 || workflow.some((stage) => !validStages.has(stage))) {
+    setStatus('Workflow must use stages: ingest, research, script, audio, publish.');
+    return;
+  }
+
+  const payload = {
+    name: form.elements.name.value.trim(),
+    slug: slugify(form.elements.slug.value.trim()),
+    enabled: form.elements.enabled.checked,
+    cron: form.elements.cron.value.trim(),
+    timezone: form.elements.timezone.value.trim(),
+    workflow,
+    autopublish: form.elements.autopublish.checked,
+  };
+
+  if (!payload.name || !payload.slug || !payload.cron || !payload.timezone) {
+    setStatus('Schedule name, slug, cron, timezone, and workflow are required.');
+    return;
+  }
+
+  setStatus('Saving scheduled pipeline...');
+
+  try {
+    const body = await api(`/scheduled-pipelines/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    state.scheduledPipelines = state.scheduledPipelines.map((pipeline) => pipeline.id === id ? body.scheduledPipeline : pipeline);
+    render();
+    setStatus('Scheduled pipeline saved.');
+  } catch (error) {
+    reportError(error);
   }
 }
 
@@ -2392,6 +3380,11 @@ els.cancelShowSetup.addEventListener('click', () => {
   state.showSetupOpen = false;
   render();
 });
+for (const button of els.settingsTabs) {
+  button.addEventListener('click', () => {
+    setActiveSettingsTab(button.dataset.settingsTab);
+  });
+}
 els.showName.addEventListener('input', () => {
   if (!els.showSlug.dataset.touched) {
     els.showSlug.value = slugify(els.showName.value);
@@ -2415,7 +3408,9 @@ els.showSelect.addEventListener('change', async () => {
   restorePipelineStateForShow();
   await loadProfiles();
   await loadQueries();
+  await loadFeeds();
   await loadModelProfiles();
+  await loadPromptTemplates();
   await loadStoryCandidates();
   await loadResearchPackets();
   await loadScheduledPipelines();

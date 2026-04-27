@@ -689,6 +689,115 @@ textarea {
   padding: 1rem 0;
 }
 
+.admin-panel {
+  border-color: #c4d2df;
+}
+
+.settings-tabs {
+  border-bottom: 1px solid #d8dde5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+}
+
+.settings-tab {
+  background: #f8fafc;
+  border-color: #c9ced6;
+  color: #27303b;
+}
+
+.settings-tab.active {
+  background: #2468a8;
+  border-color: #1f5b95;
+  color: white;
+}
+
+.settings-section {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.settings-card {
+  background: #f8fafc;
+  border: 1px solid #d8dde5;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.9rem;
+}
+
+.settings-card-heading {
+  align-items: start;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.settings-card-heading h3,
+.settings-subhead h3 {
+  margin: 0;
+}
+
+.settings-card-heading p,
+.settings-subhead p {
+  margin: 0.25rem 0 0;
+}
+
+.settings-form .grid {
+  margin-top: 0;
+}
+
+.settings-form .wide {
+  grid-column: 1 / -1;
+}
+
+.settings-subhead {
+  margin-top: 0.25rem;
+}
+
+.settings-nested {
+  border-left: 3px solid #d8dde5;
+  display: grid;
+  gap: 0.75rem;
+  margin: -0.25rem 0 0.5rem;
+  padding-left: 0.85rem;
+}
+
+.settings-note {
+  background: #eef6ff;
+  border: 1px solid #9ec4ed;
+  border-radius: 6px;
+  color: #1f4d7a;
+  padding: 0.65rem 0.75rem;
+}
+
+.settings-kv {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.settings-kv span {
+  background: white;
+  border: 1px solid #d8dde5;
+  border-radius: 999px;
+  color: #3f4b5a;
+  font-size: 0.85rem;
+  padding: 0.2rem 0.5rem;
+}
+
+.admin-toggle {
+  align-self: end;
+  min-height: 2.35rem;
+}
+
+.prompt-card textarea[readonly] {
+  background: white;
+  color: #27303b;
+}
+
 @media (max-width: 820px) {
   .layout,
   .grid,
@@ -702,6 +811,10 @@ textarea {
   .new-query,
   .query-card .query-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-card-heading {
+    display: grid;
   }
 
   .scheduler-row,

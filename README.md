@@ -99,6 +99,24 @@ Show/feed endpoints:
 - `POST /shows/:showSlug/feeds`
 - `PATCH /feeds/:id`
 
+## Settings/admin UI
+
+The local UI also includes a show-scoped Settings area with tabs for:
+
+- Shows & feeds
+- Story sources/search recipes
+- Model roles
+- Prompt templates
+- Publishing/storage
+- Scheduled pipelines
+
+Wired sections use the existing show/feed, source profile/query, model profile,
+prompt template, and scheduler endpoints. Prompt templates are currently
+read-only because the backend exposes list/detail/render routes but not
+create/update routes. Publishing settings show public URLs, RSS paths, storage
+target labels, OP3 status, and approval/autopublish safety state without
+displaying secrets, API keys, or local credential paths.
+
 Source profile endpoints:
 
 - `GET /source-profiles?showSlug=the-synthetic-lens`

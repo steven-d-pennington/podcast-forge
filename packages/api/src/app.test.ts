@@ -22,6 +22,9 @@ describe('api config endpoints', () => {
 
     assert.equal(response.statusCode, 200);
     assert.match(response.body, /Podcast Forge Command Center/);
+    assert.match(response.body, /Settings/);
+    assert.match(response.body, /Shows &amp; Feeds/);
+    assert.match(response.body, /Prompt Templates/);
     assert.match(response.body, /Guided Episode Pipeline/);
     assert.match(response.body, /story sources to candidate stories, research briefs, script drafts/);
   });
@@ -32,6 +35,8 @@ describe('api config endpoints', () => {
     assert.equal(response.statusCode, 200);
     assert.match(response.body, /selectedCandidateIds/);
     assert.match(response.body, /selectedResearchPacketId/);
+    assert.match(response.body, /renderSettings/);
+    assert.match(response.body, /saveModelProfile/);
     assert.match(response.body, /renderPipeline/);
   });
 
