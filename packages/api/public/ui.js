@@ -1532,7 +1532,15 @@ function buildPipelineStages() {
     {
       number: 4,
       title: 'Build evidence brief',
-      status: researchRunning ? 'running' : packetBlocked ? 'blocked' : packet && packetWarningCount > 0 ? 'needs review' : packet ? 'done' : state.researchPackets.length > 0 || candidates.length > 0 ? 'ready' : 'blocked',
+      status: researchRunning
+        ? 'running'
+        : packetBlocked || (!packet && state.researchPackets.length === 0 && !candidateAnalysis.canLaunch)
+          ? 'blocked'
+          : packet && packetWarningCount > 0
+            ? 'needs review'
+            : packet
+              ? 'done'
+              : 'ready',
       artifact: latestResearchText(latestPacket),
       next: packet
         ? (packetWarningCount > 0 ? 'Review warnings before drafting or approving production.' : 'Use this research brief to draft the episode.')
@@ -3264,9 +3272,13 @@ function renderScriptReview() {
   overrideIntegrity.disabled = !integrity.blocking || isActionRunning('integrity');
   overrideIntegrity.addEventListener('click', overrideSelectedIntegrityReview);
   actions.append(runIntegrity, overrideIntegrity, approve);
-  const scriptGateReason = integrity.blocking
-    ? (integrity.status === 'missing' ? 'Blocked: run the integrity reviewer before production.' : 'Blocked: resolve the failed integrity review or record an explicit override reason.')
-    : approved ? 'Script and integrity gates are complete for production.' : 'Ready: approve the reviewed script revision for audio.';
+  const scriptGateReason = isActionRunning('integrity')
+    ? 'Integrity review is already running.'
+    : isActionRunning('approval')
+      ? 'Approval is already running.'
+      : integrity.blocking
+        ? (integrity.status === 'missing' ? 'Blocked: run the integrity reviewer before production.' : 'Blocked: resolve the failed integrity review or record an explicit override reason.')
+        : approved ? 'Script and integrity gates are complete for production.' : 'Ready: approve the reviewed script revision for audio.';
   els.reviewScript.append(body, actions, actionBlockerNote(scriptGateReason, integrity.blocking || (!approved && approve.disabled)));
 }
 
