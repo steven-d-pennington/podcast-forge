@@ -296,4 +296,34 @@ describe('show onboarding routes', () => {
     assert.ok(roles.includes('integrity_reviewer'));
     assert.ok(roles.includes('candidate_scorer'));
   });
+
+  it('clears unsupported starter source controls during show onboarding', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/shows',
+      payload: {
+        name: 'Manual Signals',
+        slug: 'manual-signals',
+        description: 'Manual source show.',
+        feed: {},
+        sourceProfileDefaults: {
+          type: 'manual',
+          freshness: 'pw',
+          includeDomains: ['openai.com'],
+          excludeDomains: ['example.com'],
+          queries: ['https://example.com/story'],
+        },
+      },
+    });
+    const body = response.json();
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(body.sourceProfile.type, 'manual');
+    assert.equal(body.sourceProfile.freshness, null);
+    assert.deepEqual(body.sourceProfile.includeDomains, []);
+    assert.deepEqual(body.sourceProfile.excludeDomains, []);
+    assert.equal(body.sourceQueries[0].freshness, null);
+    assert.deepEqual(body.sourceQueries[0].includeDomains, []);
+    assert.deepEqual(body.sourceQueries[0].excludeDomains, []);
+  });
 });
