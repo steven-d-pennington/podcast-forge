@@ -131,6 +131,22 @@ export function buildApp(options: BuildAppOptions = {}) {
     return reply.type('application/javascript').send(await readPublicFile('ui.js'));
   });
 
+  app.get('/ui-api.js', async (_request, reply) => {
+    return reply.type('application/javascript').send(await readPublicFile('ui-api.js'));
+  });
+
+  app.get('/ui-constants.js', async (_request, reply) => {
+    return reply.type('application/javascript').send(await readPublicFile('ui-constants.js'));
+  });
+
+  app.get('/ui-formatters.js', async (_request, reply) => {
+    return reply.type('application/javascript').send(await readPublicFile('ui-formatters.js'));
+  });
+
+  app.get('/ui-state.js', async (_request, reply) => {
+    return reply.type('application/javascript').send(await readPublicFile('ui-state.js'));
+  });
+
   app.get('/styles.css', async (_request, reply) => {
     return reply.type('text/css').send(await readPublicFile('styles.css'));
   });

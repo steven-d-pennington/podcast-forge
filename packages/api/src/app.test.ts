@@ -39,12 +39,14 @@ describe('api config endpoints', () => {
     const response = await app.inject({ method: 'GET', url: '/ui.js' });
 
     assert.equal(response.statusCode, 200);
-    assert.match(response.body, /selectedCandidateIds/);
-    assert.match(response.body, /selectedResearchPacketId/);
+    assert.match(String(response.headers['content-type'] ?? ''), /application\/javascript/);
+    assert.match(response.body, /from '.\/ui-api\.js'/);
+    assert.match(response.body, /from '.\/ui-constants\.js'/);
+    assert.match(response.body, /from '.\/ui-state\.js'/);
+    assert.match(response.body, /from '.\/ui-formatters\.js'/);
     assert.match(response.body, /renderSettings/);
     assert.match(response.body, /saveModelProfile/);
     assert.match(response.body, /renderPipeline/);
-    assert.match(response.body, /activeSurface: 'workflow'/);
     assert.match(response.body, /setActiveSurface/);
     assert.match(response.body, /renderSurfaceVisibility/);
     assert.match(response.body, /runSelectedIntegrityReview/);
@@ -56,6 +58,37 @@ describe('api config endpoints', () => {
     assert.match(response.body, /coverageStatusLabel/);
     assert.match(response.body, /scriptCoachingActions/);
     assert.match(response.body, /runScriptCoachingAction/);
+  });
+
+  it('serves guided pipeline module dependencies', async () => {
+    const assets = [
+      {
+        path: '/ui-state.js',
+        patterns: [/selectedCandidateIds/, /selectedResearchPacketId/, /activeSurface: 'workflow'/],
+      },
+      {
+        path: '/ui-api.js',
+        patterns: [/ApiRequestError/, /friendlyApiMessage/, /EPISODE_PLANNER_RUNTIME_REQUIRED/],
+      },
+      {
+        path: '/ui-constants.js',
+        patterns: [/MODEL_ROLE_LABELS/, /SETTINGS_SECTIONS/, /SURFACES/],
+      },
+      {
+        path: '/ui-formatters.js',
+        patterns: [/sourceControlsSupported/, /safeVisiblePath/, /linesToCast/],
+      },
+    ];
+
+    for (const asset of assets) {
+      const response = await app.inject({ method: 'GET', url: asset.path });
+
+      assert.equal(response.statusCode, 200, asset.path);
+      assert.match(String(response.headers['content-type'] ?? ''), /application\/javascript/, asset.path);
+      for (const pattern of asset.patterns) {
+        assert.match(response.body, pattern, asset.path);
+      }
+    }
   });
 
   it('returns the bundled example config', async () => {
