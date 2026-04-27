@@ -157,6 +157,31 @@
           </div>
         </form>
 
+        <section id="settingsPanel" class="panel admin-panel" aria-labelledby="settingsTitle">
+          <div class="panel-heading">
+            <div>
+              <h2 id="settingsTitle">Settings</h2>
+              <p id="settingsMeta">Choose a show to edit show-scoped settings.</p>
+              <p class="help">Configure shows, feeds, story sources, AI roles, agent instructions, publishing, and scheduled runs without exposing secrets or local credential paths.</p>
+            </div>
+          </div>
+          <div class="settings-tabs" role="tablist" aria-label="Settings sections">
+            <button class="settings-tab" data-settings-tab="shows" type="button">Shows &amp; Feeds</button>
+            <button class="settings-tab" data-settings-tab="sources" type="button">Story Sources</button>
+            <button class="settings-tab" data-settings-tab="models" type="button">Model Roles</button>
+            <button class="settings-tab" data-settings-tab="prompts" type="button">Prompt Templates</button>
+            <button class="settings-tab" data-settings-tab="publishing" type="button">Publishing</button>
+            <button class="settings-tab" data-settings-tab="schedules" type="button">Scheduled Pipelines</button>
+          </div>
+
+          <div id="settingsShows" class="settings-section"></div>
+          <div id="settingsSources" class="settings-section" hidden></div>
+          <div id="settingsModels" class="settings-section" hidden></div>
+          <div id="settingsPrompts" class="settings-section" hidden></div>
+          <div id="settingsPublishing" class="settings-section" hidden></div>
+          <div id="settingsSchedules" class="settings-section" hidden></div>
+        </section>
+
         <form id="profileForm" class="panel" hidden>
           <div class="panel-heading">
             <div>
