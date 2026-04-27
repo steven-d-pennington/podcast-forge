@@ -41,10 +41,10 @@ export const episodePlanResultSchema = z.object({
   proposedAngle: z.string().min(1),
   whyNow: z.string().min(1),
   audienceRelevance: z.string().min(1),
-  knownFacts: z.array(z.string().min(1)).min(1),
-  unknownsSourceGaps: z.array(z.string().min(1)).min(1),
-  questionsToAnswer: z.array(z.string().min(1)).min(1),
-  recommendedSources: z.array(recommendedSourceSchema).min(1),
+  knownFacts: z.array(z.string().min(1)).default([]),
+  unknownsSourceGaps: z.array(z.string().min(1)).default([]),
+  questionsToAnswer: z.array(z.string().min(1)).default([]),
+  recommendedSources: z.array(recommendedSourceSchema).default([]),
   warnings: z.array(warningSchema).default([]),
 }).strict();
 

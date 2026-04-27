@@ -104,14 +104,19 @@ describe('prompt output schemas', () => {
     });
 
     assert.equal(result.recommendedSources[0].priority, 'high');
+    const sparseResult = episodePlanResultSchema.parse({
+      proposedAngle: 'Sparse but valid advisory plan',
+      whyNow: 'Candidate metadata may still be incomplete.',
+      audienceRelevance: 'The planner should surface uncertainty without fabricating lists.',
+    });
+
+    assert.deepEqual(sparseResult.knownFacts, []);
+    assert.deepEqual(sparseResult.recommendedSources, []);
     assert.throws(() => episodePlanResultSchema.parse({
-      proposedAngle: 'Missing fields',
+      proposedAngle: 'Bad source',
       whyNow: 'Now',
       audienceRelevance: 'Audience',
-      knownFacts: [],
-      unknownsSourceGaps: ['gap'],
-      questionsToAnswer: ['question'],
-      recommendedSources: [],
+      recommendedSources: [{ sourceType: '', rationale: 'Missing source type' }],
     }), ZodError);
   });
 

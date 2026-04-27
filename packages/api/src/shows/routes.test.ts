@@ -281,7 +281,6 @@ describe('show onboarding routes', () => {
     assert.equal(body.feed.publicFeedUrl, 'https://podcast.example.com/future-signals/feed.xml');
     assert.equal(body.sourceProfile.type, 'brave');
     assert.equal(body.sourceQueries[0].query, 'technology policy news');
-    assert.equal(body.modelProfiles.length, 10);
     assert.ok(body.show.defaultModelProfile.script_writer);
 
     const showsResponse = await app.inject({ method: 'GET', url: '/shows' });

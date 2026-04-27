@@ -408,7 +408,7 @@ Recommended order:
 5. #51 — PF2-08 Fix script edit provenance and citation-map invalidation ✅ merged (#60)
 6. #50 — PF2-07 Enforce source query domain/freshness controls or remove dead UI fields ✅ merged (#61)
 7. #52 — PF2-09 Harden publishing validation and scheduled-run status semantics ✅ merged (#62)
-8. #47 — PF2-04 Add AI story brief / episode plan assistant 🚧 active on `issue-47-ai-story-brief` in `/home/steven/clawd/worktrees/podcast-forge-issue-47`
+8. #47 — PF2-04 Add AI story brief / episode plan assistant 🚧 active on branch `issue-47-ai-story-brief`
 9. #48 — PF2-05 Add AI source-gap and claim-coverage surfacing in review UI
 10. #49 — PF2-06 Add AI rewrite/coaching actions for scripts without bypassing approval
 11. #53 — PF2-10 Split UI state/render helpers into testable modules or sections
