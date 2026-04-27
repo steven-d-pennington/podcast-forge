@@ -1127,21 +1127,28 @@ function scrollToPanel(id) {
   }
 
   const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  const hadTabIndex = target.hasAttribute('tabindex');
-  const previousTabIndex = target.getAttribute('tabindex');
+  if (!target.dataset.originalTabindex) {
+    target.dataset.originalTabindex = target.hasAttribute('tabindex') ? target.getAttribute('tabindex') || '' : '__none__';
+  }
+  if (target.dataset.panelFocusTimeout) {
+    window.clearTimeout(Number(target.dataset.panelFocusTimeout));
+  }
 
   target.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth', block: 'start' });
   target.setAttribute('tabindex', '-1');
   target.focus({ preventScroll: true });
   target.classList.add('panel-focus');
-  window.setTimeout(() => {
+  target.dataset.panelFocusTimeout = String(window.setTimeout(() => {
     target.classList.remove('panel-focus');
-    if (hadTabIndex && previousTabIndex !== null) {
-      target.setAttribute('tabindex', previousTabIndex);
+    const originalTabindex = target.dataset.originalTabindex;
+    if (originalTabindex && originalTabindex !== '__none__') {
+      target.setAttribute('tabindex', originalTabindex);
     } else {
       target.removeAttribute('tabindex');
     }
-  }, 1200);
+    delete target.dataset.originalTabindex;
+    delete target.dataset.panelFocusTimeout;
+  }, 1200));
 }
 
 function stageCard(stage) {
@@ -1349,7 +1356,7 @@ function buildPipelineStages() {
     {
       number: 2,
       title: 'Find story candidates',
-      status: discoverRunning ? 'running' : !profile ? 'blocked' : state.storyCandidates.length > 0 ? 'done' : profileSupportsDiscovery ? 'ready' : 'ready',
+      status: discoverRunning ? 'running' : !profile ? 'blocked' : state.storyCandidates.length > 0 ? 'done' : 'ready',
       artifact: state.storyCandidates.length > 0
         ? `${state.storyCandidates.length} candidate stor${state.storyCandidates.length === 1 ? 'y' : 'ies'} loaded. Latest: ${state.storyCandidates[0].title}`
         : 'No candidate stories loaded yet.',
