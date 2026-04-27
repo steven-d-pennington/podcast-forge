@@ -2978,6 +2978,66 @@ describe('source profile routes', () => {
     }
   });
 
+  it('records failed publish state when the RSS adapter returns a different invalid final URL', async () => {
+    const { episode } = await createProducedEpisode('Failed Final RSS URL Story');
+
+    await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/approve-for-publish`,
+      payload: { actor: 'editor@example.com' },
+    });
+
+    let rssMutationCount = 0;
+    const finalUrlApp = buildApp({
+      sourceStore: store,
+      braveApiKey: 'test-brave-key',
+      fetchImpl: braveFetch,
+      rssFetchImpl: rssFetch,
+      researchFetchImpl: researchFetch,
+      researchModelServices,
+      llmRuntime,
+      publishStorageAdapterFactory,
+      rssUpdateAdapter: {
+        async upsertEpisode() {
+          rssMutationCount += 1;
+          return {
+            rssUrl: 'https://podcast.example.com/rebuilt-feed.xml',
+            inserted: true,
+            itemCount: 1,
+          };
+        },
+      },
+      publishUrlValidator: {
+        async validate(urls) {
+          validatedPublishUrls.push(...urls);
+          return urls.map((url) => ({ url, ok: !url.includes('rebuilt-feed.xml') }));
+        },
+      },
+      sleep: async () => {},
+    });
+
+    try {
+      const response = await finalUrlApp.inject({
+        method: 'POST',
+        url: `/episodes/${episode.id}/publish/rss`,
+        payload: { actor: 'publisher@example.com' },
+      });
+      const body = response.json();
+
+      assert.equal(response.statusCode, 502);
+      assert.equal(body.code, 'PUBLISHED_URL_VALIDATION_FAILED');
+      assert.equal(body.job.status, 'failed');
+      assert.equal(body.job.output.stage, 'updating-rss');
+      assert.equal(rssMutationCount, 1);
+      assert.equal(validatedPublishUrls.includes('https://podcast.example.com/rebuilt-feed.xml'), true);
+      assert.equal(store.episodes.find((candidate) => candidate.id === episode.id)?.status, 'approved-for-publish');
+      assert.equal(store.publishEvents.filter((event) => event.status === 'succeeded').length, 0);
+      assert.equal(store.publishEvents.filter((event) => event.status === 'failed').length, 1);
+    } finally {
+      await finalUrlApp.close();
+    }
+  });
+
   it('keeps RSS publishing idempotent by episode feed GUID', async () => {
     const { episode } = await createProducedEpisode('Idempotent Publish Story');
 

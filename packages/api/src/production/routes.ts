@@ -23,6 +23,7 @@ import {
 } from './providers.js';
 import {
   createPublishStorageAdapter,
+  defaultPublishObjectKey,
   localRssUpdateAdapter,
   op3Wrap,
   strictPublicUrlValidator,
@@ -700,23 +701,6 @@ function validOptionalHttpUrl(value: string | null) {
   return !value || normalizedHttpUrl(value) !== null;
 }
 
-function extensionForAsset(asset: EpisodeAssetRecord) {
-  switch (asset.mimeType) {
-    case 'audio/mpeg':
-      return 'mp3';
-    case 'image/png':
-      return 'png';
-    case 'image/jpeg':
-      return 'jpg';
-    default:
-      return 'bin';
-  }
-}
-
-function defaultPublishObjectKey(episode: EpisodeRecord, asset: EpisodeAssetRecord) {
-  return asset.objectKey ?? `episodes/${episode.slug}/${asset.type}.${extensionForAsset(asset)}`;
-}
-
 function resolvedAssetPublicUrl(feed: FeedRecord, episode: EpisodeRecord, asset: EpisodeAssetRecord) {
   if (asset.publicUrl) {
     return normalizedHttpUrl(asset.publicUrl);
@@ -1228,9 +1212,22 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
           publishedAt,
         },
       });
-      if (!normalizedHttpUrl(rss.rssUrl)) {
+      const finalRssUrl = normalizedHttpUrl(rss.rssUrl);
+
+      if (!finalRssUrl) {
         throw new ApiError(502, 'PUBLISHED_URL_VALIDATION_FAILED', `RSS adapter returned a non-public feed URL: ${rss.rssUrl}`);
       }
+
+      const finalRssValidations = finalRssUrl === expectedRssUrl
+        ? []
+        : await urlValidator.validate([finalRssUrl]);
+      const finalInvalidUrl = finalRssValidations.find((validation) => !validation.ok);
+
+      if (finalInvalidUrl) {
+        throw new ApiError(502, 'PUBLISHED_URL_VALIDATION_FAILED', `Published RSS URL failed validation: ${finalInvalidUrl.url}`);
+      }
+
+      const publishValidations = [...validations, ...finalRssValidations];
 
       const updatedEpisode = await productionStore.updateEpisodeProduction(episode.id, {
         feedId: feed.id,
@@ -1244,7 +1241,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
             feedGuid: guid,
             jobId: job.id,
             publishEventId: publishEvent.id,
-            rssUrl: rss.rssUrl,
+            rssUrl: finalRssUrl,
             audioUrl: rssAudioUrl,
             unwrappedAudioUrl: audioUpload.publicUrl,
             coverUrl: coverUpload.publicUrl,
@@ -1256,7 +1253,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
             },
             republished: body.republish,
             changelog: body.changelog ?? null,
-            validatedUrls: validations,
+            validatedUrls: publishValidations,
           },
         },
       }) ?? episode;
@@ -1265,7 +1262,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
         feedGuid: guid,
         audioUrl: rssAudioUrl,
         coverUrl: coverUpload.publicUrl,
-        rssUrl: rss.rssUrl,
+        rssUrl: finalRssUrl,
         metadata: {
           ...publishEvent.metadata,
           jobId: job.id,
@@ -1278,13 +1275,13 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
             originalAudioUrl: audioUpload.publicUrl,
             wrappedAudioUrl: rssAudioUrl,
           },
-          validatedUrls: validations,
+          validatedUrls: publishValidations,
         },
       }) ?? publishEvent;
 
       logs.push(log('info', 'Completed publish.rss job.', {
         publishEventId: publishEvent.id,
-        rssUrl: rss.rssUrl,
+        rssUrl: finalRssUrl,
         inserted: rss.inserted,
       }));
       job = await updateJob(jobStore, job.id, {
@@ -1300,9 +1297,9 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
           audioUrl: rssAudioUrl,
           unwrappedAudioUrl: audioUpload.publicUrl,
           coverUrl: coverUpload.publicUrl,
-          rssUrl: rss.rssUrl,
+          rssUrl: finalRssUrl,
           rssInserted: rss.inserted,
-          validatedUrls: validations,
+          validatedUrls: publishValidations,
         },
         finishedAt: new Date(),
       }) ?? job;

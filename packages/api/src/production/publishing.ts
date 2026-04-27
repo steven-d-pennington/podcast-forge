@@ -68,7 +68,7 @@ function configString(config: Record<string, unknown>, keys: string[]) {
   return null;
 }
 
-function extensionForMimeType(mimeType: string | null) {
+export function extensionForMimeType(mimeType: string | null) {
   switch (mimeType) {
     case 'audio/mpeg':
       return 'mp3';
@@ -81,7 +81,7 @@ function extensionForMimeType(mimeType: string | null) {
   }
 }
 
-function defaultObjectKey(episode: EpisodeRecord, asset: EpisodeAssetRecord) {
+export function defaultPublishObjectKey(episode: EpisodeRecord, asset: EpisodeAssetRecord) {
   return asset.objectKey ?? `episodes/${episode.slug}/${asset.type}.${extensionForMimeType(asset.mimeType)}`;
 }
 
@@ -126,7 +126,7 @@ export function createPublishStorageAdapter(feed: FeedRecord): PublishStorageAda
   if (feed.storageType === 'r2') {
     return {
       async uploadAsset({ asset, episode }) {
-        const objectKey = defaultObjectKey(episode, asset);
+        const objectKey = defaultPublishObjectKey(episode, asset);
         const url = assertPublicUrl(publicUrl(feed, objectKey, asset.publicUrl), `${asset.type} asset`);
 
         return {
@@ -146,7 +146,7 @@ export function createPublishStorageAdapter(feed: FeedRecord): PublishStorageAda
 
   return {
     async uploadAsset({ asset, episode }) {
-      const objectKey = defaultObjectKey(episode, asset);
+      const objectKey = defaultPublishObjectKey(episode, asset);
       const rootDir = configString(feed.storageConfig, ['localRoot', 'outputDir', 'publicDir']);
       const copiedTo = await maybeCopyLocalAsset(rootDir, objectKey, asset.localPath);
       const size = copiedTo ? (await stat(copiedTo)).size : asset.byteSize;

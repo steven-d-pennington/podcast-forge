@@ -392,6 +392,7 @@ describe('scheduler routes', () => {
       ['source.ingest', 'research.packet', 'script.generate', 'audio.preview', 'publish.rss'],
     );
     assert.equal(body.stageJobs[0].status, 'succeeded');
+    assert.equal(body.job.output.stageStatuses[0].stage, null);
     assert.equal(body.stageJobs[4].status, 'queued');
     assert.equal(body.stageJobs[4].input.waitCategory, 'blocked');
     assert.match(body.stageJobs[4].logs[0].message, /approval/i);

@@ -148,7 +148,7 @@ function stageOutput(stageJobs: JobRecord[]) {
       id: job.id,
       type: job.type,
       status: job.status,
-      stage: job.input.stage,
+      stage: job.input.stage ?? null,
       waitCategory: job.input.waitCategory ?? null,
       waitReason: job.input.waitReason ?? null,
       error: job.error,
