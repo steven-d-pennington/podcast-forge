@@ -313,9 +313,21 @@ button:disabled {
   border-color: #c55353;
 }
 
+.command-bar-result.blocked {
+  background: #fff1df;
+  border-color: #e2c391;
+}
+
 .command-bar-result.warning {
   background: #fff9d9;
   border-color: #d8cf73;
+}
+
+.command-bar-result.succeeded,
+.command-bar-result.completed,
+.command-bar-result.done {
+  background: #eef6f2;
+  border-color: #9ac8aa;
 }
 
 .command-bar-controls {
@@ -436,6 +448,101 @@ button:disabled {
   font-size: 0.95rem;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.workflow-feedback-panel {
+  background: #ffffff;
+  border: 1px solid #ccd6e2;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.45rem;
+  grid-column: 1 / -1;
+  padding: 0.75rem 0.85rem;
+}
+
+.workflow-feedback-panel.compact {
+  border-radius: 6px;
+  padding: 0.65rem 0.75rem;
+}
+
+.workflow-feedback-panel.succeeded,
+.workflow-feedback-panel.completed,
+.workflow-feedback-panel.done {
+  background: #eef6f2;
+  border-color: #9ac8aa;
+}
+
+.workflow-feedback-panel.warning {
+  background: #fff9d9;
+  border-color: #d8cf73;
+}
+
+.workflow-feedback-panel.blocked {
+  background: #fff1df;
+  border-color: #e2c391;
+}
+
+.workflow-feedback-panel.error,
+.workflow-feedback-panel.failed {
+  background: #fff4f4;
+  border-color: #c55353;
+}
+
+.workflow-feedback-heading {
+  align-items: baseline;
+  display: flex;
+  gap: 0.55rem;
+  justify-content: space-between;
+}
+
+.workflow-feedback-heading span {
+  color: #687486;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.workflow-feedback-heading strong,
+.workflow-feedback-panel p {
+  margin: 0;
+}
+
+.workflow-feedback-heading strong {
+  color: #20242c;
+  font-size: 0.95rem;
+}
+
+.workflow-feedback-panel p {
+  color: #3f4b5a;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.workflow-feedback-panel .workflow-feedback-next {
+  color: #27303b;
+  font-weight: 650;
+}
+
+.workflow-feedback-details {
+  color: #3f4b5a;
+  font-size: 0.86rem;
+}
+
+.workflow-feedback-details summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.workflow-feedback-details pre {
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(104, 116, 134, 0.25);
+  border-radius: 6px;
+  margin: 0.5rem 0 0;
+  max-height: 14rem;
+  overflow: auto;
+  padding: 0.65rem;
+  white-space: pre-wrap;
 }
 
 .story-source-summary {

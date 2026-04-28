@@ -1276,7 +1276,7 @@ function renderProductionCommandBar(viewModel, stages) {
   const detailsTarget = commandBarDetailsTarget(viewModel.currentStage.id, stages);
   const warningCount = viewModel.warnings.length;
   const blockerCount = viewModel.blockers.length;
-  const result = viewModel.latestActionResult || { status: 'idle', message: 'No action result recorded yet.' };
+  const result = viewModel.latestActionResult || viewModel.workflowActionFeedback || { status: 'idle', message: 'No action result recorded yet.' };
   const sourceSummary = viewModel.selectedStorySourceSummary;
   const showTitle = viewModel.selectedShowSummary?.title || 'No show selected';
   const episodeTitle = viewModel.activeDraftEpisodeSummary?.title
@@ -1310,7 +1310,7 @@ function renderProductionCommandBar(viewModel, stages) {
   const feedbackLabel = document.createElement('span');
   feedbackLabel.textContent = result.status === 'error' || result.status === 'failed' ? 'Latest failure' : 'Latest result';
   const feedbackMessage = document.createElement('strong');
-  feedbackMessage.textContent = result.message || 'No action result recorded yet.';
+  feedbackMessage.textContent = result.conciseMessage || result.message || 'No action result recorded yet.';
   feedback.append(feedbackLabel, feedbackMessage);
 
   const controls = document.createElement('div');
@@ -1352,6 +1352,77 @@ function renderProductionCommandBar(viewModel, stages) {
   if (activeCommandControl) {
     els.productionCommandBar.querySelector(`[data-command-control="${activeCommandControl}"]`)?.focus();
   }
+}
+
+function workflowFeedbackLegacyStageId(stageId) {
+  return stageId === 'source' ? 'show' : stageId;
+}
+
+function attachWorkflowFeedback(stages, viewModel, currentStageId) {
+  const feedback = viewModel?.workflowActionFeedback || viewModel?.latestActionResult;
+  if (!feedback || feedback.status === 'idle') {
+    return stages;
+  }
+
+  const feedbackStageId = workflowFeedbackLegacyStageId(feedback.stage || viewModel?.currentStage?.id || currentStageId);
+  const target = stages.find((stage) => stage.id === feedbackStageId)
+    || stages.find((stage) => stage.id === currentStageId);
+  if (target) {
+    target.feedback = feedback;
+  }
+  return stages;
+}
+
+function workflowFeedbackDetailText(feedback) {
+  const details = {
+    status: feedback.status,
+    stage: feedback.stage,
+    source: feedback.source,
+    nextStep: feedback.nextStep || null,
+    job: feedback.job || null,
+    warnings: asArray(feedback.warnings),
+    debugDetails: feedback.debugDetails || null,
+  };
+  return JSON.stringify(sanitizedDebug(details), null, 2);
+}
+
+function renderWorkflowFeedbackPanel(feedback, { compact = false } = {}) {
+  const panel = document.createElement('section');
+  panel.className = `workflow-feedback-panel ${statusClass(feedback?.status || 'idle')}${compact ? ' compact' : ''}`;
+  panel.setAttribute('aria-label', compact ? 'Current stage action result' : 'Workflow action result');
+  panel.setAttribute('aria-live', 'polite');
+
+  const heading = document.createElement('div');
+  heading.className = 'workflow-feedback-heading';
+  const label = document.createElement('span');
+  label.textContent = compact ? 'Current stage result' : 'Action result';
+  const title = document.createElement('strong');
+  title.textContent = feedback?.title || (feedback?.status === 'blocked' ? 'Action blocked' : 'Latest result');
+  heading.append(label, title);
+
+  const message = document.createElement('p');
+  message.textContent = feedback?.message || 'No action result recorded yet.';
+  panel.append(heading, message);
+
+  if (feedback?.nextStep) {
+    const next = document.createElement('p');
+    next.className = 'workflow-feedback-next';
+    next.textContent = `Next: ${feedback.nextStep}`;
+    panel.append(next);
+  }
+
+  if (!compact && (feedback?.detailLabel || feedback?.job || asArray(feedback?.warnings).length > 0 || feedback?.debugDetails)) {
+    const details = document.createElement('details');
+    details.className = 'workflow-feedback-details';
+    const summary = document.createElement('summary');
+    summary.textContent = feedback.detailLabel || 'Details';
+    const body = document.createElement('pre');
+    body.textContent = workflowFeedbackDetailText(feedback);
+    details.append(summary, body);
+    panel.append(details);
+  }
+
+  return panel;
 }
 
 function stageCard(stage, currentStageId = '') {
@@ -1436,6 +1507,10 @@ function stageCard(stage, currentStageId = '') {
       blockers.append(item);
     }
     body.append(blockers);
+  }
+
+  if (stage.feedback) {
+    body.append(renderWorkflowFeedbackPanel(stage.feedback, { compact: true }));
   }
 
   const button = document.createElement('button');
@@ -1956,6 +2031,10 @@ function renderPipeline() {
 
   els.workflowContext.append(renderStorySourceSummary(viewModel.selectedStorySourceSummary));
 
+  if (viewModel.workflowActionFeedback) {
+    els.workflowContext.append(renderWorkflowFeedbackPanel(viewModel.workflowActionFeedback));
+  }
+
   const scopeWarnings = asArray(viewModel.artifactScopeWarnings);
   const archiveCounts = viewModel.historicalArtifacts || {};
   const archiveCount = Object.values(archiveCounts).reduce((total, items) => total + asArray(items).length, 0);
@@ -1986,6 +2065,7 @@ function renderPipeline() {
   const stages = buildPipelineStages();
   pruneExpandedPipelineStages(stages);
   const currentStageId = currentPipelineStageId(viewModel, stages);
+  attachWorkflowFeedback(stages, viewModel, currentStageId);
   renderProductionCommandBar(viewModel, stages);
   els.pipelineStages.innerHTML = '';
 

@@ -846,7 +846,7 @@ test('view model deduplicates overlapping recent and production jobs', () => {
   }));
 
   assert.equal(model.latestActionResult.job.id, 'job-1');
-  assert.equal(model.latestActionResult.status, 'succeeded');
+  assert.equal(model.latestActionResult.status, 'warning');
   assert.equal(model.warnings.filter((warning) => warning.message === 'Preview asset needs review.').length, 1);
   assert.equal(model.warnings.filter((warning) => warning.message === 'Stale warning.').length, 0);
 });

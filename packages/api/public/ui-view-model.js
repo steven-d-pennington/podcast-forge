@@ -332,9 +332,235 @@ function summarizeJob(job) {
     status: job.status,
     progress: job.progress,
     message: job.error || job.summary?.message || job.summary?.status || null,
+    warningCount: [
+      ...asArray(job.summary?.warnings),
+      ...asArray(job.output?.warnings),
+    ].length,
     updatedAt: job.updatedAt,
     createdAt: job.createdAt,
   });
+}
+
+function jobWarnings(job) {
+  return [
+    ...asArray(job?.summary?.warnings),
+    ...asArray(job?.output?.warnings),
+  ].filter(Boolean);
+}
+
+function jobResultStage(job) {
+  return {
+    'source.search': 'discover',
+    'source.ingest': 'discover',
+    'research.packet': 'brief',
+    'script.generate': 'script',
+    'script.integrity_review': 'review',
+    'audio.preview': 'production',
+    'art.generate': 'production',
+    'publish.rss': 'publishing',
+  }[job?.type] || 'workflow';
+}
+
+function jobResultLabel(job) {
+  return {
+    'source.search': 'Source search',
+    'source.ingest': 'RSS import',
+    'research.packet': 'Research brief build',
+    'script.generate': 'Script generation',
+    'script.integrity_review': 'Integrity review',
+    'audio.preview': 'Preview audio',
+    'art.generate': 'Cover art',
+    'publish.rss': 'RSS publishing',
+  }[job?.type] || job?.type || 'Task run';
+}
+
+function jobResultStatus(job) {
+  if (!job) {
+    return 'idle';
+  }
+
+  if (job.status === 'failed') {
+    return 'failed';
+  }
+
+  if (job.status === 'cancelled') {
+    return 'warning';
+  }
+
+  if (jobWarnings(job).length > 0 && ['succeeded', 'completed', 'done'].includes(job.status)) {
+    return 'warning';
+  }
+
+  return job.status || 'updated';
+}
+
+function jobCountParts(job) {
+  const output = asObject(job?.output);
+  const parts = [];
+  if (typeof output.inserted === 'number') {
+    parts.push(`${output.inserted} inserted`);
+  }
+  if (typeof output.updated === 'number') {
+    parts.push(`${output.updated} updated`);
+  }
+  if (typeof output.skipped === 'number') {
+    parts.push(`${output.skipped} skipped`);
+  }
+  const warnings = jobWarnings(job);
+  if (warnings.length > 0) {
+    parts.push(`${warnings.length} warning${warnings.length === 1 ? '' : 's'}`);
+  }
+  return parts;
+}
+
+function jobResultMessage(job) {
+  const label = jobResultLabel(job);
+  const status = job?.status || 'updated';
+  const parts = jobCountParts(job);
+
+  if (parts.length > 0) {
+    return `${label} ${status}: ${parts.join(', ')}.`;
+  }
+
+  const message = firstPresent(
+    job?.summary?.message,
+    job?.summary?.status,
+    job?.summary?.failure?.message,
+    job?.error,
+  );
+  return message ? `${label} ${status}: ${message}` : `${label} ${status}.`;
+}
+
+function jobResultNextStep(job) {
+  if (!job) {
+    return '';
+  }
+
+  const warnings = jobWarnings(job);
+  if (job.status === 'failed') {
+    return {
+      'source.search': 'Check the story source credential/config and enabled search queries before retrying discovery.',
+      'source.ingest': 'Check RSS feed URLs and source settings before retrying import.',
+      'research.packet': 'Review selected candidate stories and source availability before rebuilding the research brief.',
+      'script.generate': 'Select a ready research brief and review task details before retrying script generation.',
+      'script.integrity_review': 'Inspect review details, revise unsupported claims, then rerun the integrity reviewer.',
+      'audio.preview': 'Review the selected approved script and provider details before retrying preview audio.',
+      'art.generate': 'Review cover prompt/provider details before retrying cover art.',
+      'publish.rss': 'Complete publish approval, asset, and public URL checks before retrying RSS publishing.',
+    }[job.type] || 'Open task details for logs and retry guidance.';
+  }
+
+  if (warnings.length > 0) {
+    return 'Open task details to inspect the full warning records before relying on this output.';
+  }
+
+  if (job.type === 'source.search' || job.type === 'source.ingest') {
+    return 'Review candidate stories and select the strongest sourced item for the episode.';
+  }
+
+  if (job.type === 'research.packet') {
+    return 'Review citations and warnings, then approve the research brief before drafting.';
+  }
+
+  if (job.type === 'script.generate') {
+    return 'Review the draft, run integrity review, and approve a revision before production.';
+  }
+
+  if (job.type === 'audio.preview' || job.type === 'art.generate') {
+    return 'Review active audio and cover assets before publish approval.';
+  }
+
+  if (job.type === 'publish.rss') {
+    return 'Verify the publishing record and public feed URL.';
+  }
+
+  return '';
+}
+
+function actionResultFromJob(job) {
+  const warnings = jobWarnings(job);
+  return compactObject({
+    id: job?.id ? `job:${job.id}` : undefined,
+    status: jobResultStatus(job),
+    stage: jobResultStage(job),
+    title: jobResultStatus(job) === 'failed' ? 'Latest failure' : 'Latest result',
+    message: jobResultMessage(job),
+    conciseMessage: jobResultMessage(job),
+    nextStep: jobResultNextStep(job),
+    source: 'job',
+    job: summarizeJob(job),
+    warnings: warnings.length > 0 ? warnings : undefined,
+    detailLabel: warnings.length > 0 || job?.error ? 'Task warnings and logs remain available in Jobs / Debug.' : 'Task details are available in Jobs / Debug.',
+  });
+}
+
+function actionResultFromExplicit(input, primaryNextAction, currentStage) {
+  const explicit = asObject(input.latestActionResult);
+  if (typeof explicit.message !== 'string' || !explicit.message.trim()) {
+    return null;
+  }
+
+  return compactObject({
+    id: explicit.id || 'ui:latest',
+    status: explicit.status || 'info',
+    stage: explicit.stage || primaryNextAction?.targetStage || currentStage?.id || 'workflow',
+    title: explicit.status === 'error' || explicit.status === 'failed' ? 'Latest failure' : 'Latest result',
+    message: explicit.message.trim(),
+    conciseMessage: explicit.message.trim(),
+    nextStep: explicit.nextStep || null,
+    source: explicit.source || 'ui',
+    debugDetails: explicit.debugDetails || null,
+  });
+}
+
+function actionResultFromBlockedAction(primaryNextAction) {
+  if (!primaryNextAction || primaryNextAction.enabled) {
+    return null;
+  }
+
+  const reason = primaryNextAction.blockerReason || 'The current workflow state blocks this action.';
+  return {
+    id: `blocked:${primaryNextAction.targetStage}`,
+    status: 'blocked',
+    stage: primaryNextAction.targetStage,
+    title: 'Action blocked',
+    message: `${primaryNextAction.label} blocked: ${reason}`,
+    conciseMessage: `${primaryNextAction.label} blocked.`,
+    nextStep: reason,
+    source: 'workflow',
+  };
+}
+
+function deriveWorkflowActionFeedback(input, jobs, currentStage, primaryNextAction) {
+  const explicit = actionResultFromExplicit(input, primaryNextAction, currentStage);
+  if (explicit) {
+    return explicit;
+  }
+
+  const latestJob = latest(jobs.filter((job) => jobResultStage(job) !== 'workflow')) || latest(jobs);
+  if (latestJob && ['failed', 'warning'].includes(jobResultStatus(latestJob))) {
+    return actionResultFromJob(latestJob);
+  }
+
+  const blocked = actionResultFromBlockedAction(primaryNextAction);
+  if (blocked) {
+    return blocked;
+  }
+
+  if (latestJob) {
+    return actionResultFromJob(latestJob);
+  }
+
+  return {
+    id: 'idle',
+    status: 'idle',
+    stage: currentStage?.id || 'workflow',
+    title: 'Latest result',
+    message: 'No action result recorded yet.',
+    conciseMessage: 'No action result recorded yet.',
+    nextStep: primaryNextAction?.enabled ? primaryNextAction.label : primaryNextAction?.blockerReason || '',
+    source: 'view-model',
+  };
 }
 
 function unresolvedResearchWarnings(packet) {
@@ -629,33 +855,6 @@ function deriveStages(context) {
   return { stages, currentStage, primaryNextAction, checklist };
 }
 
-function deriveLatestActionResult(input, jobs) {
-  const explicit = asObject(input.latestActionResult);
-  if (typeof explicit.message === 'string' && explicit.message.trim()) {
-    return {
-      status: explicit.status || 'info',
-      message: explicit.message.trim(),
-      source: explicit.source || 'ui',
-    };
-  }
-
-  const latestJob = latest(jobs);
-  if (latestJob) {
-    return {
-      status: latestJob.status || 'unknown',
-      message: `${latestJob.type || 'Task run'} ${latestJob.status || 'updated'}`,
-      source: 'job',
-      job: summarizeJob(latestJob),
-    };
-  }
-
-  return {
-    status: 'idle',
-    message: 'No action result recorded yet.',
-    source: 'view-model',
-  };
-}
-
 function warningItem(stage, message, source = null, severity = 'warning') {
   return compactObject({ stage, severity, message, source });
 }
@@ -801,6 +1000,7 @@ export function deriveProductionViewModel(input = {}) {
     sourceQueries,
   };
   const { stages, currentStage, primaryNextAction, checklist } = deriveStages(context);
+  const workflowActionFeedback = deriveWorkflowActionFeedback(input, jobs, currentStage, primaryNextAction);
   const navigationActions = stages.map((stage) => action(`Open ${stage.label}`, stage.id, true));
   const secondaryActions = stages
     .filter((stage) => stage.id === currentStage.id && stage.id !== primaryNextAction.targetStage)
@@ -895,7 +1095,8 @@ export function deriveProductionViewModel(input = {}) {
     primaryNextAction,
     secondaryActions,
     navigationActions,
-    latestActionResult: deriveLatestActionResult(input, jobs),
+    latestActionResult: workflowActionFeedback,
+    workflowActionFeedback,
     warnings,
     blockers,
     visibility: {
