@@ -100,6 +100,7 @@ test('stage tracker progressively discloses only the current stage by default', 
   assertContains(uiJs, 'body.append(artifacts, next, button, actionReason)', 'expanded stage body keeps action context');
   assertContains(uiJs, 'els.pipelineStages.append(stageCard(stage, currentStageId))', 'render should pass the current stage into each card');
   assertContains(uiJs, "currentBadge.textContent = 'current'", 'current stage should be called out separately from status');
+  assertContains(uiJs, "artifactLabel.textContent = 'Active/current artifact'", 'expanded stages should not call archived records latest active artifacts');
   assertContains(uiJs, 'function pruneExpandedPipelineStages(stages)', 'expanded stage state should be pruned during render');
   assertContains(uiJs, 'state.expandedPipelineStageIds = []', 'changing workflow context should reset expanded stage state');
 
@@ -129,6 +130,8 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(uiJs, 'Stage details', 'command bar stage details button');
   assertContains(uiJs, 'function checklistBlockers(checklist', 'checklist blocker helper');
   assertContains(uiJs, 'command-bar-blocker', 'command bar blocker summary');
+  assertContains(uiJs, 'artifactScopeWarnings', 'view model archive warnings should render in workflow context');
+  assertContains(uiJs, 'History/archive records remain available for audit, but production and publishing actions use active/current artifacts only.', 'workflow should explain active versus archive state');
 
   for (const checklistItem of [
     'Research brief approved',
@@ -249,6 +252,19 @@ test('integrity, source coverage, and confirmation safety affordances remain pre
   assertContains(stylesCss, '.confirmation-overlay', 'confirmation overlay styles');
   assertContains(stylesCss, '.confirmation-dialog', 'confirmation dialog styles');
   assert.doesNotMatch(uiJs, /window\.prompt\b/, 'ui.js must not use window.prompt for critical actions');
+});
+
+test('active artifacts and archive labels are guarded in static UI modules', () => {
+  assertContains(uiJs, 'function artifactScope(kind, id)', 'artifact scope helper');
+  assertContains(uiJs, 'Active/current', 'active artifact label');
+  assertContains(uiJs, 'History/archive', 'archive artifact label');
+  assertContains(uiJs, 'Not part of current production', 'archive warning label');
+  assertContains(uiJs, 'activeSelectedScript', 'script actions should use active script state');
+  assertContains(uiJs, 'currentProductionViewModel().activeArtifacts?.audioCover', 'asset selection should come from active view-model state');
+  assertContains(stylesCss, '.artifact-scope-panel.warning', 'mixed artifact warning style');
+  assertContains(stylesCss, '.scope-pill.archive', 'archive pill style');
+  assertContains(stylesCss, '.active-artifact', 'active artifact row style');
+  assertContains(stylesCss, '.archive-artifact', 'archive artifact row style');
 });
 
 test('api helper does not mark empty POSTs as JSON bodies', () => {

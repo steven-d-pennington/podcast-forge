@@ -41,6 +41,14 @@ const candidate = {
   discoveredAt: '2026-04-27T12:00:00.000Z',
 };
 
+const newerCandidate = {
+  ...candidate,
+  id: 'candidate-2',
+  title: 'New chip export rule takes effect',
+  canonicalUrl: 'https://example.com/chip-rule',
+  discoveredAt: '2026-04-27T16:00:00.000Z',
+};
+
 const readyBrief = {
   id: 'brief-1',
   title: 'AI safety guidance brief',
@@ -48,6 +56,9 @@ const readyBrief = {
   approvedAt: '2026-04-27T13:00:00.000Z',
   warnings: [],
   citations: [{ url: 'https://example.com/ai-safety' }],
+  content: {
+    candidateIds: ['candidate-1'],
+  },
   createdAt: '2026-04-27T12:30:00.000Z',
   updatedAt: '2026-04-27T13:00:00.000Z',
 };
@@ -63,6 +74,7 @@ const notReadyBrief = {
   id: 'brief-not-ready',
   status: 'ready',
   content: {
+    candidateIds: ['candidate-1'],
     readiness: {
       status: 'needs_more_sources',
     },
@@ -120,6 +132,7 @@ const approvedScript = {
 
 const audioAsset = {
   id: 'asset-audio-1',
+  episodeId: 'episode-1',
   type: 'audio-preview',
   status: 'ready',
   mimeType: 'audio/mpeg',
@@ -131,6 +144,7 @@ const audioAsset = {
 
 const coverAsset = {
   id: 'asset-cover-1',
+  episodeId: 'episode-1',
   type: 'cover-art',
   status: 'ready',
   mimeType: 'image/png',
@@ -142,9 +156,13 @@ const coverAsset = {
 const episode = {
   id: 'episode-1',
   feedId: 'feed-1',
+  researchPacketId: 'brief-1',
   title: 'AI safety guidance episode',
   slug: 'ai-safety-guidance',
   status: 'audio-ready',
+  metadata: {
+    scriptId: 'script-1',
+  },
   createdAt: '2026-04-27T14:40:00.000Z',
   updatedAt: '2026-04-27T14:40:00.000Z',
 };
@@ -441,6 +459,55 @@ test('view model falls back to current production assets when saved asset select
   assert.equal(model.activeArtifacts.audioCover.audio.id, 'asset-audio-1');
   assert.equal(model.activeArtifacts.audioCover.cover.id, 'asset-cover-1');
   assert.equal(model.currentStage.id, 'publishing');
+});
+
+test('view model archives production artifacts that do not match the selected candidate path', () => {
+  const currentBrief = {
+    ...readyBrief,
+    id: 'brief-2',
+    title: 'Chip export rule brief',
+    content: {
+      candidateIds: ['candidate-2'],
+    },
+    createdAt: '2026-04-27T16:30:00.000Z',
+    updatedAt: '2026-04-27T16:45:00.000Z',
+  };
+  const oldEpisode = {
+    ...episode,
+    id: 'episode-old',
+    title: 'Older AI safety episode',
+    researchPacketId: 'brief-1',
+    metadata: {
+      scriptId: 'script-1',
+    },
+  };
+  const oldAudio = { ...audioAsset, id: 'asset-old-audio', episodeId: 'episode-old' };
+  const oldCover = { ...coverAsset, id: 'asset-old-cover', episodeId: 'episode-old' };
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [newerCandidate, candidate],
+    selectedCandidateIds: ['candidate-2'],
+    researchPackets: [currentBrief, readyBrief],
+    selectedResearchPacketId: 'brief-2',
+    scripts: [approvedScript],
+    selectedScriptId: 'script-1',
+    selectedScript: approvedScript,
+    selectedRevision: passedReviewRevision,
+    selectedRevisions: [passedReviewRevision],
+    production: { episode: oldEpisode, assets: [oldAudio, oldCover], jobs: [] },
+    episodes: [oldEpisode],
+    selectedEpisodeId: 'episode-old',
+    selectedAssetIds: ['asset-old-audio', 'asset-old-cover'],
+  }));
+
+  assert.equal(model.activeArtifacts.brief.id, 'brief-2');
+  assert.equal(model.activeArtifacts.script, null);
+  assert.equal(model.activeArtifacts.audioCover, null);
+  assert.equal(model.activeArtifacts.publishing, null);
+  assert.ok(model.historicalArtifacts.scripts.some((item) => item.id === 'script-1' && item.stateLabel === 'History/archive'));
+  assert.ok(model.historicalArtifacts.audioCover.some((item) => item.id === 'asset-old-audio' && item.stateLabel === 'History/archive'));
+  assert.ok(model.artifactScopeWarnings.some((item) => item.message.includes('not part of current production')));
+  assert.ok(model.warnings.some((warning) => warning.message.includes('not part of current production')));
+  assert.equal(model.primaryNextAction.label, 'Generate script draft');
 });
 
 test('view model treats publish approval as actionable when prerequisites are ready', () => {

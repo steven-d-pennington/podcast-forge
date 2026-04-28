@@ -408,19 +408,81 @@ function selectedCandidateAnalysis() {
 }
 
 function selectedResearchPacket() {
-  return state.researchPackets.find((packet) => packet.id === state.selectedResearchPacketId);
+  const activeId = currentProductionViewModel().activeArtifacts?.brief?.id;
+  if (activeId) {
+    return state.researchPackets.find((packet) => packet.id === activeId);
+  }
+  return state.selectedCandidateIds.length > 0 ? undefined : state.researchPackets.find((packet) => packet.id === state.selectedResearchPacketId);
+}
+
+function activeSelectedScript() {
+  const activeId = currentProductionViewModel().activeArtifacts?.script?.id;
+  return activeId && state.selectedScript?.id === activeId ? state.selectedScript : null;
+}
+
+function activeSelectedRevision() {
+  const activeId = currentProductionViewModel().activeArtifacts?.review?.id;
+  return activeId && state.selectedRevision?.id === activeId ? state.selectedRevision : null;
 }
 
 function selectedEpisode() {
-  return state.production.episode
+  const activeId = currentProductionViewModel().activeArtifacts?.publishing?.id;
+  if (activeId) {
+    return (state.production.episode?.id === activeId ? state.production.episode : null)
+      || state.episodes.find((episode) => episode.id === activeId)
+      || null;
+  }
+  return state.selectedCandidateIds.length > 0 ? null : state.production.episode
     || state.episodes.find((episode) => episode.id === state.selectedEpisodeId)
     || null;
 }
 
 function selectedAssets() {
+  const activeAudioCover = currentProductionViewModel().activeArtifacts?.audioCover;
+  const activeAssetIds = new Set([
+    activeAudioCover?.audio?.id,
+    activeAudioCover?.cover?.id,
+  ].filter(Boolean));
+  if (activeAssetIds.size > 0) {
+    return state.production.assets.filter((asset) => activeAssetIds.has(asset.id));
+  }
+  if (state.selectedCandidateIds.length > 0 && !currentProductionViewModel().activeArtifacts?.publishing) {
+    return [];
+  }
   const selected = new Set(state.selectedAssetIds);
   const assets = state.production.assets.filter((asset) => selected.has(asset.id));
   return assets.length > 0 ? assets : state.production.assets;
+}
+
+function currentProductionViewModel() {
+  return state.productionViewModel || deriveProductionViewModel(state);
+}
+
+function artifactScope(kind, id) {
+  const viewModel = currentProductionViewModel();
+  const active = viewModel.activeArtifacts?.[kind];
+  if (id && active?.id === id) {
+    return {
+      label: active.stateLabel || 'Active/current',
+      className: 'active',
+      warning: '',
+    };
+  }
+
+  const historyKey = kind === 'brief' ? 'briefs' : kind === 'script' ? 'scripts' : kind === 'publishing' ? 'publishing' : kind;
+  const archived = asArray(viewModel.historicalArtifacts?.[historyKey]).find((artifact) => artifact.id === id);
+  return {
+    label: archived?.stateLabel || 'History/archive',
+    className: 'archive',
+    warning: archived?.stateWarning || 'Not part of current production.',
+  };
+}
+
+function appendScopePill(container, scope) {
+  const pill = document.createElement('span');
+  pill.className = `scope-pill ${scope.className}`;
+  pill.textContent = scope.label;
+  container.append(pill);
 }
 
 function researchReadinessStatus(packet) {
@@ -581,8 +643,8 @@ function renderCoverageSummary(summary) {
 
 function publishChecklistState() {
   const packet = selectedResearchPacket();
-  const script = state.selectedScript;
-  const revision = state.selectedRevision;
+  const script = activeSelectedScript();
+  const revision = activeSelectedRevision();
   const episode = selectedEpisode();
   const assets = selectedAssets();
   const feed = selectedFeed();
@@ -1331,7 +1393,7 @@ function stageCard(stage, currentStageId = '') {
   artifacts.className = 'pipeline-artifacts';
   const artifactLabel = document.createElement('span');
   artifactLabel.className = 'pipeline-label';
-  artifactLabel.textContent = 'Latest artifact';
+  artifactLabel.textContent = 'Active/current artifact';
   const artifactText = document.createElement('p');
   artifactText.textContent = stage.artifact;
   artifacts.append(artifactLabel, artifactText);
@@ -1418,19 +1480,21 @@ function latestCandidateText() {
 
 function latestResearchText(packet) {
   if (!packet) {
-    return state.researchPackets[0]?.title || 'No research brief selected yet.';
+    return 'No active/current research brief selected yet.';
   }
 
   const warningCount = packet.warnings?.length || 0;
-  return `${packet.title} (${packet.status}, ${warningCount} warning${warningCount === 1 ? '' : 's'})`;
+  return `Active/current: ${packet.title} (${packet.status}, ${warningCount} warning${warningCount === 1 ? '' : 's'})`;
 }
 
 function latestScriptText() {
-  if (!state.selectedScript || !state.selectedRevision) {
-    return state.scripts[0]?.title || 'No script draft selected yet.';
+  const script = activeSelectedScript();
+  const revision = activeSelectedRevision();
+  if (!script || !revision) {
+    return 'No active/current script draft selected yet.';
   }
 
-  return `${state.selectedScript.title} (revision ${state.selectedRevision.version}, ${state.selectedScript.status})`;
+  return `Active/current: ${script.title} (revision ${revision.version}, ${script.status})`;
 }
 
 function latestProductionText() {
@@ -1440,10 +1504,10 @@ function latestProductionText() {
   const art = assets.find((asset) => asset.type === 'cover-art');
 
   if (!episode) {
-    return 'No episode or production assets selected yet.';
+    return 'No active/current episode or production assets selected yet.';
   }
 
-  return `${episode.title} (${episode.status}) | audio ${audio ? 'ready' : 'missing'} | cover ${art ? 'ready' : 'missing'}`;
+  return `Active/current: ${episode.title} (${episode.status}) | audio ${audio ? 'ready' : 'missing'} | cover ${art ? 'ready' : 'missing'}`;
 }
 
 function workflowStoryContext() {
@@ -1469,11 +1533,13 @@ function workflowRevisionContext() {
   const episode = selectedEpisode();
 
   if (episode) {
-    return `${episode.title} (${episode.status})`;
+    return `Active/current: ${episode.title} (${episode.status})`;
   }
 
-  if (state.selectedScript && state.selectedRevision) {
-    return `${state.selectedScript.title} | revision ${state.selectedRevision.version}`;
+  const script = activeSelectedScript();
+  const revision = activeSelectedRevision();
+  if (script && revision) {
+    return `Active/current: ${script.title} | revision ${revision.version}`;
   }
 
   const packet = selectedResearchPacket();
@@ -1490,14 +1556,16 @@ function buildPipelineStages() {
   const candidates = selectedCandidates();
   const candidateAnalysis = selectedCandidateAnalysis();
   const packet = selectedResearchPacket();
-  const latestPacket = packet || state.researchPackets[0];
+  const latestPacket = packet;
   const episode = selectedEpisode();
   const assets = selectedAssets();
   const audioAsset = assets.find((asset) => asset.type === 'audio-preview' || asset.type === 'audio-final');
   const coverAsset = assets.find((asset) => asset.type === 'cover-art');
-  const scriptApproved = state.selectedScript?.status === 'approved-for-audio'
-    && state.selectedScript?.approvedRevisionId === state.selectedRevision?.id;
-  const integrity = integrityReviewState(state.selectedRevision);
+  const script = activeSelectedScript();
+  const revision = activeSelectedRevision();
+  const scriptApproved = script?.status === 'approved-for-audio'
+    && script?.approvedRevisionId === revision?.id;
+  const integrity = integrityReviewState(revision);
   const scriptReadyForProduction = Boolean(scriptApproved && !integrity.blocking);
   const productionRunning = state.production.jobs.some((job) => !isTerminalJob(job));
   const discoverRunning = isActionRunning('discover');
@@ -1522,10 +1590,10 @@ function buildPipelineStages() {
       ? ['Select at least one candidate story before building a research brief.']
       : [];
   const productionBlockers = [
-    !state.selectedScript || !state.selectedRevision ? 'Generate or select a script draft.' : '',
-    state.selectedRevision && integrity.status === 'missing' ? 'Run the integrity reviewer before production.' : '',
-    state.selectedRevision && integrity.status === 'fail' ? 'Resolve the failed integrity review or record an explicit override reason.' : '',
-    state.selectedScript && state.selectedRevision && !scriptApproved ? 'Approve the selected script revision for audio.' : '',
+    !script || !revision ? 'Generate or select a script draft.' : '',
+    revision && integrity.status === 'missing' ? 'Run the integrity reviewer before production.' : '',
+    revision && integrity.status === 'fail' ? 'Resolve the failed integrity review or record an explicit override reason.' : '',
+    script && revision && !scriptApproved ? 'Approve the selected script revision for audio.' : '',
   ].filter(Boolean);
 
   return [
@@ -1653,27 +1721,27 @@ function buildPipelineStages() {
       id: 'script',
       number: 5,
       title: 'Generate script',
-      status: scriptRunning ? 'running' : state.selectedScript ? 'done' : packet && !packetBlocked ? 'ready' : 'blocked',
+      status: scriptRunning ? 'running' : script ? 'done' : packet && !packetBlocked ? 'ready' : 'blocked',
       artifact: latestScriptText(),
-      next: state.selectedScript
+      next: script
         ? 'Review the draft and continue to integrity review before production.'
         : packet && !packetBlocked ? 'Generate an episode draft from the selected research brief.' : 'Select a ready research brief first.',
       actionReason: scriptRunning
         ? 'A script draft is already being generated; wait for the task run to finish or inspect progress.'
-        : state.selectedScript
+        : script
           ? 'Script selected; review it, run integrity review, and approve a revision before audio.'
           : packet && !packetBlocked
             ? 'Ready: generate a script from the selected research brief.'
             : packetBlocked
               ? 'Blocked: resolve or override research warnings before drafting.'
               : 'Blocked: build or select an evidence brief before generating a script.',
-      blockers: !state.selectedScript && (!packet || packetBlocked)
+      blockers: !script && (!packet || packetBlocked)
         ? [packetBlocked ? 'Resolve or override research warnings before drafting.' : 'Build or select an evidence brief.']
         : [],
-      actionLabel: state.selectedScript ? 'Review Draft' : 'Generate Script Draft',
-      action: state.selectedScript ? focusScriptEditor : generateScriptFromSelectedResearch,
-      disabled: scriptRunning || (!state.selectedScript && (!packet || packetBlocked)),
-      active: Boolean(state.selectedScript),
+      actionLabel: script ? 'Review Draft' : 'Generate Script Draft',
+      action: script ? focusScriptEditor : generateScriptFromSelectedResearch,
+      disabled: scriptRunning || (!script && (!packet || packetBlocked)),
+      active: Boolean(script),
       targetId: 'scriptPanel',
       jobTypes: ['script.generate'],
     },
@@ -1681,36 +1749,36 @@ function buildPipelineStages() {
       id: 'review',
       number: 6,
       title: 'Integrity review',
-      status: integrityRunning || approvalsRunning ? 'running' : scriptReadyForProduction ? 'done' : state.selectedScript && state.selectedRevision ? 'ready' : 'blocked',
-      artifact: state.selectedRevision
+      status: integrityRunning || approvalsRunning ? 'running' : scriptReadyForProduction ? 'done' : script && revision ? 'ready' : 'blocked',
+      artifact: revision
         ? `Integrity review ${integrityReviewLabel(integrity.status)}${scriptApproved ? ' | script approved for audio' : ''}`
         : 'No script revision selected yet.',
-      next: !state.selectedScript || !state.selectedRevision
+      next: !script || !revision
         ? 'Generate or select a script draft first.'
         : integrity.blocking
           ? 'Run the integrity reviewer or record an explicit override before production.'
           : scriptApproved ? 'Integrity and script approval gates are complete.' : 'Approve the reviewed script revision for audio.',
       actionReason: integrityRunning || approvalsRunning
         ? 'Review or approval is already running; wait for it to finish.'
-        : !state.selectedScript || !state.selectedRevision
+        : !script || !revision
           ? 'Blocked: generate or select a script draft before the integrity gate.'
           : integrity.blocking
             ? (integrity.status === 'fail' ? 'Blocked: resolve the failed integrity review or record an explicit override reason.' : 'Blocked: run the integrity reviewer before production.')
             : scriptApproved ? 'Integrity review and script approval are complete.' : 'Ready: approve the reviewed script revision for audio.',
-      blockers: !state.selectedScript || !state.selectedRevision
+      blockers: !script || !revision
         ? ['Generate or select a script draft.']
         : integrity.blocking
           ? [integrity.status === 'fail' ? 'Resolve the failed integrity review or record an explicit override reason.' : 'Run the integrity reviewer before production.']
           : !scriptApproved ? ['Approve the reviewed script revision for audio.'] : [],
-      actionLabel: !state.selectedScript || !state.selectedRevision
+      actionLabel: !script || !revision
         ? 'Open Scripts'
         : integrity.blocking ? 'Run Integrity Review' : scriptApproved ? 'Open Review Gates' : 'Approve Script for Audio',
-      action: !state.selectedScript || !state.selectedRevision
+      action: !script || !revision
         ? () => scrollToPanel('scriptPanel')
         : integrity.blocking ? runSelectedIntegrityReview : scriptApproved ? () => scrollToPanel('reviewPanel') : approveSelectedScript,
       disabled: integrityRunning || approvalsRunning,
-      active: Boolean(state.selectedRevision && !integrity.blocking),
-      targetId: !state.selectedScript || !state.selectedRevision ? 'scriptPanel' : 'reviewPanel',
+      active: Boolean(revision && !integrity.blocking),
+      targetId: !script || !revision ? 'scriptPanel' : 'reviewPanel',
     },
     {
       id: 'production',
@@ -1800,6 +1868,22 @@ function renderPipeline() {
     item.append(itemLabel, itemValue);
     els.workflowContext.append(item);
   }
+
+  const scopeWarnings = asArray(viewModel.artifactScopeWarnings);
+  const archiveCounts = viewModel.historicalArtifacts || {};
+  const archiveCount = Object.values(archiveCounts).reduce((total, items) => total + asArray(items).length, 0);
+  const scopePanel = document.createElement('div');
+  scopePanel.className = `artifact-scope-panel${scopeWarnings.length > 0 ? ' warning' : ''}`;
+  const scopeLabel = document.createElement('span');
+  scopeLabel.textContent = scopeWarnings.length > 0 ? 'Current production warning' : 'Artifact scope';
+  const scopeText = document.createElement('strong');
+  scopeText.textContent = scopeWarnings.length > 0
+    ? scopeWarnings[0].message
+    : archiveCount > 0 ? `${archiveCount} history/archive artifact${archiveCount === 1 ? '' : 's'} kept out of active state.` : 'Only active/current artifacts are shown as production state.';
+  const scopeDetail = document.createElement('p');
+  scopeDetail.textContent = 'History/archive records remain available for audit, but production and publishing actions use active/current artifacts only.';
+  scopePanel.append(scopeLabel, scopeText, scopeDetail);
+  els.workflowContext.append(scopePanel);
 
   const stages = buildPipelineStages();
   pruneExpandedPipelineStages(stages);
@@ -2181,20 +2265,24 @@ function renderResearchBriefs() {
   }
 
   for (const packet of state.researchPackets) {
+    const scope = artifactScope('brief', packet.id);
     const row = document.createElement('article');
-    row.className = `record-row${packet.id === state.selectedResearchPacketId ? ' selected' : ''}`;
+    row.className = `record-row ${scope.className}-artifact${packet.id === state.selectedResearchPacketId ? ' selected' : ''}`;
 
     const title = document.createElement('strong');
     title.textContent = packet.title;
+    appendScopePill(title, scope);
 
     const warningCount = packet.warnings?.length || 0;
     const meta = document.createElement('span');
     meta.textContent = `${packet.status} | ${packet.citations?.length || 0} citation${packet.citations?.length === 1 ? '' : 's'} | ${warningCount} warning${warningCount === 1 ? '' : 's'}`;
 
     const summary = document.createElement('p');
-    summary.textContent = warningCount > 0
-      ? 'Review warnings before drafting or approving production.'
-      : 'Ready for script drafting when the editor is comfortable with the source mix.';
+    summary.textContent = scope.className === 'archive'
+      ? 'History/archive research brief. Not part of current production for the selected candidate story.'
+      : warningCount > 0
+        ? 'Active/current research brief. Review warnings before drafting or approving production.'
+        : 'Active/current research brief. Ready for script drafting when the editor is comfortable with the source mix.';
 
     const actions = document.createElement('div');
     actions.className = 'actions inline row-actions';
@@ -2234,18 +2322,22 @@ function renderEpisodes() {
   }
 
   for (const episode of state.episodes) {
+    const scope = artifactScope('publishing', episode.id);
     const row = document.createElement('article');
-    row.className = `record-row${episode.id === state.selectedEpisodeId ? ' selected' : ''}`;
+    row.className = `record-row ${scope.className}-artifact${episode.id === state.selectedEpisodeId ? ' selected' : ''}`;
 
     const title = document.createElement('strong');
     title.textContent = episode.episodeNumber ? `EP${episode.episodeNumber}: ${episode.title}` : episode.title;
+    appendScopePill(title, scope);
 
     const meta = document.createElement('span');
     const published = episode.publishedAt ? ` | published ${new Date(episode.publishedAt).toLocaleString()}` : '';
     meta.textContent = `${episode.status} | ${episode.slug}${published}`;
 
     const summary = document.createElement('p');
-    summary.textContent = episode.feedGuid || episode.metadata?.publicAudioUrl || episode.description || 'No publish metadata recorded.';
+    summary.textContent = scope.className === 'archive'
+      ? 'History/archive episode. Not part of current production for the selected candidate story.'
+      : episode.feedGuid || episode.metadata?.publicAudioUrl || episode.description || 'Active/current episode has no publish metadata recorded yet.';
 
     const select = document.createElement('button');
     select.type = 'button';
@@ -2953,16 +3045,18 @@ function latestAsset(type) {
 }
 
 function renderProduction() {
-  const hasScript = Boolean(state.selectedScript && state.selectedRevision);
+  const script = activeSelectedScript();
+  const revision = activeSelectedRevision();
+  const hasScript = Boolean(script && revision);
   els.productionPanel.hidden = !hasScript;
 
   if (!hasScript) {
     return;
   }
 
-  const approved = state.selectedScript.status === 'approved-for-audio'
-    && state.selectedScript.approvedRevisionId === state.selectedRevision.id;
-  const integrity = integrityReviewState();
+  const approved = script.status === 'approved-for-audio'
+    && script.approvedRevisionId === revision.id;
+  const integrity = integrityReviewState(revision);
   const readyForProduction = approved && !integrity.blocking;
   const audioJob = latestJob('audio.preview');
   const artJob = latestJob('art.generate');
@@ -3023,9 +3117,9 @@ function renderProduction() {
 
   for (const asset of assets) {
     const row = document.createElement('div');
-    row.className = 'production-row';
+    row.className = 'production-row active-artifact';
     const title = document.createElement('strong');
-    title.textContent = asset.label || asset.type;
+    title.textContent = `Active/current ${asset.label || asset.type}`;
     const meta = document.createElement('span');
     meta.textContent = asset.publicUrl || asset.objectKey || asset.mimeType || 'Asset recorded; local path hidden';
     row.append(title, meta);
@@ -3239,12 +3333,14 @@ function renderScripts() {
   }
 
   for (const script of state.scripts) {
+    const scope = artifactScope('script', script.id);
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = `profile-button${script.id === state.selectedScriptId ? ' active' : ''}`;
+    button.className = `profile-button ${scope.className}-artifact${script.id === state.selectedScriptId ? ' active' : ''}`;
     button.innerHTML = `<strong></strong><span></span>`;
     button.querySelector('strong').textContent = script.title;
-    button.querySelector('span').textContent = `${script.format} | ${script.status} | updated ${new Date(script.updatedAt).toLocaleString()}`;
+    appendScopePill(button.querySelector('strong'), scope);
+    button.querySelector('span').textContent = `${scope.label} | ${script.format} | ${script.status} | updated ${new Date(script.updatedAt).toLocaleString()}`;
     button.addEventListener('click', async () => {
       await loadScript(script.id);
       savePipelineState();
@@ -3253,12 +3349,14 @@ function renderScripts() {
     els.scriptList.append(button);
   }
 
-  els.scriptEditForm.hidden = !state.selectedScript || !state.selectedRevision;
+  const script = activeSelectedScript();
+  const revision = activeSelectedRevision();
+  els.scriptEditForm.hidden = !script || !revision;
 
-  if (state.selectedScript && state.selectedRevision) {
-    els.scriptTitle.value = state.selectedRevision.title;
-    els.scriptBody.value = state.selectedRevision.body;
-    els.approveScript.disabled = state.selectedScript.approvedRevisionId === state.selectedRevision.id;
+  if (script && revision) {
+    els.scriptTitle.value = revision.title;
+    els.scriptBody.value = revision.body;
+    els.approveScript.disabled = script.approvedRevisionId === revision.id;
   }
 
   renderScriptCoachingActions();
@@ -3268,7 +3366,7 @@ function renderScripts() {
 function renderScriptCoachingActions() {
   els.scriptCoachingActions.innerHTML = '';
 
-  if (!state.selectedScript || !state.selectedRevision) {
+  if (!activeSelectedScript() || !activeSelectedRevision()) {
     return;
   }
 
@@ -3450,8 +3548,8 @@ function renderResearchReview() {
 }
 
 function renderScriptReview() {
-  const script = state.selectedScript;
-  const revision = state.selectedRevision;
+  const script = activeSelectedScript();
+  const revision = activeSelectedRevision();
   els.reviewScript.innerHTML = '';
 
   if (!script || !revision) {
@@ -4018,7 +4116,7 @@ function focusManualStoryForm() {
 }
 
 function focusScriptEditor() {
-  if (state.selectedScript && state.selectedRevision) {
+  if (activeSelectedScript() && activeSelectedRevision()) {
     setActiveSurface('workflow');
     scrollToPanel('scriptPanel');
     els.scriptTitle.focus();
@@ -4177,11 +4275,13 @@ async function generateScriptFromSelectedResearch() {
 }
 
 async function createMissingProductionAssets() {
-  if (!state.selectedScript || !state.selectedRevision) {
+  const script = activeSelectedScript();
+  const revision = activeSelectedRevision();
+  if (!script || !revision) {
     return;
   }
 
-  const integrity = integrityReviewState();
+  const integrity = integrityReviewState(revision);
   if (integrity.blocking) {
     setStatus(`Production blocked: integrity review ${integrityReviewLabel(integrity.status)}.`);
     render();
@@ -4197,7 +4297,7 @@ async function createMissingProductionAssets() {
     const hasCover = assets.some((asset) => asset.type === 'cover-art');
 
     if (!hasAudio) {
-      await api(`/scripts/${state.selectedScript.id}/production/audio-preview`, {
+      await api(`/scripts/${script.id}/production/audio-preview`, {
         method: 'POST',
         body: JSON.stringify({ actor: 'local-user' }),
       });
@@ -4207,7 +4307,7 @@ async function createMissingProductionAssets() {
     }
 
     if (!hasCover && !assets.some((asset) => asset.type === 'cover-art')) {
-      await api(`/scripts/${state.selectedScript.id}/production/cover-art`, {
+      await api(`/scripts/${script.id}/production/cover-art`, {
         method: 'POST',
         body: JSON.stringify({ actor: 'local-user' }),
       });
@@ -4990,7 +5090,9 @@ async function saveScriptRevision(event) {
 }
 
 async function runScriptCoachingAction(action) {
-  if (!state.selectedScript || !state.selectedRevision) {
+  const script = activeSelectedScript();
+  const revision = activeSelectedRevision();
+  if (!script || !revision) {
     return;
   }
 
@@ -4998,7 +5100,7 @@ async function runScriptCoachingAction(action) {
   setStatus('Creating coached script revision...');
 
   try {
-    const body = await api(`/scripts/${state.selectedScript.id}/revisions/${state.selectedRevision.id}/coach`, {
+    const body = await api(`/scripts/${script.id}/revisions/${revision.id}/coach`, {
       method: 'POST',
       body: JSON.stringify({
         action,
@@ -5023,7 +5125,9 @@ async function runScriptCoachingAction(action) {
 }
 
 async function approveSelectedScript() {
-  if (!state.selectedScript || !state.selectedRevision) {
+  const script = activeSelectedScript();
+  const revision = activeSelectedRevision();
+  if (!script || !revision) {
     return;
   }
 
@@ -5031,7 +5135,7 @@ async function approveSelectedScript() {
   setStatus('Saving script approval...');
 
   try {
-    const body = await api(`/scripts/${state.selectedScript.id}/revisions/${state.selectedRevision.id}/approve-for-audio`, {
+    const body = await api(`/scripts/${script.id}/revisions/${revision.id}/approve-for-audio`, {
       method: 'POST',
       body: JSON.stringify({
         actor: 'local-user',
@@ -5054,7 +5158,9 @@ async function approveSelectedScript() {
 }
 
 async function runSelectedIntegrityReview() {
-  if (!state.selectedScript || !state.selectedRevision) {
+  const script = activeSelectedScript();
+  const revision = activeSelectedRevision();
+  if (!script || !revision) {
     return;
   }
 
@@ -5062,7 +5168,7 @@ async function runSelectedIntegrityReview() {
   setStatus('Running integrity review...');
 
   try {
-    const body = await api(`/scripts/${state.selectedScript.id}/revisions/${state.selectedRevision.id}/integrity-review`, {
+    const body = await api(`/scripts/${script.id}/revisions/${revision.id}/integrity-review`, {
       method: 'POST',
       body: JSON.stringify({ actor: 'local-user' }),
     });
@@ -5082,7 +5188,9 @@ async function runSelectedIntegrityReview() {
 }
 
 async function overrideSelectedIntegrityReview() {
-  if (!state.selectedScript || !state.selectedRevision) {
+  const script = activeSelectedScript();
+  const revision = activeSelectedRevision();
+  if (!script || !revision) {
     return;
   }
 
@@ -5106,7 +5214,7 @@ async function overrideSelectedIntegrityReview() {
   setStatus('Saving integrity review override...');
 
   try {
-    const body = await api(`/scripts/${state.selectedScript.id}/revisions/${state.selectedRevision.id}/integrity-review/override`, {
+    const body = await api(`/scripts/${script.id}/revisions/${revision.id}/integrity-review/override`, {
       method: 'POST',
       body: JSON.stringify({
         actor: 'local-user',
@@ -5217,7 +5325,8 @@ async function approveSelectedResearch() {
 }
 
 async function refreshProductionUntilSettled() {
-  if (!state.selectedScriptId) {
+  const script = activeSelectedScript();
+  if (!script) {
     return;
   }
 
@@ -5245,11 +5354,13 @@ async function refreshProductionUntilSettled() {
 }
 
 async function startAudioPreview() {
-  if (!state.selectedScript) {
+  const script = activeSelectedScript();
+  const revision = activeSelectedRevision();
+  if (!script || !revision) {
     return;
   }
 
-  const integrity = integrityReviewState();
+  const integrity = integrityReviewState(revision);
   if (integrity.blocking) {
     setStatus(`Preview audio blocked: integrity review ${integrityReviewLabel(integrity.status)}.`);
     render();
@@ -5260,7 +5371,7 @@ async function startAudioPreview() {
   setStatus('Starting preview audio job...');
 
   try {
-    await api(`/scripts/${state.selectedScript.id}/production/audio-preview`, {
+    await api(`/scripts/${script.id}/production/audio-preview`, {
       method: 'POST',
       body: JSON.stringify({ actor: 'local-user' }),
     });
@@ -5275,11 +5386,13 @@ async function startAudioPreview() {
 }
 
 async function startCoverArt() {
-  if (!state.selectedScript) {
+  const script = activeSelectedScript();
+  const revision = activeSelectedRevision();
+  if (!script || !revision) {
     return;
   }
 
-  const integrity = integrityReviewState();
+  const integrity = integrityReviewState(revision);
   if (integrity.blocking) {
     setStatus(`Cover art blocked: integrity review ${integrityReviewLabel(integrity.status)}.`);
     render();
@@ -5290,7 +5403,7 @@ async function startCoverArt() {
   setStatus('Starting cover art job...');
 
   try {
-    await api(`/scripts/${state.selectedScript.id}/production/cover-art`, {
+    await api(`/scripts/${script.id}/production/cover-art`, {
       method: 'POST',
       body: JSON.stringify({ actor: 'local-user' }),
     });

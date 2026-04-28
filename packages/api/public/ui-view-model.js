@@ -166,6 +166,19 @@ function summarizeBrief(packet) {
   });
 }
 
+function markArtifact(summary, state, reason = '') {
+  if (!summary) {
+    return null;
+  }
+
+  return compactObject({
+    ...summary,
+    artifactState: state,
+    stateLabel: state === 'active' ? 'Active/current' : 'History/archive',
+    stateWarning: reason || undefined,
+  });
+}
+
 function summarizeScript(script, revision = null) {
   if (!script) {
     return null;
@@ -304,6 +317,52 @@ function summarizeJob(job) {
 
 function unresolvedResearchWarnings(packet) {
   return asArray(packet?.warnings).filter((warning) => !warning.override);
+}
+
+function packetCandidateIds(packet) {
+  const content = asObject(packet?.content);
+  return [
+    ...asArray(content.candidateIds),
+    ...asArray(content.selectedCandidateIds),
+    content.candidateId,
+    packet?.storyCandidateId,
+  ].filter((id) => typeof id === 'string' && id.trim());
+}
+
+function packetMatchesCandidateSelection(packet, selectedCandidateIds) {
+  if (!packet) {
+    return false;
+  }
+
+  if (selectedCandidateIds.size === 0) {
+    return true;
+  }
+
+  const packetIds = new Set(packetCandidateIds(packet));
+  return packetIds.size === 0 || [...selectedCandidateIds].every((id) => packetIds.has(id));
+}
+
+function episodeMatchesPath(episode, activeBrief, activeScript) {
+  if (!episode) {
+    return false;
+  }
+
+  if (activeScript) {
+    const scriptId = episode.metadata?.scriptId;
+    if (scriptId && scriptId !== activeScript.id) {
+      return false;
+    }
+  }
+
+  if (activeBrief) {
+    return episode.researchPacketId === activeBrief.id || episode.metadata?.researchPacketId === activeBrief.id;
+  }
+
+  return true;
+}
+
+function activePathWarning(label, title) {
+  return `${label}${title ? ` "${title}"` : ''} is not part of current production for the selected candidate story.`;
 }
 
 function productionWarnings(episode, assets, jobs) {
@@ -586,7 +645,16 @@ function checklistStage(key) {
   }[key] || 'publishing';
 }
 
-function deriveWarningsAndBlockers({ activeBrief, activeRevision, activeEpisode, assets, jobs, checklist, selectedCandidates }) {
+function deriveWarningsAndBlockers({
+  activeBrief,
+  activeRevision,
+  activeEpisode,
+  assets,
+  jobs,
+  checklist,
+  selectedCandidates,
+  inactiveSelectedArtifacts = [],
+}) {
   const warnings = [];
   const blockers = [];
   const integrity = integrityReviewState(activeRevision);
@@ -623,16 +691,25 @@ function deriveWarningsAndBlockers({ activeBrief, activeRevision, activeEpisode,
     }
   }
 
+  for (const item of inactiveSelectedArtifacts) {
+    warnings.push(warningItem(
+      item.stage || 'production',
+      item.message || 'Loaded artifact is not part of current production.',
+      item.source || null,
+      'warning',
+    ));
+  }
+
   return { warnings, blockers };
 }
 
 function deriveHistoricalArtifacts({ activeIds, packets, scripts, revisions, assets, episodes }) {
   return {
-    briefs: newest(packets).filter((packet) => packet.id !== activeIds.briefId).map(summarizeBrief),
-    scripts: newest(scripts).filter((script) => script.id !== activeIds.scriptId).map((script) => summarizeScript(script)),
-    reviews: newest(revisions).filter((revision) => revision.id !== activeIds.revisionId).map(summarizeReview),
-    audioCover: newest(assets).filter((asset) => !activeIds.assetIds.has(asset.id) && isAudioCoverAsset(asset)).map(summarizeAsset),
-    publishing: newest(episodes).filter((episode) => episode.id !== activeIds.episodeId).map(summarizeEpisode),
+    briefs: newest(packets).filter((packet) => packet.id !== activeIds.briefId).map((packet) => markArtifact(summarizeBrief(packet), 'archive')),
+    scripts: newest(scripts).filter((script) => script.id !== activeIds.scriptId).map((script) => markArtifact(summarizeScript(script), 'archive')),
+    reviews: newest(revisions).filter((revision) => revision.id !== activeIds.revisionId).map((revision) => markArtifact(summarizeReview(revision), 'archive')),
+    audioCover: newest(assets).filter((asset) => !activeIds.assetIds.has(asset.id) && isAudioCoverAsset(asset)).map((asset) => markArtifact(summarizeAsset(asset), 'archive')),
+    publishing: newest(episodes).filter((episode) => episode.id !== activeIds.episodeId).map((episode) => markArtifact(summarizeEpisode(episode), 'archive')),
   };
 }
 
@@ -654,17 +731,27 @@ export function deriveProductionViewModel(input = {}) {
   const selectedSource = profiles.find((profile) => profile.id === input.selectedProfileId) || null;
   const selectedCandidateIds = new Set(asArray(input.selectedCandidateIds));
   const selectedCandidates = candidates.filter((candidate) => selectedCandidateIds.has(candidate.id));
-  const activeScript = input.selectedScript || scripts.find((script) => script.id === input.selectedScriptId) || null;
-  const activeBrief = (activeScript?.researchPacketId ? packets.find((packet) => packet.id === activeScript.researchPacketId) : null)
-    || packets.find((packet) => packet.id === input.selectedResearchPacketId)
-    || null;
-  const activeRevision = input.selectedRevision || revisions[0] || null;
-  const activeEpisode = production.episode || episodes.find((episode) => episode.id === input.selectedEpisodeId) || null;
+  const selectedScript = input.selectedScript || scripts.find((script) => script.id === input.selectedScriptId) || null;
+  const selectedScriptBrief = selectedScript?.researchPacketId ? packets.find((packet) => packet.id === selectedScript.researchPacketId) : null;
+  const selectedBrief = packets.find((packet) => packet.id === input.selectedResearchPacketId) || null;
+  const latestMatchingBrief = latest(packets.filter((packet) => packetMatchesCandidateSelection(packet, selectedCandidateIds)));
+  const pathBrief = [selectedScriptBrief, selectedBrief, latestMatchingBrief]
+    .find((packet) => packetMatchesCandidateSelection(packet, selectedCandidateIds));
+  const activeBrief = pathBrief || null;
+  const selectedScriptMatchesBrief = Boolean(selectedScript && activeBrief && selectedScript.researchPacketId === activeBrief.id);
+  const latestMatchingScript = activeBrief ? latest(scripts.filter((script) => script.researchPacketId === activeBrief.id)) : null;
+  const activeScript = selectedScriptMatchesBrief ? selectedScript : latestMatchingScript;
+  const selectedRevision = input.selectedRevision || revisions[0] || null;
+  const activeRevision = activeScript && selectedRevision?.scriptId === activeScript.id ? selectedRevision : null;
+  const selectedEpisode = production.episode || episodes.find((episode) => episode.id === input.selectedEpisodeId) || null;
+  const latestMatchingEpisode = activeBrief ? latest(episodes.filter((episode) => episodeMatchesPath(episode, activeBrief, activeScript))) : null;
+  const activeEpisode = episodeMatchesPath(selectedEpisode, activeBrief, activeScript) ? selectedEpisode : latestMatchingEpisode;
   const selectedAssetIds = new Set(asArray(input.selectedAssetIds));
   const selectedAssets = productionAssets.filter((asset) => selectedAssetIds.has(asset.id));
-  const activeAssets = selectedAssetIds.size > 0 && selectedAssets.length > 0
+  const pathAssets = selectedAssetIds.size > 0 && selectedAssets.length > 0
     ? selectedAssets
     : productionAssets;
+  const activeAssets = activeEpisode ? pathAssets.filter((asset) => asset.episodeId === activeEpisode.id || !asset.episodeId) : [];
   const feed = selectedFeed(feeds, activeEpisode, selectedShow);
   const sourceQueries = selectedSource ? queries.filter((query) => !query.sourceProfileId || query.sourceProfileId === selectedSource.id) : [];
   const context = {
@@ -698,19 +785,43 @@ export function deriveProductionViewModel(input = {}) {
     episodeId: activeEpisode?.id || null,
     assetIds: activeArtifactAssetIds,
   };
+  const inactiveSelectedArtifacts = [
+    selectedBrief && selectedBrief.id !== activeIds.briefId ? {
+      stage: 'brief',
+      message: activePathWarning('Research brief', selectedBrief.title),
+      source: markArtifact(summarizeBrief(selectedBrief), 'archive', 'Not part of current production for the selected candidate story.'),
+    } : null,
+    selectedScript && selectedScript.id !== activeIds.scriptId ? {
+      stage: 'script',
+      message: activePathWarning('Script draft', selectedScript.title),
+      source: markArtifact(summarizeScript(selectedScript, selectedRevision), 'archive', 'Not part of current production for the selected candidate story.'),
+    } : null,
+    selectedEpisode && selectedEpisode.id !== activeIds.episodeId ? {
+      stage: 'publishing',
+      message: activePathWarning('Episode', selectedEpisode.title || selectedEpisode.slug),
+      source: markArtifact(summarizeEpisode(selectedEpisode), 'archive', 'Not part of current production for the selected candidate story.'),
+    } : null,
+    ...pathAssets
+      .filter((asset) => !activeIds.assetIds.has(asset.id) && isAudioCoverAsset(asset))
+      .map((asset) => ({
+        stage: 'production',
+        message: activePathWarning('Production asset', asset.label || asset.type),
+        source: markArtifact(summarizeAsset(asset), 'archive', 'Not part of current production for the selected candidate story.'),
+      })),
+  ].filter(Boolean);
   const activeArtifacts = {
-    brief: summarizeBrief(activeBrief),
-    script: summarizeScript(activeScript, activeRevision),
-    review: summarizeReview(activeRevision),
-    audioCover: activeArtifactAudioCover,
-    publishing: summarizeEpisode(activeEpisode),
+    brief: markArtifact(summarizeBrief(activeBrief), 'active'),
+    script: markArtifact(summarizeScript(activeScript, activeRevision), 'active'),
+    review: markArtifact(summarizeReview(activeRevision), 'active'),
+    audioCover: markArtifact(activeArtifactAudioCover, 'active'),
+    publishing: markArtifact(summarizeEpisode(activeEpisode), 'active'),
   };
   const latestArtifacts = {
-    brief: summarizeBrief(latest(packets)),
-    script: summarizeScript(latest(scripts)),
-    review: summarizeReview(latest(revisions)),
-    audioCover: summarizeAudioCover(productionAssets),
-    publishing: summarizeEpisode(latest(episodes)),
+    brief: markArtifact(summarizeBrief(latest(packets)), 'archive'),
+    script: markArtifact(summarizeScript(latest(scripts)), 'archive'),
+    review: markArtifact(summarizeReview(latest(revisions)), 'archive'),
+    audioCover: markArtifact(summarizeAudioCover(productionAssets), 'archive'),
+    publishing: markArtifact(summarizeEpisode(latest(episodes)), 'archive'),
   };
   const historicalArtifacts = deriveHistoricalArtifacts({
     activeIds,
@@ -728,6 +839,7 @@ export function deriveProductionViewModel(input = {}) {
     jobs,
     checklist,
     selectedCandidates,
+    inactiveSelectedArtifacts,
   });
 
   return {
@@ -744,6 +856,7 @@ export function deriveProductionViewModel(input = {}) {
     activeArtifacts,
     latestArtifacts,
     historicalArtifacts,
+    artifactScopeWarnings: inactiveSelectedArtifacts,
     primaryNextAction,
     secondaryActions,
     navigationActions,
