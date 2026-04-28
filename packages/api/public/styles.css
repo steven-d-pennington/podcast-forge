@@ -1363,8 +1363,39 @@ textarea {
   max-width: 100%;
 }
 
+.production-row audio {
+  grid-column: 1 / -1;
+  margin-top: 0.25rem;
+  width: 100%;
+}
+
 .asset-preview img {
   border-radius: 6px;
+}
+
+.asset-access-warning {
+  color: #8a4d0a;
+  font-size: 0.88rem;
+  margin: 0.45rem 0 0;
+}
+
+.asset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  grid-column: 1 / -1;
+  margin-top: 0.35rem;
+}
+
+.asset-link-button {
+  background: white;
+  border: 1px solid #c9ced6;
+  border-radius: 6px;
+  color: #27303b;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0.48rem 0.65rem;
+  text-decoration: none;
 }
 
 .checklist-item {

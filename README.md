@@ -578,6 +578,16 @@ curl -X POST http://localhost:3450/scripts/:id/production/cover-art \
 curl http://localhost:3450/scripts/:id/production
 ```
 
+Local UI playback uses an episode-scoped asset content route instead of
+exposing local filesystem paths. The route only serves generated audio or cover
+asset records whose local files resolve under the show's configured production
+asset roots.
+
+```sh
+curl http://localhost:3450/episodes/:episodeId/assets/:assetId/content
+curl -OJ "http://localhost:3450/episodes/:episodeId/assets/:assetId/content?download=1"
+```
+
 If no cover prompt is provided and an LLM runtime plus `cover_prompt_writer`
 profile is configured, the cover-art job uses the prompt registry and stores the
 prompt-writer output and invocation metadata with the job and asset. Otherwise
@@ -587,6 +597,7 @@ packet context.
 Production endpoints:
 
 - `GET /scripts/:id/production`
+- `GET /episodes/:episodeId/assets/:assetId/content`
 - `POST /scripts/:id/production/audio-preview`
 - `POST /scripts/:id/production/cover-art`
 

@@ -53,6 +53,9 @@ describe('api config endpoints', () => {
     assert.match(response.body, /workflowStoryContext/);
     assert.match(response.body, /renderProductionCommandBar/);
     assert.match(response.body, /checklistBlockers/);
+    assert.match(response.body, /productionAssetContentUrl/);
+    assert.match(response.body, /appendAssetAccessControls/);
+    assert.match(response.body, /Download/);
     assert.match(response.body, /scrollToPanel/);
     assert.match(response.body, /Claim\/source coverage/);
     assert.match(response.body, /coverageStatusLabel/);

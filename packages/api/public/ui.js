@@ -453,6 +453,167 @@ function selectedAssets() {
   return state.production.assets.filter((asset) => activeAssetIds.has(asset.id));
 }
 
+function productionAssetContentUrl(asset, download = false) {
+  if (!asset?.id || !asset?.episodeId) {
+    return '';
+  }
+
+  const url = `/episodes/${encodeURIComponent(asset.episodeId)}/assets/${encodeURIComponent(asset.id)}/content`;
+  return download ? `${url}?download=1` : url;
+}
+
+function isAudioAsset(asset) {
+  return asset?.type === 'audio-preview' || asset?.type === 'audio-final' || asset?.mimeType?.startsWith('audio/');
+}
+
+function isLocalUiHost() {
+  const hostname = window.location.hostname.toLowerCase();
+  const privateLanPattern = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/;
+  return hostname === 'localhost'
+    || hostname === '0.0.0.0'
+    || hostname === '::1'
+    || hostname.startsWith('127.')
+    || privateLanPattern.test(hostname);
+}
+
+function assetAccessUrls(asset) {
+  const localUrl = productionAssetContentUrl(asset);
+  const publicUrl = asset?.publicUrl || '';
+  const preferLocal = Boolean(localUrl && isLocalUiHost());
+  const primary = preferLocal ? localUrl : (publicUrl || localUrl);
+  const download = preferLocal || !publicUrl ? productionAssetContentUrl(asset, true) : publicUrl;
+  const fallback = primary === localUrl ? publicUrl : localUrl;
+
+  return { localUrl, publicUrl, primary, download, fallback, preferLocal };
+}
+
+function publicAssetWarning(asset, urls) {
+  if (!asset) {
+    return '';
+  }
+
+  if (!asset.publicUrl) {
+    return urls.localUrl ? 'No public asset URL is recorded; using the local API asset route.' : 'No public or local asset URL is available.';
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(asset.publicUrl, window.location.origin);
+  } catch (_error) {
+    return urls.localUrl
+      ? 'The recorded public asset URL is not usable; using the local API asset route.'
+      : 'The recorded public asset URL is not usable from the browser.';
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return urls.localUrl
+      ? 'The recorded public asset URL is not http(s); using the local API asset route.'
+      : 'The recorded public asset URL is not http(s).';
+  }
+
+  if (urls.preferLocal && parsed.origin !== window.location.origin) {
+    return 'Public asset host may be unavailable in local runs; Play, Open, and Download use the local API asset route.';
+  }
+
+  return '';
+}
+
+function assetAccessUrl(asset) {
+  return assetAccessUrls(asset).primary;
+}
+
+function appendAssetAccessControls(container, asset, options = {}) {
+  const urls = assetAccessUrls(asset);
+  const accessUrl = urls.primary;
+  const downloadUrl = urls.download;
+  const warning = publicAssetWarning(asset, urls);
+
+  if (warning) {
+    const note = document.createElement('p');
+    note.className = 'asset-access-warning';
+    note.textContent = warning;
+    container.append(note);
+  }
+
+  if (options.audio && accessUrl) {
+    const player = document.createElement('audio');
+    player.controls = true;
+    player.preload = 'metadata';
+    player.src = accessUrl;
+    player.addEventListener('error', () => {
+      const note = document.createElement('p');
+      note.className = 'asset-access-warning';
+      note.textContent = 'Audio playback failed from the selected URL. Use Open or Download, or regenerate the local asset.';
+      if (!container.querySelector('.asset-playback-error')) {
+        note.classList.add('asset-playback-error');
+        container.append(note);
+      }
+    }, { once: true });
+    container.append(player);
+  }
+
+  if (options.image && accessUrl) {
+    const image = document.createElement('img');
+    image.src = accessUrl;
+    image.alt = asset.label || 'Cover art preview';
+    image.addEventListener('error', () => {
+      const note = document.createElement('p');
+      note.className = 'asset-access-warning asset-image-error';
+      note.textContent = 'Cover art preview failed from the selected URL. Use Open or Download, or regenerate the local asset.';
+      if (!container.querySelector('.asset-image-error')) {
+        container.append(note);
+      }
+    }, { once: true });
+    container.append(image);
+  }
+
+  const controls = document.createElement('div');
+  controls.className = 'asset-actions';
+
+  if (isAudioAsset(asset) && accessUrl && !options.audio) {
+    const play = document.createElement('a');
+    play.className = 'asset-link-button';
+    play.href = accessUrl;
+    play.target = '_blank';
+    play.rel = 'noopener';
+    play.textContent = 'Play';
+    controls.append(play);
+  }
+
+  if (accessUrl) {
+    const open = document.createElement('a');
+    open.className = 'asset-link-button';
+    open.href = accessUrl;
+    open.target = '_blank';
+    open.rel = 'noopener';
+    open.textContent = 'Open';
+    controls.append(open);
+  }
+
+  if (urls.fallback) {
+    const fallback = document.createElement('a');
+    fallback.className = 'asset-link-button secondary';
+    fallback.href = urls.fallback;
+    fallback.target = '_blank';
+    fallback.rel = 'noopener';
+    fallback.textContent = urls.fallback === urls.localUrl ? 'Local API' : 'Public URL';
+    controls.append(fallback);
+  }
+
+  if (downloadUrl) {
+    const download = document.createElement('a');
+    download.className = 'asset-link-button';
+    download.href = downloadUrl;
+    download.download = '';
+    download.textContent = 'Download';
+    controls.append(download);
+  }
+
+  if (controls.childElementCount > 0) {
+    container.append(controls);
+  }
+}
+
 function currentProductionViewModel() {
   return state.productionViewModel || deriveProductionViewModel(state);
 }
@@ -3347,8 +3508,9 @@ function renderProduction() {
       const title = document.createElement('strong');
       title.textContent = `Active/current ${asset.label || asset.type}`;
       const meta = document.createElement('span');
-      meta.textContent = asset.publicUrl || asset.objectKey || asset.mimeType || 'Asset recorded; local path hidden';
+      meta.textContent = asset.objectKey || asset.publicUrl || asset.mimeType || 'Asset recorded; local path hidden';
       row.append(title, meta);
+      appendAssetAccessControls(row, asset, { audio: isAudioAsset(asset) });
       els.productionAssets.append(row);
     }
   }
@@ -3890,14 +4052,11 @@ function renderProductionReview() {
   const audioTitle = document.createElement('strong');
   audioTitle.textContent = 'Audio preview';
   audioBox.append(audioTitle);
-  if (audioAsset?.publicUrl) {
-    const player = document.createElement('audio');
-    player.controls = true;
-    player.src = audioAsset.publicUrl;
-    audioBox.append(player);
+  if (audioAsset && assetAccessUrl(audioAsset)) {
+    appendAssetAccessControls(audioBox, audioAsset, { audio: true });
   } else {
     const empty = document.createElement('p');
-    empty.textContent = audioAsset ? 'Audio asset recorded without a public preview URL.' : 'No audio asset recorded.';
+    empty.textContent = audioAsset ? 'Audio asset recorded without a usable local or public preview URL.' : 'No audio asset recorded.';
     audioBox.append(empty);
   }
   const coverBox = document.createElement('div');
@@ -3905,14 +4064,11 @@ function renderProductionReview() {
   const coverTitle = document.createElement('strong');
   coverTitle.textContent = 'Cover art';
   coverBox.append(coverTitle);
-  if (coverAsset?.publicUrl) {
-    const image = document.createElement('img');
-    image.src = coverAsset.publicUrl;
-    image.alt = coverAsset.label || 'Cover art preview';
-    coverBox.append(image);
+  if (coverAsset && assetAccessUrl(coverAsset)) {
+    appendAssetAccessControls(coverBox, coverAsset, { image: true });
   } else {
     const empty = document.createElement('p');
-    empty.textContent = coverAsset ? 'Cover art asset recorded without a public preview URL.' : 'No cover art asset recorded.';
+    empty.textContent = coverAsset ? 'Cover art asset recorded without a usable local or public preview URL.' : 'No cover art asset recorded.';
     coverBox.append(empty);
   }
   media.append(audioBox, coverBox);

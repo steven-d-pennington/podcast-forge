@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { after, beforeEach, describe, it } from 'node:test';
 
 import { buildApp } from '../app.js';
@@ -2993,6 +2996,111 @@ describe('source profile routes', () => {
       productionBody.jobs.map((job: JobRecord) => job.type).sort(),
       ['art.generate', 'audio.preview'],
     );
+
+    const audioAssetResponse = await app.inject({
+      method: 'GET',
+      url: `/episodes/${audioBody.episode.id}/assets/${audioBody.asset.id}/content`,
+    });
+
+    assert.equal(audioAssetResponse.statusCode, 200);
+    assert.match(String(audioAssetResponse.headers['content-type'] ?? ''), /audio\/mpeg/);
+    assert.match(String(audioAssetResponse.headers['cache-control'] ?? ''), /no-store/);
+    assert.match(String(audioAssetResponse.headers['content-disposition'] ?? ''), /inline; filename="audio-preview\.mp3"/);
+    assert.match(audioAssetResponse.body, /^ID3/);
+    assert.doesNotMatch(JSON.stringify(audioAssetResponse.headers), /tmp\/podcast-forge-production-assets/);
+
+    const downloadResponse = await app.inject({
+      method: 'GET',
+      url: `/episodes/${audioBody.episode.id}/assets/${audioBody.asset.id}/content?download=1`,
+    });
+
+    assert.equal(downloadResponse.statusCode, 200);
+    assert.match(String(downloadResponse.headers['content-disposition'] ?? ''), /attachment; filename="audio-preview\.mp3"/);
+
+    const coverAssetResponse = await app.inject({
+      method: 'GET',
+      url: `/episodes/${audioBody.episode.id}/assets/${artBody.asset.id}/content`,
+    });
+
+    assert.equal(coverAssetResponse.statusCode, 200);
+    assert.match(String(coverAssetResponse.headers['content-type'] ?? ''), /image\/png/);
+
+    const publicClientResponse = await app.inject({
+      method: 'GET',
+      url: `/episodes/${audioBody.episode.id}/assets/${audioBody.asset.id}/content`,
+      remoteAddress: '203.0.113.10',
+    });
+
+    assert.equal(publicClientResponse.statusCode, 403);
+    assert.equal(publicClientResponse.json().code, 'ASSET_CONTENT_LOCAL_ONLY');
+
+    const blockedAsset = await store.createEpisodeAsset({
+      episodeId: audioBody.episode.id,
+      type: 'audio-preview',
+      label: 'Blocked audio',
+      localPath: '/etc/passwd',
+      objectKey: null,
+      publicUrl: null,
+      mimeType: 'audio/mpeg',
+      byteSize: 10,
+      durationSeconds: 1,
+      checksum: null,
+      metadata: {},
+    });
+    const blockedResponse = await app.inject({
+      method: 'GET',
+      url: `/episodes/${audioBody.episode.id}/assets/${blockedAsset.id}/content`,
+    });
+
+    assert.equal(blockedResponse.statusCode, 403);
+    assert.equal(blockedResponse.json().code, 'ASSET_PATH_NOT_ALLOWED');
+
+    const outsideDir = await mkdtemp(join(tmpdir(), 'podcast-forge-outside-'));
+    const outsideFile = join(outsideDir, 'outside.mp3');
+    await writeFile(outsideFile, 'outside asset');
+    const symlinkPath = join(dirname(audioBody.asset.localPath), `outside-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3.link`);
+    await symlink(outsideFile, symlinkPath);
+    const symlinkAsset = await store.createEpisodeAsset({
+      episodeId: audioBody.episode.id,
+      type: 'audio-preview',
+      label: 'Symlink audio',
+      localPath: symlinkPath,
+      objectKey: null,
+      publicUrl: null,
+      mimeType: 'audio/mpeg',
+      byteSize: 13,
+      durationSeconds: 1,
+      checksum: null,
+      metadata: {},
+    });
+    const symlinkResponse = await app.inject({
+      method: 'GET',
+      url: `/episodes/${audioBody.episode.id}/assets/${symlinkAsset.id}/content`,
+    });
+
+    assert.equal(symlinkResponse.statusCode, 403);
+    assert.equal(symlinkResponse.json().code, 'ASSET_PATH_NOT_ALLOWED');
+
+    const htmlMimeAsset = await store.createEpisodeAsset({
+      episodeId: audioBody.episode.id,
+      type: 'audio-preview',
+      label: 'Suspicious MIME audio',
+      localPath: audioBody.asset.localPath,
+      objectKey: null,
+      publicUrl: null,
+      mimeType: 'text/html',
+      byteSize: audioBody.asset.byteSize,
+      durationSeconds: 1,
+      checksum: null,
+      metadata: {},
+    });
+    const htmlMimeResponse = await app.inject({
+      method: 'GET',
+      url: `/episodes/${audioBody.episode.id}/assets/${htmlMimeAsset.id}/content`,
+    });
+
+    assert.equal(htmlMimeResponse.statusCode, 200);
+    assert.match(String(htmlMimeResponse.headers['content-type'] ?? ''), /application\/octet-stream/);
   });
 
   it('rejects RSS publishing until an episode is approved for publish', async () => {
