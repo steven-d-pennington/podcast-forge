@@ -360,6 +360,52 @@ button:disabled {
   text-transform: uppercase;
 }
 
+.artifact-scope-panel {
+  background: #eef6f2;
+  border: 1px solid #9ac8aa;
+  border-radius: 6px;
+  display: grid;
+  gap: 0.2rem;
+  grid-column: 1 / -1;
+  padding: 0.65rem 0.75rem;
+}
+
+.artifact-scope-panel.warning {
+  background: #fff7ed;
+  border-color: #e2c391;
+}
+
+.artifact-scope-panel span {
+  color: #687486;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.artifact-scope-panel strong {
+  color: #1f2937;
+  font-size: 0.95rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.artifact-scope-panel p {
+  color: #586575;
+  font-size: 0.86rem;
+  margin: 0;
+}
+
+.artifact-scope-warning-list {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.artifact-scope-warning-list p {
+  background: rgba(255, 255, 255, 0.54);
+  border-radius: 4px;
+  padding: 0.3rem 0.4rem;
+}
+
 .workflow-context-item strong {
   color: #20242c;
   font-size: 0.95rem;
@@ -1141,6 +1187,35 @@ textarea {
   gap: 0.4rem;
   grid-template-columns: minmax(0, 1fr) auto;
   padding: 0.65rem 0.75rem;
+}
+
+.active-artifact {
+  border-color: #9ac8aa;
+}
+
+.archive-artifact {
+  border-color: #d8dde5;
+  opacity: 0.84;
+}
+
+.scope-pill {
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-left: 0.45rem;
+  padding: 0.12rem 0.4rem;
+  vertical-align: middle;
+}
+
+.scope-pill.active {
+  background: #e8f6ef;
+  color: #1d6b43;
+}
+
+.scope-pill.archive {
+  background: #f1f5f9;
+  color: #586575;
 }
 
 .production-row strong,
