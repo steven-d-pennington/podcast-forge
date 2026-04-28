@@ -737,6 +737,7 @@ function clearPipelineSelections() {
   state.selectedEpisodeId = '';
   state.selectedAssetIds = [];
   state.production = { episode: null, assets: [], jobs: [] };
+  state.expandedPipelineStageIds = [];
 }
 
 function setActionRunning(action, running) {
@@ -1026,11 +1027,7 @@ function stageIsComplete(stage) {
   return stage.status === 'done';
 }
 
-function stageStatusLabel(stage, currentStageId) {
-  if (stage.id === currentStageId) {
-    return 'current';
-  }
-
+function stageStatusLabel(stage) {
   if (stage.status === 'done') {
     return 'complete';
   }
@@ -1068,6 +1065,11 @@ function currentPipelineStageId(viewModel, stages) {
 
 function pipelineStageIsExpanded(stage, currentStageId) {
   return stage.id === currentStageId || state.expandedPipelineStageIds.includes(stage.id);
+}
+
+function pruneExpandedPipelineStages(stages) {
+  const stageIds = new Set(stages.map((stage) => stage.id));
+  state.expandedPipelineStageIds = state.expandedPipelineStageIds.filter((stageId) => stageIds.has(stageId));
 }
 
 function setPipelineStageExpanded(stageId, expanded) {
@@ -1271,7 +1273,7 @@ function renderProductionCommandBar(viewModel, stages) {
 }
 
 function stageCard(stage, currentStageId = '') {
-  const statusLabel = stageStatusLabel(stage, currentStageId);
+  const statusLabel = stageStatusLabel(stage);
   const expanded = pipelineStageIsExpanded(stage, currentStageId);
   const card = document.createElement('article');
   card.className = `pipeline-card ${statusClass(statusLabel)}${expanded ? ' expanded' : ' collapsed'}${stage.id === currentStageId ? ' current' : ''}`;
@@ -1292,6 +1294,12 @@ function stageCard(stage, currentStageId = '') {
   status.className = `status-pill ${statusClass(statusLabel)}`;
   status.textContent = statusLabel;
   top.append(heading, status);
+  if (stage.id === currentStageId) {
+    const currentBadge = document.createElement('span');
+    currentBadge.className = 'status-pill current';
+    currentBadge.textContent = 'current';
+    top.append(currentBadge);
+  }
 
   const summary = document.createElement('div');
   summary.className = 'pipeline-summary';
@@ -1794,6 +1802,7 @@ function renderPipeline() {
   }
 
   const stages = buildPipelineStages();
+  pruneExpandedPipelineStages(stages);
   const currentStageId = currentPipelineStageId(viewModel, stages);
   renderProductionCommandBar(viewModel, stages);
   els.pipelineStages.innerHTML = '';

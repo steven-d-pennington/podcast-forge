@@ -99,8 +99,11 @@ test('stage tracker progressively discloses only the current stage by default', 
   assertContains(uiJs, "button.textContent = stage.actionLabel", 'existing stage action remains available when expanded');
   assertContains(uiJs, 'body.append(artifacts, next, button, actionReason)', 'expanded stage body keeps action context');
   assertContains(uiJs, 'els.pipelineStages.append(stageCard(stage, currentStageId))', 'render should pass the current stage into each card');
+  assertContains(uiJs, "currentBadge.textContent = 'current'", 'current stage should be called out separately from status');
+  assertContains(uiJs, 'function pruneExpandedPipelineStages(stages)', 'expanded stage state should be pruned during render');
+  assertContains(uiJs, 'state.expandedPipelineStageIds = []', 'changing workflow context should reset expanded stage state');
 
-  for (const status of ['not started', 'current', 'blocked', 'ready', 'complete', 'warning']) {
+  for (const status of ['not started', 'blocked', 'ready', 'complete', 'warning']) {
     assertContains(uiJs, `return '${status}'`, `stage tracker status ${status}`);
   }
 
