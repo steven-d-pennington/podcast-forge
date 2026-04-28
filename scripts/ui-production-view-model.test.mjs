@@ -89,6 +89,17 @@ const passedReviewRevision = {
   updatedAt: '2026-04-27T14:00:00.000Z',
 };
 
+const failedReviewRevision = {
+  ...missingReviewRevision,
+  metadata: {
+    integrityReview: {
+      status: 'fail',
+      reviewedAt: '2026-04-27T14:00:00.000Z',
+    },
+  },
+  updatedAt: '2026-04-27T14:00:00.000Z',
+};
+
 const approvedScript = {
   ...script,
   status: 'approved-for-audio',
@@ -207,6 +218,8 @@ test('view model covers source selected with no candidate stories', () => {
 
   assert.equal(model.selectedStorySourceSummary.name, 'Demo Story Sources');
   assert.equal(model.selectedStorySourceSummary.queryCount, 1);
+  assert.equal(model.stages.find((stage) => stage.id === 'source').artifact.queryCount, 1);
+  assert.equal(model.stages.find((stage) => stage.id === 'source').artifact.enabledQueryCount, 1);
   assert.equal(model.currentStage.id, 'discover');
   assert.equal(model.currentStage.status, 'ready');
   assert.equal(model.primaryNextAction.label, 'Run source search');
@@ -288,6 +301,7 @@ test('view model recovers downstream workflow when candidate selection is stale'
   assert.equal(model.stages.find((stage) => stage.id === 'story').status, 'done');
   assert.equal(model.currentStage.id, 'review');
   assert.equal(model.primaryNextAction.label, 'Select script revision');
+  assert.equal(model.primaryNextAction.enabled, true);
 });
 
 test('view model uses selected script provenance over stale selected brief', () => {
@@ -329,6 +343,27 @@ test('view model covers script ready with required integrity review', () => {
   assert.equal(model.primaryNextAction.label, 'Run integrity review');
   assert.equal(model.primaryNextAction.enabled, true);
   assert.ok(model.blockers.some((blocker) => blocker.message.includes('Integrity review has not been run')));
+});
+
+test('view model keeps failed integrity review retry actionable', () => {
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [readyBrief],
+    selectedResearchPacketId: 'brief-1',
+    scripts: [script],
+    selectedScriptId: 'script-1',
+    selectedScript: script,
+    selectedRevision: failedReviewRevision,
+    selectedRevisions: [failedReviewRevision],
+  }));
+
+  assert.equal(model.activeArtifacts.review.status, 'fail');
+  assert.equal(model.currentStage.id, 'review');
+  assert.equal(model.currentStage.status, 'needs-review');
+  assert.equal(model.primaryNextAction.label, 'Rerun integrity review');
+  assert.equal(model.primaryNextAction.enabled, true);
+  assert.ok(model.blockers.some((blocker) => blocker.message.includes('Integrity review failed')));
 });
 
 test('view model covers audio produced with cover still active work', () => {

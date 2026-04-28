@@ -440,6 +440,7 @@ function deriveStages(context) {
     assets,
     jobs,
     feed,
+    sourceQueries,
   } = context;
   const integrity = integrityReviewState(activeRevision);
   const scriptApproved = Boolean(activeScript && activeRevision && activeScript.status === 'approved-for-audio' && activeScript.approvedRevisionId === activeRevision.id);
@@ -469,7 +470,7 @@ function deriveStages(context) {
 
   const stages = [
     makeStage('show', show ? 'done' : 'blocked', summarizeShow(show)),
-    makeStage('source', source ? 'done' : show ? 'ready' : 'blocked', summarizeSource(source)),
+    makeStage('source', source ? 'done' : show ? 'ready' : 'blocked', summarizeSource(source, sourceQueries)),
     makeStage('discover', hasCandidatePool ? 'done' : source && profileSupportsDiscovery ? 'ready' : 'blocked', null),
     makeStage('story', hasStorySelection ? 'done' : hasCandidatePool ? 'ready' : 'blocked', summarizeCandidates(selectedCandidates)),
     makeStage('brief', activeBrief ? (briefNeedsReview ? 'needs-review' : briefBlocked ? 'blocked' : 'done') : hasStorySelection ? 'ready' : 'blocked', summarizeBrief(activeBrief)),
@@ -495,9 +496,9 @@ function deriveStages(context) {
   } else if (!activeScript) {
     primaryNextAction = action('Generate script draft', 'script', true);
   } else if (!activeRevision) {
-    primaryNextAction = action('Select script revision', 'script', false, 'Select a script revision before integrity review.');
+    primaryNextAction = action('Select script revision', 'script', true);
   } else if (integrity.blocking) {
-    primaryNextAction = action(integrity.status === 'fail' ? 'Resolve integrity review' : 'Run integrity review', 'review', integrity.status === 'missing', integrity.status === 'fail' ? 'Resolve the failed integrity review or record an explicit override reason.' : '');
+    primaryNextAction = action(integrity.status === 'fail' ? 'Rerun integrity review' : 'Run integrity review', 'review', true);
   } else if (!scriptApproved) {
     primaryNextAction = action('Approve script for audio', 'review', true);
   } else if (!audio || !cover) {
@@ -638,6 +639,7 @@ export function deriveProductionViewModel(input = {}) {
     assets: activeAssets,
     jobs,
     feed,
+    sourceQueries,
   };
   const { stages, currentStage, primaryNextAction, checklist } = deriveStages(context);
   const activeIds = {
