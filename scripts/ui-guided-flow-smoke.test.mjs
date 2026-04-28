@@ -98,7 +98,6 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(uiJs, 'Stage details', 'command bar stage details button');
   assertContains(uiJs, 'function checklistBlockers(checklist', 'checklist blocker helper');
   assertContains(uiJs, 'command-bar-blocker', 'command bar blocker summary');
-  assertContains(uiJs, 'Review Blockers', 'blocked action fallback');
 
   for (const checklistItem of [
     'Research brief approved',

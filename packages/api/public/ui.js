@@ -1079,8 +1079,8 @@ function commandBarDetailsTarget(stageId, stages) {
 }
 
 function commandBarActionTarget(action, stages) {
-  if (action.targetStage === 'brief' && /^Resolve research warnings/i.test(action.label)) {
-    return { targetId: 'reviewPanel', action: null, disabled: false };
+  if (action.targetPanelId) {
+    return { targetId: action.targetPanelId, action: null, disabled: false };
   }
 
   if (action.targetStage === 'source') {
@@ -1111,8 +1111,14 @@ function refreshProductionCommandBar() {
     return;
   }
 
+  const activeCommandControl = els.productionCommandBar.contains(document.activeElement)
+    ? document.activeElement?.dataset?.commandControl
+    : null;
   state.productionViewModel = deriveProductionViewModel(state);
   renderProductionCommandBar(state.productionViewModel, buildPipelineStages());
+  if (activeCommandControl) {
+    els.productionCommandBar.querySelector(`[data-command-control="${activeCommandControl}"]`)?.focus();
+  }
 }
 
 function renderProductionCommandBar(viewModel, stages) {
@@ -1171,6 +1177,7 @@ function renderProductionCommandBar(viewModel, stages) {
   const primary = document.createElement('button');
   primary.type = 'button';
   primary.className = 'command-bar-primary';
+  primary.dataset.commandControl = 'primary';
   primary.textContent = action.label;
   primary.setAttribute('aria-describedby', actionBlocked && blockerReason ? blockerId : resultId);
   primary.disabled = actionBlocked;
@@ -1192,6 +1199,7 @@ function renderProductionCommandBar(viewModel, stages) {
   const details = document.createElement('button');
   details.type = 'button';
   details.className = 'secondary command-bar-details';
+  details.dataset.commandControl = 'details';
   details.textContent = 'Stage details';
   details.addEventListener('click', () => scrollToPanel(detailsTarget));
   controls.append(primary, details);
@@ -1206,90 +1214,6 @@ function renderProductionCommandBar(viewModel, stages) {
       : 'Primary action is available.';
 
   els.productionCommandBar.append(context, metrics, feedback, controls, blocker);
-}
-
-function renderNextAction(stages) {
-  if (!els.nextActionPanel) {
-    return;
-  }
-
-  const stage = nextActionFromStages(stages);
-  els.nextActionPanel.innerHTML = '';
-
-  if (!stage) {
-    return;
-  }
-
-  const copy = document.createElement('div');
-  copy.className = 'next-action-copy';
-  const kicker = document.createElement('span');
-  kicker.className = 'next-action-kicker';
-  kicker.textContent = 'Next best action';
-  const title = document.createElement('h3');
-  title.textContent = stage.status === 'running' ? `Wait for ${stage.title.toLowerCase()}` : stage.actionLabel;
-  const reason = document.createElement('p');
-  reason.textContent = stage.actionReason || stage.next;
-  const meta = document.createElement('p');
-  meta.className = 'next-action-meta';
-  meta.textContent = `Stage ${stage.number}: ${stage.title} | ${stage.status}`;
-  copy.append(kicker, title, reason, meta);
-
-  if (stage.blockers?.length) {
-    const list = document.createElement('ul');
-    list.className = 'next-action-blockers';
-    for (const blocker of stage.blockers.slice(0, 5)) {
-      const item = document.createElement('li');
-      item.textContent = blocker;
-      list.append(item);
-    }
-    copy.append(list);
-  }
-
-  const actions = document.createElement('div');
-  actions.className = 'next-action-controls';
-  const button = document.createElement('button');
-  button.type = 'button';
-
-  if (stage.status === 'running') {
-    const jobTypes = stage.jobTypes || [];
-    const latestRun = latestRunForTypes(jobTypes);
-    button.className = 'secondary';
-    button.textContent = latestRun ? 'View Latest Run' : 'Open Stage Panel';
-    button.addEventListener('click', () => {
-      if (latestRun) {
-        viewLatestJob(jobTypes);
-        return;
-      }
-      scrollToPanel(stage.targetId);
-    });
-  } else if (!stage.disabled && typeof stage.action === 'function') {
-    button.className = stage.primary ? '' : 'secondary';
-    button.textContent = stage.actionLabel;
-    button.addEventListener('click', stage.action);
-  } else if (stage.disabled) {
-    button.className = 'secondary';
-    button.textContent = stage.actionLabel || 'Review Blockers';
-    button.disabled = true;
-    if (stage.targetId && panelIsAvailable(stage.targetId)) {
-      const panelButton = document.createElement('button');
-      panelButton.type = 'button';
-      panelButton.className = 'secondary';
-      panelButton.textContent = 'Open Stage Panel';
-      panelButton.addEventListener('click', () => scrollToPanel(stage.targetId));
-      actions.append(panelButton);
-    }
-  } else if (stage.targetId && panelIsAvailable(stage.targetId)) {
-    button.className = 'secondary';
-    button.textContent = 'Open Stage Panel';
-    button.addEventListener('click', () => scrollToPanel(stage.targetId));
-  } else {
-    button.className = 'secondary';
-    button.textContent = 'Review Blockers';
-    button.disabled = true;
-  }
-
-  actions.prepend(button);
-  els.nextActionPanel.append(copy, actions);
 }
 
 function stageCard(stage) {

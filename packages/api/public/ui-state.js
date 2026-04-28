@@ -90,7 +90,6 @@ export const els = {
   productionCommandBar: document.querySelector('#productionCommandBar'),
   pipelineMeta: document.querySelector('#pipelineMeta'),
   workflowContext: document.querySelector('#workflowContext'),
-  nextActionPanel: document.querySelector('#nextActionPanel'),
   pipelineStages: document.querySelector('#pipelineStages'),
   pipelineDebug: document.querySelector('#pipelineDebug'),
   profileList: document.querySelector('#profileList'),

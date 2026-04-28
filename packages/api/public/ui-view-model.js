@@ -426,10 +426,11 @@ function makeStage(id, status, artifact = null) {
   };
 }
 
-function action(label, targetStage, enabled, blockerReason = '') {
+function action(label, targetStage, enabled, blockerReason = '', targetPanelId = null) {
   return {
     label,
     targetStage,
+    ...(targetPanelId ? { targetPanelId } : {}),
     enabled: Boolean(enabled),
     blockerReason: enabled ? null : blockerReason || 'The current workflow state blocks this action.',
   };
@@ -501,7 +502,13 @@ function deriveStages(context) {
   } else if (!activeBrief) {
     primaryNextAction = action('Build research brief', 'brief', true);
   } else if (briefBlocked) {
-    primaryNextAction = action(briefNeedsReview ? 'Resolve research warnings' : 'Review blocked research brief', 'brief', true);
+    primaryNextAction = action(
+      briefNeedsReview ? 'Resolve research warnings' : 'Review blocked research brief',
+      'brief',
+      true,
+      '',
+      briefNeedsReview ? 'reviewPanel' : 'researchPanel',
+    );
   } else if (!activeScript) {
     primaryNextAction = action('Generate script draft', 'script', true);
   } else if (!activeRevision) {
