@@ -437,9 +437,10 @@ Recommended order:
 2. #76 — PF3-02 Render sticky Production Command Bar from view-model ✅ merged (#84)
 3. #77 — PF3-03 Render compact 8-stage tracker and expand only current stage ✅ merged (#85)
 4. #78 — PF3-04 Separate active production artifacts from historical/archive artifacts ✅ merged (#86)
-5. #79 — PF3-05 Redesign Story Sources selector and source search controls — PR #87 open; `npm run check` passed; local Gemini review passed; Copilot dynamic review in progress
-6. #80 — PF3-06 Move action feedback and job result summaries into workflow context
-7. #81 — PF3-07 Replace ambiguous workflow labels and improve accessibility semantics
-8. #82 — PF3-08 Add UI architecture guardrails for view-model rendering and complexity
+5. #79 — PF3-05 Redesign Story Sources selector and source search controls ✅ merged (#88)
+6. #80 — PF3-06 Move action feedback and job result summaries into workflow context — running
+7. #67 — PF3-06B Make generated audio assets accessible from local UI — promoted into this sprint before #81/#82 so active artifact Play/Open/Download affordances are fixed before final semantics/guardrails
+8. #81 — PF3-07 Replace ambiguous workflow labels and improve accessibility semantics
+9. #82 — PF3-08 Add UI architecture guardrails for view-model rendering and complexity
 
-Existing open bug #67 — Make generated audio assets accessible from local UI — remains in the backlog and should be pulled in after the cockpit/view-model state is stable, because the active artifact panel should make Play/Open/Download state obvious.
+#67 is no longer backlog for this pass; treat it as part of the PF3 sprint queue.
