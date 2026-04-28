@@ -1,4 +1,4 @@
-import { outputPathForFeed, publicAssetBaseForFeed } from './ui-formatters.js';
+import { publicAssetBaseForFeed } from './ui-formatters.js';
 
 const STAGE_DEFINITIONS = [
   { id: 'show', label: 'Choose show' },
@@ -320,8 +320,9 @@ function publishChecklist({ packet, script, revision, episode, assets, feed, job
   const scriptApproved = Boolean(script && revision && script.status === 'approved-for-audio' && script.approvedRevisionId === revision.id);
   const feedPublicUrl = feed?.publicFeedUrl || '';
   const publicBaseUrl = publicAssetBaseForFeed(feed);
+  const rssFeedPath = typeof feed?.rssFeedPath === 'string' ? feed.rssFeedPath.trim() : '';
   const feedConfigured = Boolean(feed);
-  const targetConfigured = Boolean(outputPathForFeed(feed) || feedPublicUrl);
+  const targetConfigured = Boolean(feedPublicUrl || (publicBaseUrl && rssFeedPath));
   const feedUrlsValid = (!feedPublicUrl || validHttpUrl(feedPublicUrl)) && (!publicBaseUrl || validHttpUrl(publicBaseUrl));
   const audioValid = Boolean(audio && audio.mimeType && audio.mimeType.startsWith('audio/') && (audio.byteSize === null || audio.byteSize === undefined || audio.byteSize > 0));
   const coverValid = Boolean(cover && cover.mimeType && cover.mimeType.startsWith('image/'));
@@ -647,18 +648,23 @@ export function deriveProductionViewModel(input = {}) {
     sourceQueries,
   };
   const { stages, currentStage, primaryNextAction, checklist } = deriveStages(context);
+  const activeArtifactAudioCover = summarizeAudioCover(activeAssets);
+  const activeArtifactAssetIds = new Set([
+    activeArtifactAudioCover?.audio?.id,
+    activeArtifactAudioCover?.cover?.id,
+  ].filter(Boolean));
   const activeIds = {
     briefId: activeBrief?.id || null,
     scriptId: activeScript?.id || null,
     revisionId: activeRevision?.id || null,
     episodeId: activeEpisode?.id || null,
-    assetIds: new Set(activeAssets.map((asset) => asset.id)),
+    assetIds: activeArtifactAssetIds,
   };
   const activeArtifacts = {
     brief: summarizeBrief(activeBrief),
     script: summarizeScript(activeScript, activeRevision),
     review: summarizeReview(activeRevision),
-    audioCover: summarizeAudioCover(activeAssets),
+    audioCover: activeArtifactAudioCover,
     publishing: summarizeEpisode(activeEpisode),
   };
   const latestArtifacts = {

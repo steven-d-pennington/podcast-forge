@@ -494,6 +494,36 @@ test('view model does not treat private local feed paths as publish targets', ()
   assert.ok(model.blockers.some((blocker) => blocker.stage === 'publishing' && blocker.message.includes('RSS/public target configured')));
 });
 
+test('view model accepts raw rss path with a public asset base as publish target without exposing the path', () => {
+  const localPathFeed = {
+    ...feed,
+    rssFeedPath: '/private/demo.xml',
+    publicFeedUrl: '',
+    publicBaseUrl: 'https://podcasts.example.com/assets/',
+  };
+  const model = deriveProductionViewModel(baseInput({
+    feeds: [localPathFeed],
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [readyBrief],
+    selectedResearchPacketId: 'brief-1',
+    scripts: [approvedScript],
+    selectedScriptId: 'script-1',
+    selectedScript: approvedScript,
+    selectedRevision: passedReviewRevision,
+    selectedRevisions: [passedReviewRevision],
+    production: { episode, assets: [audioAsset, coverAsset], jobs: [] },
+    episodes: [episode],
+    selectedEpisodeId: 'episode-1',
+    selectedAssetIds: ['asset-audio-1', 'asset-cover-1'],
+  }));
+
+  assert.equal(model.currentStage.id, 'publishing');
+  assert.equal(model.primaryNextAction.label, 'Approve for publishing');
+  assert.equal(model.primaryNextAction.enabled, true);
+  assert.equal(model.blockers.some((blocker) => blocker.message.includes('RSS/public target configured')), false);
+});
+
 test('view model deduplicates overlapping recent and production jobs', () => {
   const recentJob = {
     id: 'job-1',
@@ -589,7 +619,7 @@ test('view model separates active artifacts from historical artifacts', () => {
     publishedAt: '2026-04-26T13:05:00.000Z',
   };
 
-  const model = deriveProductionViewModel(baseInput({
+  const input = baseInput({
     storyCandidates: [candidate],
     selectedCandidateIds: ['candidate-1'],
     researchPackets: [olderBrief, readyBrief],
@@ -602,16 +632,22 @@ test('view model separates active artifacts from historical artifacts', () => {
     production: { episode, assets: [olderAudio, audioAsset, coverAsset], jobs: [] },
     episodes: [olderEpisode, episode],
     selectedEpisodeId: 'episode-1',
+  });
+  const selectedModel = deriveProductionViewModel({
+    ...input,
     selectedAssetIds: ['asset-audio-1', 'asset-cover-1'],
-  }));
+  });
+  const defaultModel = deriveProductionViewModel(input);
 
-  assert.equal(model.activeArtifacts.brief.id, 'brief-1');
-  assert.equal(model.activeArtifacts.script.id, 'script-1');
-  assert.equal(model.activeArtifacts.audioCover.audio.id, 'asset-audio-1');
-  assert.deepEqual(model.historicalArtifacts.briefs.map((item) => item.id), ['brief-old']);
-  assert.deepEqual(model.historicalArtifacts.scripts.map((item) => item.id), ['script-old']);
-  assert.deepEqual(model.historicalArtifacts.reviews.map((item) => item.id), ['revision-old']);
-  assert.deepEqual(model.historicalArtifacts.audioCover.map((item) => item.id), ['asset-audio-old']);
-  assert.deepEqual(model.historicalArtifacts.publishing.map((item) => item.id), ['episode-old']);
-  assert.equal(model.visibility.groups.history, true);
+  for (const model of [selectedModel, defaultModel]) {
+    assert.equal(model.activeArtifacts.brief.id, 'brief-1');
+    assert.equal(model.activeArtifacts.script.id, 'script-1');
+    assert.equal(model.activeArtifacts.audioCover.audio.id, 'asset-audio-1');
+    assert.deepEqual(model.historicalArtifacts.briefs.map((item) => item.id), ['brief-old']);
+    assert.deepEqual(model.historicalArtifacts.scripts.map((item) => item.id), ['script-old']);
+    assert.deepEqual(model.historicalArtifacts.reviews.map((item) => item.id), ['revision-old']);
+    assert.deepEqual(model.historicalArtifacts.audioCover.map((item) => item.id), ['asset-audio-old']);
+    assert.deepEqual(model.historicalArtifacts.publishing.map((item) => item.id), ['episode-old']);
+    assert.equal(model.visibility.groups.history, true);
+  }
 });
