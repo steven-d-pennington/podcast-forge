@@ -155,7 +155,7 @@ function resolveZaiApiKey(options: SearchRoutesOptions): string | undefined {
     ?? process.env.ZHIPUAI_API_KEY;
 }
 
-function apiKeyForSourceSearch(profileType: string, options: SearchRoutesOptions): string {
+function searchCredentialForSource(profileType: string, options: SearchRoutesOptions): string {
   if (profileType === 'brave') {
     const apiKey = options.braveApiKey ?? process.env.BRAVE_API_KEY;
 
@@ -222,7 +222,7 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
         throw new ApiError(400, 'SOURCE_PROFILE_DISABLED', `Source profile is disabled: ${profile.slug}`);
       }
 
-      const credential = apiKeyForSourceSearch(profile.type, options);
+      const credential = searchCredentialForSource(profile.type, options);
 
       const queries = await store.listSourceQueries(profile.id, { enabledOnly: true });
 
