@@ -272,6 +272,24 @@ test('view model covers research brief ready with no script', () => {
   assert.equal(model.primaryNextAction.enabled, true);
 });
 
+test('view model recovers downstream workflow when candidate selection is stale', () => {
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [],
+    selectedCandidateIds: [],
+    researchPackets: [readyBrief],
+    selectedResearchPacketId: 'brief-1',
+    scripts: [script],
+    selectedScriptId: 'script-1',
+    selectedScript: script,
+    selectedRevision: null,
+  }));
+
+  assert.equal(model.stages.find((stage) => stage.id === 'discover').status, 'done');
+  assert.equal(model.stages.find((stage) => stage.id === 'story').status, 'done');
+  assert.equal(model.currentStage.id, 'review');
+  assert.equal(model.primaryNextAction.label, 'Select script revision');
+});
+
 test('view model covers script ready with required integrity review', () => {
   const model = deriveProductionViewModel(baseInput({
     storyCandidates: [candidate],

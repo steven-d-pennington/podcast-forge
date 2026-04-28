@@ -447,6 +447,9 @@ function deriveStages(context) {
   const scriptApproved = Boolean(activeScript && activeRevision && activeScript.status === 'approved-for-audio' && activeScript.approvedRevisionId === activeRevision.id);
   const readyForProduction = Boolean(scriptApproved && !integrity.blocking);
   const selectedCandidateCount = selectedCandidates.length;
+  const hasDownstreamArtifact = Boolean(activeBrief || activeScript || activeRevision || activeEpisode || assets.length > 0);
+  const hasCandidatePool = candidates.length > 0 || hasDownstreamArtifact;
+  const hasStorySelection = selectedCandidateCount > 0 || hasDownstreamArtifact;
   const unresolvedBriefWarnings = unresolvedResearchWarnings(activeBrief);
   const briefNeedsReview = Boolean(activeBrief && unresolvedBriefWarnings.length > 0);
   const audio = latest(assets.filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'));
@@ -468,9 +471,9 @@ function deriveStages(context) {
   const stages = [
     makeStage('show', show ? 'done' : 'blocked', summarizeShow(show)),
     makeStage('source', source ? 'done' : show ? 'ready' : 'blocked', summarizeSource(source)),
-    makeStage('discover', candidates.length > 0 ? 'done' : source && profileSupportsDiscovery ? 'ready' : 'blocked', null),
-    makeStage('story', selectedCandidateCount > 0 ? 'done' : candidates.length > 0 ? 'ready' : 'blocked', summarizeCandidates(selectedCandidates)),
-    makeStage('brief', activeBrief ? (briefNeedsReview ? 'needs-review' : briefBlocked ? 'blocked' : 'done') : selectedCandidateCount > 0 ? 'ready' : 'blocked', summarizeBrief(activeBrief)),
+    makeStage('discover', hasCandidatePool ? 'done' : source && profileSupportsDiscovery ? 'ready' : 'blocked', null),
+    makeStage('story', hasStorySelection ? 'done' : hasCandidatePool ? 'ready' : 'blocked', summarizeCandidates(selectedCandidates)),
+    makeStage('brief', activeBrief ? (briefNeedsReview ? 'needs-review' : briefBlocked ? 'blocked' : 'done') : hasStorySelection ? 'ready' : 'blocked', summarizeBrief(activeBrief)),
     makeStage('script', activeScript ? 'done' : activeBrief && !briefBlocked ? 'ready' : 'blocked', summarizeScript(activeScript, activeRevision)),
     makeStage('review', readyForProduction ? 'done' : activeScript && activeRevision ? 'needs-review' : 'blocked', summarizeReview(activeRevision)),
     makeStage('production', audio && cover ? 'done' : readyForProduction ? 'ready' : 'blocked', summarizeAudioCover(assets)),
@@ -482,9 +485,9 @@ function deriveStages(context) {
     primaryNextAction = action('Select or create show', 'show', true);
   } else if (!source) {
     primaryNextAction = action('Choose story source', 'source', true);
-  } else if (candidates.length === 0) {
+  } else if (!hasCandidatePool) {
     primaryNextAction = action(source.type === 'manual' ? 'Add manual story' : source.type === 'rss' ? 'Import RSS items' : 'Run source search', 'discover', profileSupportsDiscovery, 'Choose a browser-supported story source before discovery.');
-  } else if (selectedCandidateCount === 0) {
+  } else if (!hasStorySelection) {
     primaryNextAction = action('Pick or cluster story', 'story', true);
   } else if (!activeBrief) {
     primaryNextAction = action('Build research brief', 'brief', true);
