@@ -409,6 +409,7 @@ function deriveStages(context) {
     show,
     source,
     candidates,
+    selectedCandidates,
     activeBrief,
     activeScript,
     activeRevision,
@@ -420,6 +421,7 @@ function deriveStages(context) {
   const integrity = integrityReviewState(activeRevision);
   const scriptApproved = Boolean(activeScript && activeRevision && activeScript.status === 'approved-for-audio' && activeScript.approvedRevisionId === activeRevision.id);
   const readyForProduction = Boolean(scriptApproved && !integrity.blocking);
+  const selectedCandidateCount = selectedCandidates.length;
   const audio = newest(assets.filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'))[0] || null;
   const cover = newest(assets.filter((asset) => asset.type === 'cover-art'))[0] || null;
   const checklist = publishChecklist({
@@ -432,19 +434,20 @@ function deriveStages(context) {
     jobs,
   });
   const publishBlocker = checklist.find((item) => !item.passed);
+  const publishPrerequisiteBlocker = checklist.find((item) => !item.passed && item.key !== 'publishApproval');
   const profileSupportsDiscovery = source && ['brave', 'zai-web', 'rss', 'manual'].includes(source.type);
   const briefBlocked = activeBrief?.status === 'blocked';
 
   const stages = [
     makeStage('show', show ? 'done' : 'blocked', summarizeShow(show)),
-    makeStage('source', source ? 'done' : show ? 'blocked' : 'blocked', summarizeSource(source)),
+    makeStage('source', source ? 'done' : show ? 'ready' : 'blocked', summarizeSource(source)),
     makeStage('discover', candidates.length > 0 ? 'done' : source && profileSupportsDiscovery ? 'ready' : 'blocked', null),
-    makeStage('story', candidates.length > 0 ? 'done' : 'blocked', summarizeCandidates(candidates)),
-    makeStage('brief', activeBrief ? (briefBlocked ? 'blocked' : 'done') : candidates.length > 0 ? 'ready' : 'blocked', summarizeBrief(activeBrief)),
+    makeStage('story', selectedCandidateCount > 0 ? 'done' : candidates.length > 0 ? 'ready' : 'blocked', summarizeCandidates(selectedCandidates)),
+    makeStage('brief', activeBrief ? (briefBlocked ? 'blocked' : 'done') : selectedCandidateCount > 0 ? 'ready' : 'blocked', summarizeBrief(activeBrief)),
     makeStage('script', activeScript ? 'done' : activeBrief && !briefBlocked ? 'ready' : 'blocked', summarizeScript(activeScript, activeRevision)),
     makeStage('review', readyForProduction ? 'done' : activeScript && activeRevision ? 'needs-review' : 'blocked', summarizeReview(activeRevision)),
     makeStage('production', audio && cover ? 'done' : readyForProduction ? 'ready' : 'blocked', summarizeAudioCover(assets)),
-    makeStage('publishing', activeEpisode?.status === 'published' ? 'done' : audio && cover ? (publishBlocker ? 'blocked' : 'ready') : 'blocked', summarizeEpisode(activeEpisode)),
+    makeStage('publishing', activeEpisode?.status === 'published' ? 'done' : audio && cover ? (publishPrerequisiteBlocker ? 'blocked' : 'ready') : 'blocked', summarizeEpisode(activeEpisode)),
   ];
 
   let primaryNextAction;
@@ -454,6 +457,8 @@ function deriveStages(context) {
     primaryNextAction = action('Choose story source', 'source', true);
   } else if (candidates.length === 0) {
     primaryNextAction = action(source.type === 'manual' ? 'Add manual story' : source.type === 'rss' ? 'Import RSS items' : 'Run source search', 'discover', profileSupportsDiscovery, 'Choose a browser-supported story source before discovery.');
+  } else if (selectedCandidateCount === 0) {
+    primaryNextAction = action('Pick or cluster story', 'story', true);
   } else if (!activeBrief) {
     primaryNextAction = action('Build research brief', 'brief', true);
   } else if (briefBlocked) {
@@ -595,7 +600,8 @@ export function deriveProductionViewModel(input = {}) {
   const context = {
     show: selectedShow,
     source: selectedSource,
-    candidates: selectedCandidates,
+    candidates,
+    selectedCandidates,
     activeBrief,
     activeScript,
     activeRevision,

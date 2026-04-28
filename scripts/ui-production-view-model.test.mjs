@@ -182,6 +182,20 @@ test('view model covers no show selected', () => {
   assert.equal(model.historicalArtifacts.briefs.length, 0);
 });
 
+test('view model marks source choice ready after show selection', () => {
+  const model = deriveProductionViewModel(baseInput({
+    selectedProfileId: '',
+    profiles: [],
+    queries: [],
+  }));
+
+  assert.equal(model.selectedShowSummary.slug, 'demo-show');
+  assert.equal(model.currentStage.id, 'source');
+  assert.equal(model.currentStage.status, 'ready');
+  assert.equal(model.primaryNextAction.label, 'Choose story source');
+  assert.equal(model.primaryNextAction.enabled, true);
+});
+
 test('view model covers source selected with no candidate stories', () => {
   const model = deriveProductionViewModel(baseInput());
 
@@ -190,6 +204,19 @@ test('view model covers source selected with no candidate stories', () => {
   assert.equal(model.currentStage.id, 'discover');
   assert.equal(model.currentStage.status, 'ready');
   assert.equal(model.primaryNextAction.label, 'Run source search');
+  assert.equal(model.primaryNextAction.enabled, true);
+});
+
+test('view model covers candidates loaded but no story selected', () => {
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate],
+    selectedCandidateIds: [],
+  }));
+
+  assert.equal(model.selectedCandidateStorySummary.count, 0);
+  assert.equal(model.currentStage.id, 'story');
+  assert.equal(model.currentStage.status, 'ready');
+  assert.equal(model.primaryNextAction.label, 'Pick or cluster story');
   assert.equal(model.primaryNextAction.enabled, true);
 });
 
@@ -268,6 +295,29 @@ test('view model covers audio produced with cover still active work', () => {
   assert.equal(model.currentStage.id, 'production');
   assert.equal(model.currentStage.status, 'ready');
   assert.equal(model.primaryNextAction.label, 'Create missing cover art');
+  assert.equal(model.primaryNextAction.enabled, true);
+});
+
+test('view model treats publish approval as actionable when prerequisites are ready', () => {
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [readyBrief],
+    selectedResearchPacketId: 'brief-1',
+    scripts: [approvedScript],
+    selectedScriptId: 'script-1',
+    selectedScript: approvedScript,
+    selectedRevision: passedReviewRevision,
+    selectedRevisions: [passedReviewRevision],
+    production: { episode, assets: [audioAsset, coverAsset], jobs: [] },
+    episodes: [episode],
+    selectedEpisodeId: 'episode-1',
+    selectedAssetIds: ['asset-audio-1', 'asset-cover-1'],
+  }));
+
+  assert.equal(model.currentStage.id, 'publishing');
+  assert.equal(model.currentStage.status, 'ready');
+  assert.equal(model.primaryNextAction.label, 'Approve for publishing');
   assert.equal(model.primaryNextAction.enabled, true);
 });
 
