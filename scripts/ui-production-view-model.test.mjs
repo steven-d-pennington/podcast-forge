@@ -264,8 +264,8 @@ test('view model blocks drafting while research warnings are unresolved', () => 
   assert.equal(model.currentStage.id, 'brief');
   assert.equal(model.currentStage.status, 'needs-review');
   assert.equal(model.primaryNextAction.label, 'Resolve research warnings');
-  assert.equal(model.primaryNextAction.enabled, false);
-  assert.match(model.primaryNextAction.blockerReason, /research warning/);
+  assert.equal(model.primaryNextAction.enabled, true);
+  assert.equal(model.primaryNextAction.blockerReason, null);
   assert.ok(model.warnings.some((warning) => warning.stage === 'brief'));
 });
 
@@ -320,7 +320,7 @@ test('view model uses selected script provenance over stale selected brief', () 
 
   assert.equal(model.activeArtifacts.brief.id, 'brief-warning');
   assert.equal(model.primaryNextAction.label, 'Resolve research warnings');
-  assert.equal(model.primaryNextAction.enabled, false);
+  assert.equal(model.primaryNextAction.enabled, true);
 });
 
 test('view model covers script ready with required integrity review', () => {
@@ -461,7 +461,37 @@ test('view model covers publish blocked with concrete blocker reason', () => {
   assert.equal(model.primaryNextAction.label, 'Approve for publishing');
   assert.equal(model.primaryNextAction.enabled, false);
   assert.match(model.primaryNextAction.blockerReason, /Feed metadata configured/);
-  assert.ok(model.blockers.some((blocker) => blocker.stage === 'feed'));
+  assert.ok(model.blockers.some((blocker) => blocker.stage === 'publishing'));
+});
+
+test('view model does not treat private local feed paths as publish targets', () => {
+  const localPathFeed = {
+    ...feed,
+    rssFeedPath: '/private/demo.xml',
+    publicFeedUrl: '',
+    publicBaseUrl: '',
+  };
+  const model = deriveProductionViewModel(baseInput({
+    feeds: [localPathFeed],
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [readyBrief],
+    selectedResearchPacketId: 'brief-1',
+    scripts: [approvedScript],
+    selectedScriptId: 'script-1',
+    selectedScript: approvedScript,
+    selectedRevision: passedReviewRevision,
+    selectedRevisions: [passedReviewRevision],
+    production: { episode, assets: [audioAsset, coverAsset], jobs: [] },
+    episodes: [episode],
+    selectedEpisodeId: 'episode-1',
+    selectedAssetIds: ['asset-audio-1', 'asset-cover-1'],
+  }));
+
+  assert.equal(model.currentStage.id, 'publishing');
+  assert.equal(model.currentStage.status, 'blocked');
+  assert.match(model.primaryNextAction.blockerReason, /RSS\/public target configured/);
+  assert.ok(model.blockers.some((blocker) => blocker.stage === 'publishing' && blocker.message.includes('RSS/public target configured')));
 });
 
 test('view model deduplicates overlapping recent and production jobs', () => {

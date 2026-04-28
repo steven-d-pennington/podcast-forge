@@ -309,6 +309,20 @@ function validHttpUrl(value) {
   }
 }
 
+function safeVisiblePath(value) {
+  const text = String(value || '').trim();
+
+  if (!text) {
+    return '';
+  }
+
+  if (text.startsWith('/') || text.startsWith('~') || /^[A-Za-z]:[\\/]/.test(text)) {
+    return '';
+  }
+
+  return text;
+}
+
 function publicAssetBaseForFeed(feed) {
   const metadata = asObject(feed?.metadata);
   return typeof metadata.publicAssetBaseUrl === 'string' ? metadata.publicAssetBaseUrl : feed?.publicBaseUrl || '';
@@ -317,7 +331,7 @@ function publicAssetBaseForFeed(feed) {
 function outputPathForFeed(feed) {
   const metadata = asObject(feed?.metadata);
   const storageConfig = asObject(feed?.storageConfig);
-  return metadata.outputPath || storageConfig.outputPath || feed?.rssFeedPath || '';
+  return safeVisiblePath(metadata.outputPath || storageConfig.outputPath || feed?.rssFeedPath || '');
 }
 
 function publishChecklist({ packet, script, revision, episode, assets, feed, jobs }) {
@@ -330,7 +344,7 @@ function publishChecklist({ packet, script, revision, episode, assets, feed, job
   const feedPublicUrl = feed?.publicFeedUrl || '';
   const publicBaseUrl = publicAssetBaseForFeed(feed);
   const feedConfigured = Boolean(feed);
-  const targetConfigured = Boolean(feed?.rssFeedPath || outputPathForFeed(feed) || feedPublicUrl);
+  const targetConfigured = Boolean(outputPathForFeed(feed) || feedPublicUrl);
   const feedUrlsValid = (!feedPublicUrl || validHttpUrl(feedPublicUrl)) && (!publicBaseUrl || validHttpUrl(publicBaseUrl));
   const audioValid = Boolean(audio && audio.mimeType && audio.mimeType.startsWith('audio/') && (audio.byteSize === null || audio.byteSize === undefined || audio.byteSize > 0));
   const coverValid = Boolean(cover && cover.mimeType && cover.mimeType.startsWith('image/'));
@@ -492,7 +506,7 @@ function deriveStages(context) {
   } else if (!activeBrief) {
     primaryNextAction = action('Build research brief', 'brief', true);
   } else if (briefBlocked) {
-    primaryNextAction = action('Resolve research warnings', 'brief', false, briefNeedsReview ? `${unresolvedBriefWarnings.length} research warning${unresolvedBriefWarnings.length === 1 ? '' : 's'} need override reasons before drafting.` : 'Resolve or override research warnings before drafting.');
+    primaryNextAction = action('Resolve research warnings', 'brief', true);
   } else if (!activeScript) {
     primaryNextAction = action('Generate script draft', 'script', true);
   } else if (!activeRevision) {
@@ -551,6 +565,20 @@ function warningItem(stage, message, source = null, severity = 'warning') {
   return compactObject({ stage, severity, message, source });
 }
 
+function checklistStage(key) {
+  return {
+    research: 'brief',
+    script: 'script',
+    integrity: 'review',
+    audio: 'production',
+    cover: 'production',
+    feed: 'publishing',
+    target: 'publishing',
+    warnings: 'publishing',
+    publishApproval: 'publishing',
+  }[key] || 'publishing';
+}
+
 function deriveWarningsAndBlockers({ activeBrief, activeRevision, activeEpisode, assets, jobs, checklist, selectedCandidates }) {
   const warnings = [];
   const blockers = [];
@@ -579,7 +607,7 @@ function deriveWarningsAndBlockers({ activeBrief, activeRevision, activeEpisode,
 
   if (activeEpisode || assets.length > 0) {
     for (const item of checklist.filter((entry) => !entry.passed)) {
-      const target = item.key === 'publishApproval' ? 'publishing' : item.key;
+      const target = checklistStage(item.key);
       blockers.push(warningItem(target, `${item.label}: ${item.reason}`, item, 'error'));
     }
   }
