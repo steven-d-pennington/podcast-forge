@@ -1036,14 +1036,6 @@ function firstBlockerText(items, fallback) {
   return items.find(Boolean) || fallback;
 }
 
-function nextActionFromStages(stages) {
-  const running = stages.find((stage) => stage.status === 'running');
-  const runnable = stages.find((stage) => !stageIsComplete(stage) && !stage.disabled && typeof stage.action === 'function');
-  const blocked = stages.find((stage) => !stageIsComplete(stage) && (stage.disabled || ['blocked', 'needs review'].includes(stage.status)));
-
-  return running || runnable || blocked || stages[stages.length - 1];
-}
-
 const commandBarStageTargets = {
   show: 'showSetupForm',
   source: 'settingsPanel',
@@ -1137,7 +1129,6 @@ function renderProductionCommandBar(viewModel, stages) {
 
   const action = viewModel.primaryNextAction;
   const actionTarget = commandBarActionTarget(action, stages);
-  const currentStage = commandBarLegacyStage(viewModel.currentStage.id, stages);
   const actionTargetBlocked = Boolean(actionTarget.disabled);
   const actionBlocked = !action.enabled || actionTargetBlocked;
   const blockerReason = action.blockerReason
@@ -1194,11 +1185,6 @@ function renderProductionCommandBar(viewModel, stages) {
   primary.disabled = actionBlocked;
   primary.title = actionBlocked && blockerReason ? blockerReason : '';
   primary.addEventListener('click', () => {
-    if (actionBlocked) {
-      setStatus(`Action blocked: ${blockerReason || 'the current workflow state blocks this action.'}`, '', 'warning');
-      return;
-    }
-
     if (!actionTarget.disabled && typeof actionTarget.action === 'function') {
       actionTarget.action();
       return;
