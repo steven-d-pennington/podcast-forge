@@ -220,7 +220,8 @@ function summarizeAsset(asset) {
 
   return compactObject({
     id: asset.id,
-    stage: asset.type === 'cover-art' ? 'cover' : 'audio',
+    stage: 'production',
+    productionKind: asset.type === 'cover-art' ? 'cover' : 'audio',
     type: asset.type,
     status: asset.status || 'ready',
     url: asset.publicUrl || asset.url || asset.metadata?.publicUrl || null,
@@ -290,9 +291,10 @@ function unresolvedResearchWarnings(packet) {
 }
 
 function productionWarnings(episode, assets, jobs) {
+  const audioCoverAssets = asArray(assets).filter(isAudioCoverAsset);
   return [
     ...asArray(episode?.warnings),
-    ...asArray(assets).flatMap((asset) => [
+    ...audioCoverAssets.flatMap((asset) => [
       ...asArray(asset?.metadata?.warnings),
       ...asArray(asset?.metadata?.validation?.warnings),
     ]),

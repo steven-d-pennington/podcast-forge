@@ -677,6 +677,7 @@ test('view model separates active artifacts from historical artifacts', () => {
     ...audioAsset,
     id: 'asset-script-old',
     type: 'script',
+    metadata: { warnings: [{ code: 'legacy-script-warning', message: 'Ignore non-production warning.' }] },
     createdAt: '2026-04-26T12:30:00.000Z',
     updatedAt: '2026-04-26T12:30:00.000Z',
   };
@@ -719,6 +720,9 @@ test('view model separates active artifacts from historical artifacts', () => {
     assert.deepEqual(model.historicalArtifacts.scripts.map((item) => item.id), ['script-old']);
     assert.deepEqual(model.historicalArtifacts.reviews.map((item) => item.id), ['revision-old']);
     assert.deepEqual(model.historicalArtifacts.audioCover.map((item) => item.id), ['asset-audio-old']);
+    assert.equal(model.historicalArtifacts.audioCover[0].stage, 'production');
+    assert.equal(model.historicalArtifacts.audioCover[0].productionKind, 'audio');
+    assert.ok(!model.warnings.some((warning) => warning.message.includes('non-production')));
     assert.deepEqual(model.historicalArtifacts.publishing.map((item) => item.id), ['episode-old']);
     assert.equal(model.visibility.groups.history, true);
   }
