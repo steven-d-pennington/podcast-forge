@@ -111,13 +111,6 @@ export function outputPathForFeed(feed) {
   return typeof value === 'string' ? safeVisiblePath(value) : '';
 }
 
-function rawOutputPathForFeed(feed) {
-  const metadata = asObject(feed?.metadata);
-  const storageConfig = asObject(feed?.storageConfig);
-  const value = feed?.rssFeedPath || metadata.outputPath || storageConfig.outputPath || '';
-  return typeof value === 'string' ? value.trim() : '';
-}
-
 export function publicAssetBaseForFeed(feed) {
   const metadata = asObject(feed?.metadata);
   return typeof metadata.publicAssetBaseUrl === 'string' ? metadata.publicAssetBaseUrl : feed?.publicBaseUrl || '';
@@ -139,7 +132,8 @@ export function validHttpUrl(value) {
 export function publishTargetConfiguredForFeed(feed) {
   const publicFeedUrl = typeof feed?.publicFeedUrl === 'string' ? feed.publicFeedUrl.trim() : '';
   const publicBaseUrl = publicAssetBaseForFeed(feed);
-  return Boolean(publicFeedUrl || (publicBaseUrl && rawOutputPathForFeed(feed)));
+  const rssFeedPath = typeof feed?.rssFeedPath === 'string' ? feed.rssFeedPath.trim() : '';
+  return Boolean(publicFeedUrl || (publicBaseUrl && rssFeedPath));
 }
 
 export function safeVisiblePath(value) {

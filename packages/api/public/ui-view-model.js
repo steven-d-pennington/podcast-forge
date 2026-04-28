@@ -397,7 +397,7 @@ function publishChecklist({ packet, script, revision, episode, assets, feed, job
       key: 'target',
       label: 'RSS/public target configured',
       passed: feedConfigured && targetConfigured,
-      reason: targetConfigured ? 'RSS path or public feed URL is configured.' : 'Configure an RSS path, output path, or public feed URL.',
+      reason: targetConfigured ? 'Public feed URL or RSS path with public base URL is configured.' : 'Configure a public feed URL, or both an RSS path and public base URL.',
     },
     {
       key: 'warnings',

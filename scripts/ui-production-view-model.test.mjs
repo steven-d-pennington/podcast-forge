@@ -602,7 +602,7 @@ test('view model accepts raw rss path with a public asset base as publish target
   assert.equal(model.blockers.some((blocker) => blocker.message.includes('RSS/public target configured')), false);
 });
 
-test('view model accepts metadata output path with a public asset base as publish target', () => {
+test('view model blocks metadata output path without rss feed path as publish target', () => {
   const metadataOutputFeed = {
     ...feed,
     rssFeedPath: '',
@@ -629,8 +629,10 @@ test('view model accepts metadata output path with a public asset base as publis
   }));
 
   assert.equal(model.currentStage.id, 'publishing');
-  assert.equal(model.primaryNextAction.enabled, true);
-  assert.equal(model.blockers.some((blocker) => blocker.message.includes('RSS/public target configured')), false);
+  assert.equal(model.currentStage.status, 'blocked');
+  assert.equal(model.primaryNextAction.enabled, false);
+  assert.match(model.primaryNextAction.blockerReason, /RSS\/public target configured/);
+  assert.equal(model.blockers.some((blocker) => blocker.message.includes('RSS/public target configured')), true);
 });
 
 test('view model falls back only to an unambiguous selected-show feed', () => {
