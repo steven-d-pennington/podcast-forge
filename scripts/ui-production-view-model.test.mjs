@@ -58,6 +58,17 @@ const warningBrief = {
   warnings: [{ code: 'LOW_CORROBORATION', message: 'Needs another independent source.' }],
 };
 
+const notReadyBrief = {
+  ...readyBrief,
+  id: 'brief-not-ready',
+  status: 'ready',
+  content: {
+    readiness: {
+      status: 'needs_more_sources',
+    },
+  },
+};
+
 const script = {
   id: 'script-1',
   researchPacketId: 'brief-1',
@@ -267,6 +278,22 @@ test('view model blocks drafting while research warnings are unresolved', () => 
   assert.equal(model.primaryNextAction.enabled, true);
   assert.equal(model.primaryNextAction.blockerReason, null);
   assert.ok(model.warnings.some((warning) => warning.stage === 'brief'));
+});
+
+test('view model blocks drafting when readiness metadata is not ready', () => {
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [notReadyBrief],
+    selectedResearchPacketId: 'brief-not-ready',
+  }));
+
+  assert.equal(model.activeArtifacts.brief.status, 'needs_more_sources');
+  assert.equal(model.currentStage.id, 'brief');
+  assert.equal(model.currentStage.status, 'blocked');
+  assert.equal(model.stages.find((stage) => stage.id === 'script').status, 'blocked');
+  assert.equal(model.primaryNextAction.label, 'Review blocked research brief');
+  assert.ok(model.blockers.some((blocker) => blocker.message.includes('needs_more_sources')));
 });
 
 test('view model covers research brief ready with no script', () => {

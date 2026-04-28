@@ -129,6 +129,18 @@ function summarizeCandidates(candidates) {
   };
 }
 
+function researchStatus(packet) {
+  if (!packet) {
+    return 'unknown';
+  }
+
+  return asObject(packet.content?.readiness).status || packet.status || 'unknown';
+}
+
+function researchReady(packet) {
+  return ['ready', 'approved', 'research-ready'].includes(researchStatus(packet));
+}
+
 function summarizeBrief(packet) {
   if (!packet) {
     return null;
@@ -140,7 +152,7 @@ function summarizeBrief(packet) {
     stage: 'brief',
     type: 'research-brief',
     title: packet.title || 'Untitled research brief',
-    status: packet.status || asObject(packet.content?.readiness).status || 'unknown',
+    status: researchStatus(packet),
     approved: Boolean(packet.approvedAt),
     warningCount: warnings.length,
     unresolvedWarningCount: warnings.filter((warning) => !warning.override).length,
@@ -342,7 +354,7 @@ function publishChecklist({ packet, script, revision, episode, assets, feed, job
   const feedUrlsValid = (!feedPublicUrl || validHttpUrl(feedPublicUrl)) && (!publicBaseUrl || validHttpUrl(publicBaseUrl));
   const audioValid = Boolean(audio && audio.mimeType && audio.mimeType.startsWith('audio/') && (audio.byteSize === null || audio.byteSize === undefined || audio.byteSize > 0));
   const coverValid = Boolean(cover && cover.mimeType && cover.mimeType.startsWith('image/'));
-  const packetReady = Boolean(packet && ['ready', 'approved', 'research-ready'].includes(packet.status || asObject(packet.content?.readiness).status));
+  const packetReady = researchReady(packet);
 
   return [
     {
@@ -352,7 +364,7 @@ function publishChecklist({ packet, script, revision, episode, assets, feed, job
       reason: !packet
         ? 'Select a research brief.'
         : !packetReady
-          ? `Research status is ${packet.status || 'unknown'}.`
+          ? `Research status is ${researchStatus(packet)}.`
           : researchWarnings.length > 0
             ? `${researchWarnings.length} research warning${researchWarnings.length === 1 ? '' : 's'} need override reasons.`
             : !packet.approvedAt ? 'Approve the research brief after review.' : 'Research review decision recorded.',
@@ -459,6 +471,7 @@ function deriveStages(context) {
   const hasStorySelection = selectedCandidateCount > 0 || hasDownstreamArtifact;
   const unresolvedBriefWarnings = unresolvedResearchWarnings(activeBrief);
   const briefNeedsReview = Boolean(activeBrief && unresolvedBriefWarnings.length > 0);
+  const briefReady = researchReady(activeBrief);
   const audio = latest(assets.filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'));
   const cover = latest(assets.filter((asset) => asset.type === 'cover-art'));
   const checklist = publishChecklist({
@@ -474,14 +487,14 @@ function deriveStages(context) {
   const publishPrerequisiteBlocker = checklist.find((item) => !item.passed && item.key !== 'publishApproval');
   const publishApprovalReady = activeEpisode?.status === 'audio-ready';
   const profileSupportsDiscovery = source && ['brave', 'zai-web', 'rss', 'manual'].includes(source.type);
-  const briefBlocked = activeBrief?.status === 'blocked' || briefNeedsReview;
+  const briefBlocked = Boolean(activeBrief && (!briefReady || briefNeedsReview));
 
   const stages = [
     makeStage('show', show ? 'done' : 'blocked', summarizeShow(show)),
     makeStage('source', source ? 'done' : show ? 'ready' : 'blocked', summarizeSource(source, sourceQueries)),
     makeStage('discover', hasCandidatePool ? 'done' : source && profileSupportsDiscovery ? 'ready' : 'blocked', null),
     makeStage('story', hasStorySelection ? 'done' : hasCandidatePool ? 'ready' : 'blocked', summarizeCandidates(selectedCandidates)),
-    makeStage('brief', activeBrief ? (briefNeedsReview ? 'needs-review' : briefBlocked ? 'blocked' : 'done') : hasStorySelection ? 'ready' : 'blocked', summarizeBrief(activeBrief)),
+    makeStage('brief', activeBrief ? (briefNeedsReview ? 'needs-review' : briefReady ? 'done' : 'blocked') : hasStorySelection ? 'ready' : 'blocked', summarizeBrief(activeBrief)),
     makeStage('script', activeScript ? 'done' : activeBrief && !briefBlocked ? 'ready' : 'blocked', summarizeScript(activeScript, activeRevision)),
     makeStage('review', readyForProduction ? 'done' : activeScript ? (activeRevision ? 'needs-review' : 'ready') : 'blocked', summarizeReview(activeRevision)),
     makeStage('production', audio && cover ? 'done' : readyForProduction ? 'ready' : 'blocked', summarizeAudioCover(assets)),
@@ -500,7 +513,7 @@ function deriveStages(context) {
   } else if (!activeBrief) {
     primaryNextAction = action('Build research brief', 'brief', true);
   } else if (briefBlocked) {
-    primaryNextAction = action('Resolve research warnings', 'brief', true);
+    primaryNextAction = action(briefNeedsReview ? 'Resolve research warnings' : 'Review blocked research brief', 'brief', true);
   } else if (!activeScript) {
     primaryNextAction = action('Generate script draft', 'script', true);
   } else if (!activeRevision) {
@@ -580,6 +593,10 @@ function deriveWarningsAndBlockers({ activeBrief, activeRevision, activeEpisode,
 
   for (const warning of unresolvedResearchWarnings(activeBrief)) {
     warnings.push(warningItem('brief', warning.message || warning.code || 'Research warning requires review.', warning, 'warning'));
+  }
+
+  if (activeBrief && !researchReady(activeBrief)) {
+    blockers.push(warningItem('brief', `Research brief status is ${researchStatus(activeBrief)}.`, summarizeBrief(activeBrief), 'error'));
   }
 
   for (const warning of productionWarnings(activeEpisode, assets, jobs)) {
