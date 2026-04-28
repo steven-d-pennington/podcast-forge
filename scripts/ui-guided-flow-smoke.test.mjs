@@ -8,9 +8,10 @@ async function readProjectFile(path) {
   return readFile(new URL(path, repoRoot), 'utf8');
 }
 
-const [indexHtml, uiJs, uiStateJs, stylesCss, appTs] = await Promise.all([
+const [indexHtml, uiJs, uiApiJs, uiStateJs, stylesCss, appTs] = await Promise.all([
   readProjectFile('packages/api/public/index.html'),
   readProjectFile('packages/api/public/ui.js'),
+  readProjectFile('packages/api/public/ui-api.js'),
   readProjectFile('packages/api/public/ui-state.js'),
   readProjectFile('packages/api/public/styles.css'),
   readProjectFile('packages/api/src/app.ts'),
@@ -153,6 +154,15 @@ test('integrity, source coverage, and confirmation safety affordances remain pre
   assertContains(stylesCss, '.confirmation-overlay', 'confirmation overlay styles');
   assertContains(stylesCss, '.confirmation-dialog', 'confirmation dialog styles');
   assert.doesNotMatch(uiJs, /window\.prompt\b/, 'ui.js must not use window.prompt for critical actions');
+});
+
+test('api helper does not mark empty POSTs as JSON bodies', () => {
+  assertContains(uiApiJs, 'export async function api(path, options = {})', 'api helper export');
+  assert.doesNotMatch(
+    uiApiJs,
+    /headers:\s*\{\s*['\"]content-type['\"]:\s*['\"]application\/json['\"]/,
+    'api helper should not set JSON content-type unless a request body is present',
+  );
 });
 
 test('mobile workflow layout affordances are guarded', () => {

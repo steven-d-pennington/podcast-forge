@@ -40,6 +40,7 @@ describe('api config endpoints', () => {
 
     assert.equal(response.statusCode, 200);
     assert.match(String(response.headers['content-type'] ?? ''), /application\/javascript/);
+    assert.match(String(response.headers['cache-control'] ?? ''), /no-store/);
     for (const modulePath of ['./ui-api.js', './ui-constants.js', './ui-state.js', './ui-formatters.js']) {
       assert.match(response.body, new RegExp(`from\\s+['\"]${modulePath.replace(/[./]/g, '\\$&')}['\"]`));
     }
@@ -89,6 +90,7 @@ describe('api config endpoints', () => {
 
       assert.equal(response.statusCode, 200, asset.path);
       assert.match(String(response.headers['content-type'] ?? ''), /application\/javascript/, asset.path);
+      assert.match(String(response.headers['cache-control'] ?? ''), /no-store/, asset.path);
       for (const pattern of asset.patterns) {
         assert.match(response.body, pattern, asset.path);
       }

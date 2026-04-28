@@ -124,14 +124,14 @@ export function buildApp(options: BuildAppOptions = {}) {
   });
 
   app.get('/ui', async (_request, reply) => {
-    return reply.type('text/html').send(await readPublicFile('index.html'));
+    return reply.header('cache-control', 'no-store').type('text/html').send(await readPublicFile('index.html'));
   });
 
   const uiScriptFiles = ['ui.js', 'ui-api.js', 'ui-constants.js', 'ui-formatters.js', 'ui-state.js'];
 
   for (const file of uiScriptFiles) {
     app.get(`/${file}`, async (_request, reply) => {
-      return reply.type('application/javascript').send(await readPublicFile(file));
+      return reply.header('cache-control', 'no-store').type('application/javascript').send(await readPublicFile(file));
     });
   }
 

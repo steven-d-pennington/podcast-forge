@@ -75,12 +75,14 @@ export function friendlyApiMessage(body, status) {
 }
 
 export async function api(path, options = {}) {
+  const headers = {
+    ...(options.body === undefined ? {} : { 'content-type': 'application/json' }),
+    ...(options.headers || {}),
+  };
+
   const response = await fetch(path, {
     ...options,
-    headers: {
-      'content-type': 'application/json',
-      ...(options.headers || {}),
-    },
+    headers,
   });
 
   if (response.status === 204) {
