@@ -614,10 +614,10 @@ export function deriveProductionViewModel(input = {}) {
   const selectedSource = profiles.find((profile) => profile.id === input.selectedProfileId) || null;
   const selectedCandidateIds = new Set(asArray(input.selectedCandidateIds));
   const selectedCandidates = candidates.filter((candidate) => selectedCandidateIds.has(candidate.id));
-  const activeBrief = packets.find((packet) => packet.id === input.selectedResearchPacketId)
-    || (input.selectedScript?.researchPacketId ? packets.find((packet) => packet.id === input.selectedScript.researchPacketId) : null)
-    || null;
   const activeScript = input.selectedScript || scripts.find((script) => script.id === input.selectedScriptId) || null;
+  const activeBrief = (activeScript?.researchPacketId ? packets.find((packet) => packet.id === activeScript.researchPacketId) : null)
+    || packets.find((packet) => packet.id === input.selectedResearchPacketId)
+    || null;
   const activeRevision = input.selectedRevision || revisions[0] || null;
   const activeEpisode = production.episode || episodes.find((episode) => episode.id === input.selectedEpisodeId) || null;
   const selectedAssetIds = new Set(asArray(input.selectedAssetIds));
