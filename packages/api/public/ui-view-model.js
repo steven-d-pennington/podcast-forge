@@ -1,0 +1,681 @@
+const STAGE_DEFINITIONS = [
+  { id: 'show', label: 'Choose show' },
+  { id: 'source', label: 'Choose story source' },
+  { id: 'discover', label: 'Find story candidates' },
+  { id: 'story', label: 'Pick / cluster story' },
+  { id: 'brief', label: 'Build evidence brief' },
+  { id: 'script', label: 'Generate script' },
+  { id: 'review', label: 'Integrity review' },
+  { id: 'production', label: 'Produce audio / cover' },
+  { id: 'publishing', label: 'Approve and publish' },
+];
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function asObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function timestamp(value) {
+  const time = value ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(time) ? time : 0;
+}
+
+function newest(items) {
+  return [...asArray(items)].sort((left, right) => (
+    timestamp(right.updatedAt || right.createdAt || right.generatedAt || right.discoveredAt || right.publishedAt)
+    - timestamp(left.updatedAt || left.createdAt || left.generatedAt || left.discoveredAt || left.publishedAt)
+  ));
+}
+
+function firstPresent(...values) {
+  return values.find((value) => typeof value === 'string' && value.trim())?.trim() || '';
+}
+
+function compactObject(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
+}
+
+function summarizeShow(show) {
+  if (!show) {
+    return null;
+  }
+
+  return compactObject({
+    id: show.id,
+    slug: show.slug,
+    title: show.title || show.slug || 'Untitled show',
+    setupStatus: show.setupStatus,
+    format: show.format,
+    defaultRuntimeMinutes: show.defaultRuntimeMinutes,
+  });
+}
+
+function summarizeSource(profile, queries = []) {
+  if (!profile) {
+    return null;
+  }
+
+  const enabledQueries = asArray(queries).filter((query) => query.enabled !== false);
+  return compactObject({
+    id: profile.id,
+    slug: profile.slug,
+    name: profile.name || profile.slug || 'Untitled story source',
+    type: profile.type,
+    enabled: profile.enabled !== false,
+    weight: profile.weight,
+    freshness: profile.freshness || null,
+    queryCount: asArray(queries).length,
+    enabledQueryCount: enabledQueries.length,
+  });
+}
+
+function summarizeCandidate(candidate) {
+  if (!candidate) {
+    return null;
+  }
+
+  return compactObject({
+    id: candidate.id,
+    title: candidate.title || 'Untitled candidate story',
+    status: candidate.status || 'unknown',
+    sourceName: candidate.sourceName || null,
+    url: candidate.canonicalUrl || candidate.url || null,
+    score: candidate.score ?? null,
+    discoveredAt: candidate.discoveredAt,
+    publishedAt: candidate.publishedAt,
+  });
+}
+
+function summarizeCandidates(candidates) {
+  const items = asArray(candidates).map(summarizeCandidate).filter(Boolean);
+  return {
+    count: items.length,
+    primary: items[0] || null,
+    items,
+  };
+}
+
+function summarizeBrief(packet) {
+  if (!packet) {
+    return null;
+  }
+
+  const warnings = asArray(packet.warnings);
+  return compactObject({
+    id: packet.id,
+    stage: 'brief',
+    type: 'research-brief',
+    title: packet.title || 'Untitled research brief',
+    status: packet.status || asObject(packet.content?.readiness).status || 'unknown',
+    approved: Boolean(packet.approvedAt),
+    warningCount: warnings.length,
+    unresolvedWarningCount: warnings.filter((warning) => !warning.override).length,
+    citationCount: asArray(packet.citations).length,
+    createdAt: packet.createdAt,
+    updatedAt: packet.updatedAt,
+  });
+}
+
+function summarizeScript(script, revision = null) {
+  if (!script) {
+    return null;
+  }
+
+  return compactObject({
+    id: script.id,
+    stage: 'script',
+    type: 'script-draft',
+    title: script.title || revision?.title || 'Untitled script',
+    status: script.status || 'unknown',
+    approvedRevisionId: script.approvedRevisionId || null,
+    revisionId: revision?.id || null,
+    revisionVersion: revision?.version ?? null,
+    revisionCreatedAt: revision?.createdAt,
+    createdAt: script.createdAt,
+    updatedAt: script.updatedAt,
+  });
+}
+
+function integrityReviewState(revision) {
+  const review = asObject(revision?.metadata?.integrityReview);
+  const override = asObject(review.override);
+  const overrideReason = typeof override.reason === 'string' ? override.reason.trim() : '';
+
+  if (overrideReason) {
+    return {
+      status: 'overridden',
+      blocking: false,
+      review,
+      override,
+    };
+  }
+
+  const allowed = new Set(['pass', 'pass_with_notes', 'fail', 'missing']);
+  const status = allowed.has(review.status) ? review.status : 'missing';
+  return {
+    status,
+    blocking: status === 'fail' || status === 'missing',
+    review: status === 'missing' && !review.status ? null : review,
+    override: null,
+  };
+}
+
+function summarizeReview(revision) {
+  if (!revision) {
+    return null;
+  }
+
+  const integrity = integrityReviewState(revision);
+  return compactObject({
+    id: revision.id,
+    stage: 'review',
+    type: 'integrity-review',
+    status: integrity.status,
+    blocking: integrity.blocking,
+    overrideReason: integrity.override?.reason || null,
+    reviewedAt: integrity.review?.reviewedAt || integrity.review?.generatedAt || revision.updatedAt || revision.createdAt,
+    createdAt: revision.createdAt,
+    updatedAt: revision.updatedAt,
+  });
+}
+
+function summarizeAsset(asset) {
+  if (!asset) {
+    return null;
+  }
+
+  return compactObject({
+    id: asset.id,
+    stage: asset.type === 'cover-art' ? 'cover' : 'audio',
+    type: asset.type,
+    status: asset.status || 'ready',
+    url: asset.publicUrl || asset.url || asset.metadata?.publicUrl || null,
+    mimeType: asset.mimeType || null,
+    byteSize: asset.byteSize ?? null,
+    durationSeconds: asset.durationSeconds ?? asset.metadata?.durationSeconds ?? null,
+    createdAt: asset.createdAt,
+    updatedAt: asset.updatedAt,
+  });
+}
+
+function summarizeAudioCover(assets) {
+  const latestAudio = newest(asArray(assets).filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'))[0] || null;
+  const latestCover = newest(asArray(assets).filter((asset) => asset.type === 'cover-art'))[0] || null;
+
+  if (!latestAudio && !latestCover) {
+    return null;
+  }
+
+  return {
+    stage: 'production',
+    type: 'audio-cover',
+    status: latestAudio && latestCover ? 'ready' : 'partial',
+    audio: summarizeAsset(latestAudio),
+    cover: summarizeAsset(latestCover),
+  };
+}
+
+function summarizeEpisode(episode) {
+  if (!episode) {
+    return null;
+  }
+
+  return compactObject({
+    id: episode.id,
+    stage: 'publishing',
+    type: 'episode',
+    title: episode.title || episode.slug || 'Untitled episode',
+    slug: episode.slug,
+    status: episode.status || 'unknown',
+    feedId: episode.feedId || null,
+    feedGuid: episode.feedGuid || null,
+    publishedAt: episode.publishedAt,
+    createdAt: episode.createdAt,
+    updatedAt: episode.updatedAt,
+  });
+}
+
+function summarizeJob(job) {
+  if (!job) {
+    return null;
+  }
+
+  return compactObject({
+    id: job.id,
+    type: job.type,
+    status: job.status,
+    progress: job.progress,
+    message: job.error || job.summary?.message || job.summary?.status || null,
+    updatedAt: job.updatedAt,
+    createdAt: job.createdAt,
+  });
+}
+
+function unresolvedResearchWarnings(packet) {
+  return asArray(packet?.warnings).filter((warning) => !warning.override);
+}
+
+function productionWarnings(episode, assets, jobs) {
+  return [
+    ...asArray(episode?.warnings),
+    ...asArray(assets).flatMap((asset) => [
+      ...asArray(asset?.metadata?.warnings),
+      ...asArray(asset?.metadata?.validation?.warnings),
+    ]),
+    ...asArray(jobs).flatMap((job) => asArray(job?.summary?.warnings)),
+  ].filter(Boolean);
+}
+
+function selectedFeed(feeds, episode) {
+  return asArray(feeds).find((feed) => feed.id === episode?.feedId) || asArray(feeds)[0] || null;
+}
+
+function validHttpUrl(value) {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function publicAssetBaseForFeed(feed) {
+  const metadata = asObject(feed?.metadata);
+  return typeof metadata.publicAssetBaseUrl === 'string' ? metadata.publicAssetBaseUrl : feed?.publicBaseUrl || '';
+}
+
+function outputPathForFeed(feed) {
+  const metadata = asObject(feed?.metadata);
+  const storageConfig = asObject(feed?.storageConfig);
+  return metadata.outputPath || storageConfig.outputPath || feed?.rssFeedPath || '';
+}
+
+function publishChecklist({ packet, script, revision, episode, assets, feed, jobs }) {
+  const audio = newest(asArray(assets).filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'))[0] || null;
+  const cover = newest(asArray(assets).filter((asset) => asset.type === 'cover-art'))[0] || null;
+  const researchWarnings = unresolvedResearchWarnings(packet);
+  const prodWarnings = productionWarnings(episode, assets, jobs);
+  const integrity = integrityReviewState(revision);
+  const scriptApproved = Boolean(script && revision && script.status === 'approved-for-audio' && script.approvedRevisionId === revision.id);
+  const feedPublicUrl = feed?.publicFeedUrl || '';
+  const publicBaseUrl = publicAssetBaseForFeed(feed);
+  const feedConfigured = Boolean(feed);
+  const targetConfigured = Boolean(feed?.rssFeedPath || outputPathForFeed(feed) || feedPublicUrl);
+  const feedUrlsValid = (!feedPublicUrl || validHttpUrl(feedPublicUrl)) && (!publicBaseUrl || validHttpUrl(publicBaseUrl));
+  const audioValid = Boolean(audio && (!audio.mimeType || audio.mimeType.startsWith('audio/')) && (audio.byteSize === null || audio.byteSize === undefined || audio.byteSize > 0));
+  const coverValid = Boolean(cover && (!cover.mimeType || cover.mimeType.startsWith('image/')));
+  const packetReady = Boolean(packet && ['ready', 'approved', 'research-ready'].includes(packet.status || asObject(packet.content?.readiness).status));
+
+  return [
+    {
+      key: 'research',
+      label: 'Research brief approved',
+      passed: Boolean(packetReady && packet?.approvedAt && researchWarnings.length === 0),
+      reason: !packet
+        ? 'Select a research brief.'
+        : !packetReady
+          ? `Research status is ${packet.status || 'unknown'}.`
+          : researchWarnings.length > 0
+            ? `${researchWarnings.length} research warning${researchWarnings.length === 1 ? '' : 's'} need override reasons.`
+            : !packet.approvedAt ? 'Approve the research brief after review.' : 'Research review decision recorded.',
+    },
+    {
+      key: 'script',
+      label: 'Script approved for audio',
+      passed: scriptApproved,
+      reason: scriptApproved ? 'Script review decision recorded.' : 'Approve the selected script revision.',
+    },
+    {
+      key: 'integrity',
+      label: 'Integrity review passed or overridden',
+      passed: Boolean(revision && !integrity.blocking),
+      reason: !revision
+        ? 'Select a script revision.'
+        : integrity.status === 'missing'
+          ? 'Run the integrity reviewer before production.'
+          : integrity.status === 'fail'
+            ? 'Resolve the failed integrity review or record an explicit override reason.'
+            : integrity.status === 'overridden' ? 'Integrity review override reason recorded.' : `Integrity review ${integrity.status}.`,
+    },
+    {
+      key: 'audio',
+      label: 'Valid audio asset exists',
+      passed: audioValid,
+      reason: audio ? (audioValid ? 'Audio asset metadata is usable.' : 'Audio asset metadata is incomplete or invalid.') : 'Create a preview MP3 or attach final audio.',
+    },
+    {
+      key: 'cover',
+      label: 'Cover art asset exists',
+      passed: coverValid,
+      reason: cover ? (coverValid ? 'Cover art metadata is usable.' : 'Cover art MIME type is not an image.') : 'Create cover art before publishing.',
+    },
+    {
+      key: 'feed',
+      label: 'Feed metadata configured',
+      passed: feedConfigured && feedUrlsValid,
+      reason: !feedConfigured ? 'Configure a feed for this show.' : feedUrlsValid ? 'Feed metadata is available.' : 'Feed public URLs must be valid http(s) URLs.',
+    },
+    {
+      key: 'target',
+      label: 'RSS/public target configured',
+      passed: feedConfigured && targetConfigured,
+      reason: targetConfigured ? 'RSS path or public feed URL is configured.' : 'Configure an RSS path, output path, or public feed URL.',
+    },
+    {
+      key: 'warnings',
+      label: 'No blocking warnings remain',
+      passed: researchWarnings.length === 0 && prodWarnings.length === 0,
+      reason: researchWarnings.length + prodWarnings.length === 0
+        ? 'No unresolved research or production warnings are selected.'
+        : `${researchWarnings.length + prodWarnings.length} warning${researchWarnings.length + prodWarnings.length === 1 ? '' : 's'} require review.`,
+    },
+    {
+      key: 'publishApproval',
+      label: 'Episode approved for publishing',
+      passed: Boolean(episode && ['approved-for-publish', 'published'].includes(episode.status)),
+      reason: episode ? (episode.status === 'published' ? 'Episode is already published.' : episode.status === 'approved-for-publish' ? 'Publish approval recorded.' : 'Approve audio and cover assets for publishing.') : 'Create production assets to create an episode record.',
+    },
+  ];
+}
+
+function makeStage(id, status, artifact = null) {
+  const definition = STAGE_DEFINITIONS.find((stage) => stage.id === id);
+  return {
+    id,
+    label: definition?.label || id,
+    status,
+    artifact,
+  };
+}
+
+function action(label, targetStage, enabled, blockerReason = '') {
+  return {
+    label,
+    targetStage,
+    enabled: Boolean(enabled),
+    blockerReason: enabled ? null : blockerReason || 'The current workflow state blocks this action.',
+  };
+}
+
+function deriveStages(context) {
+  const {
+    show,
+    source,
+    candidates,
+    activeBrief,
+    activeScript,
+    activeRevision,
+    activeEpisode,
+    assets,
+    jobs,
+    feed,
+  } = context;
+  const integrity = integrityReviewState(activeRevision);
+  const scriptApproved = Boolean(activeScript && activeRevision && activeScript.status === 'approved-for-audio' && activeScript.approvedRevisionId === activeRevision.id);
+  const readyForProduction = Boolean(scriptApproved && !integrity.blocking);
+  const audio = newest(assets.filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'))[0] || null;
+  const cover = newest(assets.filter((asset) => asset.type === 'cover-art'))[0] || null;
+  const checklist = publishChecklist({
+    packet: activeBrief,
+    script: activeScript,
+    revision: activeRevision,
+    episode: activeEpisode,
+    assets,
+    feed,
+    jobs,
+  });
+  const publishBlocker = checklist.find((item) => !item.passed);
+  const profileSupportsDiscovery = source && ['brave', 'zai-web', 'rss', 'manual'].includes(source.type);
+  const briefBlocked = activeBrief?.status === 'blocked';
+
+  const stages = [
+    makeStage('show', show ? 'done' : 'blocked', summarizeShow(show)),
+    makeStage('source', source ? 'done' : show ? 'blocked' : 'blocked', summarizeSource(source)),
+    makeStage('discover', candidates.length > 0 ? 'done' : source && profileSupportsDiscovery ? 'ready' : 'blocked', null),
+    makeStage('story', candidates.length > 0 ? 'done' : 'blocked', summarizeCandidates(candidates)),
+    makeStage('brief', activeBrief ? (briefBlocked ? 'blocked' : 'done') : candidates.length > 0 ? 'ready' : 'blocked', summarizeBrief(activeBrief)),
+    makeStage('script', activeScript ? 'done' : activeBrief && !briefBlocked ? 'ready' : 'blocked', summarizeScript(activeScript, activeRevision)),
+    makeStage('review', readyForProduction ? 'done' : activeScript && activeRevision ? 'needs-review' : 'blocked', summarizeReview(activeRevision)),
+    makeStage('production', audio && cover ? 'done' : readyForProduction ? 'ready' : 'blocked', summarizeAudioCover(assets)),
+    makeStage('publishing', activeEpisode?.status === 'published' ? 'done' : audio && cover ? (publishBlocker ? 'blocked' : 'ready') : 'blocked', summarizeEpisode(activeEpisode)),
+  ];
+
+  let primaryNextAction;
+  if (!show) {
+    primaryNextAction = action('Select or create show', 'show', true);
+  } else if (!source) {
+    primaryNextAction = action('Choose story source', 'source', true);
+  } else if (candidates.length === 0) {
+    primaryNextAction = action(source.type === 'manual' ? 'Add manual story' : source.type === 'rss' ? 'Import RSS items' : 'Run source search', 'discover', profileSupportsDiscovery, 'Choose a browser-supported story source before discovery.');
+  } else if (!activeBrief) {
+    primaryNextAction = action('Build research brief', 'brief', true);
+  } else if (briefBlocked) {
+    primaryNextAction = action('Resolve research warnings', 'brief', false, 'Resolve or override research warnings before drafting.');
+  } else if (!activeScript) {
+    primaryNextAction = action('Generate script draft', 'script', true);
+  } else if (!activeRevision) {
+    primaryNextAction = action('Select script revision', 'script', false, 'Select a script revision before integrity review.');
+  } else if (integrity.blocking) {
+    primaryNextAction = action(integrity.status === 'fail' ? 'Resolve integrity review' : 'Run integrity review', 'review', integrity.status === 'missing', integrity.status === 'fail' ? 'Resolve the failed integrity review or record an explicit override reason.' : '');
+  } else if (!scriptApproved) {
+    primaryNextAction = action('Approve script for audio', 'review', true);
+  } else if (!audio || !cover) {
+    primaryNextAction = action(`Create missing ${audio ? 'cover art' : cover ? 'audio' : 'audio and cover art'}`, 'production', readyForProduction);
+  } else if (activeEpisode?.status === 'approved-for-publish' && !publishBlocker) {
+    primaryNextAction = action('Publish to RSS', 'publishing', true);
+  } else if (activeEpisode?.status === 'published') {
+    primaryNextAction = action('Review publishing record', 'publishing', false, 'Episode is already published.');
+  } else {
+    primaryNextAction = action(
+      'Approve for publishing',
+      'publishing',
+      !publishBlocker || publishBlocker.key === 'publishApproval',
+      publishBlocker ? `${publishBlocker.label}: ${publishBlocker.reason}` : '',
+    );
+  }
+
+  const currentStage = stages.find((stage) => stage.status !== 'done') || stages[stages.length - 1];
+  return { stages, currentStage, primaryNextAction, checklist };
+}
+
+function deriveLatestActionResult(input, jobs) {
+  const explicit = asObject(input.latestActionResult);
+  if (typeof explicit.message === 'string' && explicit.message.trim()) {
+    return {
+      status: explicit.status || 'info',
+      message: explicit.message.trim(),
+      source: explicit.source || 'ui',
+    };
+  }
+
+  const latestJob = newest(jobs)[0] || null;
+  if (latestJob) {
+    return {
+      status: latestJob.status || 'unknown',
+      message: `${latestJob.type || 'Task run'} ${latestJob.status || 'updated'}`,
+      source: 'job',
+      job: summarizeJob(latestJob),
+    };
+  }
+
+  return {
+    status: 'idle',
+    message: 'No action result recorded yet.',
+    source: 'view-model',
+  };
+}
+
+function warningItem(stage, message, source = null, severity = 'warning') {
+  return compactObject({ stage, severity, message, source });
+}
+
+function deriveWarningsAndBlockers({ activeBrief, activeRevision, activeEpisode, assets, jobs, checklist, selectedCandidates }) {
+  const warnings = [];
+  const blockers = [];
+  const integrity = integrityReviewState(activeRevision);
+
+  for (const warning of unresolvedResearchWarnings(activeBrief)) {
+    warnings.push(warningItem('brief', warning.message || warning.code || 'Research warning requires review.', warning, 'warning'));
+  }
+
+  for (const warning of productionWarnings(activeEpisode, assets, jobs)) {
+    warnings.push(warningItem('production', warning.message || warning.code || String(warning), warning, 'warning'));
+  }
+
+  for (const candidate of selectedCandidates) {
+    if (!firstPresent(candidate.canonicalUrl, candidate.url)) {
+      warnings.push(warningItem('story', `${candidate.title || 'Selected candidate'} is missing a source URL.`, summarizeCandidate(candidate), 'warning'));
+    }
+    if (['ignored', 'merged'].includes(candidate.status)) {
+      blockers.push(warningItem('story', `${candidate.title || 'Selected candidate'} has ${candidate.status} status.`, summarizeCandidate(candidate), 'error'));
+    }
+  }
+
+  if (activeRevision && integrity.blocking) {
+    blockers.push(warningItem('review', integrity.status === 'fail' ? 'Integrity review failed or needs an explicit override.' : 'Integrity review has not been run.', summarizeReview(activeRevision), 'error'));
+  }
+
+  if (activeEpisode || assets.length > 0) {
+    for (const item of checklist.filter((entry) => !entry.passed)) {
+      const target = item.key === 'publishApproval' ? 'publishing' : item.key;
+      blockers.push(warningItem(target, `${item.label}: ${item.reason}`, item, 'error'));
+    }
+  }
+
+  return { warnings, blockers };
+}
+
+function deriveHistoricalArtifacts({ activeIds, packets, scripts, revisions, assets, episodes }) {
+  return {
+    briefs: newest(packets).filter((packet) => packet.id !== activeIds.briefId).map(summarizeBrief),
+    scripts: newest(scripts).filter((script) => script.id !== activeIds.scriptId).map((script) => summarizeScript(script)),
+    reviews: newest(revisions).filter((revision) => revision.id !== activeIds.revisionId).map(summarizeReview),
+    audioCover: newest(assets).filter((asset) => !activeIds.assetIds.has(asset.id)).map(summarizeAsset),
+    publishing: newest(episodes).filter((episode) => episode.id !== activeIds.episodeId).map(summarizeEpisode),
+  };
+}
+
+export function deriveProductionViewModel(input = {}) {
+  const shows = asArray(input.shows);
+  const feeds = asArray(input.feeds);
+  const profiles = asArray(input.profiles);
+  const queries = asArray(input.queries);
+  const candidates = asArray(input.storyCandidates);
+  const packets = asArray(input.researchPackets);
+  const scripts = asArray(input.scripts);
+  const revisions = asArray(input.selectedRevisions);
+  const production = asObject(input.production);
+  const productionAssets = asArray(production.assets);
+  const productionJobs = asArray(production.jobs);
+  const jobs = [...asArray(input.recentJobs), ...productionJobs];
+  const episodes = production.episode ? [production.episode, ...asArray(input.episodes).filter((episode) => episode.id !== production.episode.id)] : asArray(input.episodes);
+  const selectedShow = shows.find((show) => show.slug === input.selectedShowSlug) || null;
+  const selectedSource = profiles.find((profile) => profile.id === input.selectedProfileId) || null;
+  const selectedCandidateIds = new Set(asArray(input.selectedCandidateIds));
+  const selectedCandidates = candidates.filter((candidate) => selectedCandidateIds.has(candidate.id));
+  const activeBrief = packets.find((packet) => packet.id === input.selectedResearchPacketId)
+    || (input.selectedScript?.researchPacketId ? packets.find((packet) => packet.id === input.selectedScript.researchPacketId) : null)
+    || null;
+  const activeScript = input.selectedScript || scripts.find((script) => script.id === input.selectedScriptId) || null;
+  const activeRevision = input.selectedRevision || revisions[0] || null;
+  const activeEpisode = production.episode || episodes.find((episode) => episode.id === input.selectedEpisodeId) || null;
+  const selectedAssetIds = new Set(asArray(input.selectedAssetIds));
+  const activeAssets = selectedAssetIds.size > 0
+    ? productionAssets.filter((asset) => selectedAssetIds.has(asset.id))
+    : productionAssets;
+  const feed = selectedFeed(feeds, activeEpisode);
+  const sourceQueries = selectedSource ? queries.filter((query) => !query.sourceProfileId || query.sourceProfileId === selectedSource.id) : [];
+  const context = {
+    show: selectedShow,
+    source: selectedSource,
+    candidates: selectedCandidates,
+    activeBrief,
+    activeScript,
+    activeRevision,
+    activeEpisode,
+    assets: activeAssets,
+    jobs,
+    feed,
+  };
+  const { stages, currentStage, primaryNextAction, checklist } = deriveStages(context);
+  const activeIds = {
+    briefId: activeBrief?.id || null,
+    scriptId: activeScript?.id || null,
+    revisionId: activeRevision?.id || null,
+    episodeId: activeEpisode?.id || null,
+    assetIds: new Set(activeAssets.map((asset) => asset.id)),
+  };
+  const activeArtifacts = {
+    brief: summarizeBrief(activeBrief),
+    script: summarizeScript(activeScript, activeRevision),
+    review: summarizeReview(activeRevision),
+    audioCover: summarizeAudioCover(activeAssets),
+    publishing: summarizeEpisode(activeEpisode),
+  };
+  const latestArtifacts = {
+    brief: activeArtifacts.brief || summarizeBrief(newest(packets)[0]),
+    script: activeArtifacts.script || summarizeScript(newest(scripts)[0]),
+    review: activeArtifacts.review || summarizeReview(newest(revisions)[0]),
+    audioCover: activeArtifacts.audioCover || summarizeAudioCover(productionAssets),
+    publishing: activeArtifacts.publishing || summarizeEpisode(newest(episodes)[0]),
+  };
+  const historicalArtifacts = deriveHistoricalArtifacts({
+    activeIds,
+    packets,
+    scripts,
+    revisions,
+    assets: productionAssets,
+    episodes,
+  });
+  const { warnings, blockers } = deriveWarningsAndBlockers({
+    activeBrief,
+    activeRevision,
+    activeEpisode,
+    assets: activeAssets,
+    jobs,
+    checklist,
+    selectedCandidates,
+  });
+
+  return {
+    selectedShowSummary: summarizeShow(selectedShow),
+    selectedStorySourceSummary: summarizeSource(selectedSource, sourceQueries),
+    selectedCandidateStorySummary: summarizeCandidates(selectedCandidates),
+    activeDraftEpisodeSummary: activeEpisode && activeEpisode.status !== 'published' ? summarizeEpisode(activeEpisode) : null,
+    currentStage: {
+      id: currentStage.id,
+      label: currentStage.label,
+      status: currentStage.status,
+    },
+    stages,
+    activeArtifacts,
+    latestArtifacts,
+    historicalArtifacts,
+    primaryNextAction,
+    secondaryActions: stages
+      .filter((stage) => stage.id !== primaryNextAction.targetStage)
+      .map((stage) => action(`Open ${stage.label}`, stage.id, true)),
+    latestActionResult: deriveLatestActionResult(input, jobs),
+    warnings,
+    blockers,
+    visibility: {
+      workflow: true,
+      settings: input.activeSurface === 'settings',
+      debug: input.activeSurface === 'debug',
+      advanced: Boolean(input.activeSurface === 'settings' || input.activeSurface === 'debug'),
+      groups: {
+        activeWorkflow: true,
+        history: Object.values(historicalArtifacts).some((items) => items.length > 0),
+        admin: input.activeSurface === 'settings',
+        debug: input.activeSurface === 'debug',
+      },
+    },
+  };
+}

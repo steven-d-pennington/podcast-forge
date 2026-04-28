@@ -25,6 +25,12 @@ export const state = {
     assets: [],
     jobs: [],
   },
+  productionViewModel: null,
+  latestActionResult: {
+    status: 'idle',
+    message: '',
+    source: 'ui',
+  },
   productionPoll: null,
   jobPoll: null,
   selectedCandidateIds: [],

@@ -1,6 +1,7 @@
 import { api, ApiRequestError, debugText } from './ui-api.js';
 import { SETTINGS_SECTIONS, SURFACES } from './ui-constants.js';
 import { els, state } from './ui-state.js';
+import { deriveProductionViewModel } from './ui-view-model.js';
 import {
   applySourceControlState,
   applySourceControlStateToForms,
@@ -25,6 +26,11 @@ import {
 } from './ui-formatters.js';
 
 function setStatus(message, debugDetails = '') {
+  state.latestActionResult = {
+    status: debugDetails ? 'warning' : 'info',
+    message,
+    source: 'ui',
+  };
   els.status.textContent = message;
   const detail = debugText(debugDetails);
   els.errorDetails.hidden = !detail;
@@ -1585,6 +1591,7 @@ function buildPipelineStages() {
 }
 
 function renderPipeline() {
+  const viewModel = state.productionViewModel || deriveProductionViewModel(state);
   const show = selectedShow();
   const profile = selectedProfile();
   els.pipelineMeta.textContent = show
@@ -1619,6 +1626,7 @@ function renderPipeline() {
   }
 
   els.pipelineDebug.textContent = JSON.stringify({
+    productionViewModel: viewModel,
     showSlug: state.selectedShowSlug,
     sourceProfileId: state.selectedProfileId,
     selectedCandidateIds: state.selectedCandidateIds,
@@ -3492,6 +3500,7 @@ function renderReviewGates() {
 }
 
 function render() {
+  state.productionViewModel = deriveProductionViewModel(state);
   renderShows();
   renderSettings();
   renderPipeline();

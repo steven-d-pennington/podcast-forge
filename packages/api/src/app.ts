@@ -132,7 +132,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     return reply.header('cache-control', 'no-store').type('text/html').send(await readPublicFile('index.html'));
   });
 
-  const uiScriptFiles = ['ui.js', 'ui-api.js', 'ui-constants.js', 'ui-formatters.js', 'ui-state.js'];
+  const uiScriptFiles = ['ui.js', 'ui-api.js', 'ui-constants.js', 'ui-formatters.js', 'ui-state.js', 'ui-view-model.js'];
 
   for (const file of uiScriptFiles) {
     app.get(`/${file}`, async (_request, reply) => {
