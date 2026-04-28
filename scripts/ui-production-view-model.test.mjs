@@ -361,6 +361,29 @@ test('view model treats publish approval as actionable when prerequisites are re
   assert.equal(model.primaryNextAction.enabled, true);
 });
 
+test('view model blocks publish approval until episode is audio-ready', () => {
+  const draftEpisode = { ...episode, status: 'draft' };
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [readyBrief],
+    selectedResearchPacketId: 'brief-1',
+    scripts: [approvedScript],
+    selectedScriptId: 'script-1',
+    selectedScript: approvedScript,
+    selectedRevision: passedReviewRevision,
+    selectedRevisions: [passedReviewRevision],
+    production: { episode: draftEpisode, assets: [audioAsset, coverAsset], jobs: [] },
+    episodes: [draftEpisode],
+    selectedEpisodeId: 'episode-1',
+    selectedAssetIds: ['asset-audio-1', 'asset-cover-1'],
+  }));
+
+  assert.equal(model.primaryNextAction.label, 'Approve for publishing');
+  assert.equal(model.primaryNextAction.enabled, false);
+  assert.match(model.primaryNextAction.blockerReason, /audio-ready/);
+});
+
 test('view model covers publish blocked with concrete blocker reason', () => {
   const model = deriveProductionViewModel(baseInput({
     feeds: [],
@@ -417,6 +440,20 @@ test('view model deduplicates overlapping recent and production jobs', () => {
 
   assert.equal(model.latestActionResult.job.id, 'job-1');
   assert.equal(model.warnings.filter((warning) => warning.message === 'Preview asset needs review.').length, 1);
+});
+
+test('view model keeps latest artifacts independent from active selection', () => {
+  const olderBrief = { ...readyBrief, id: 'brief-old', title: 'Older brief', updatedAt: '2026-04-26T10:00:00.000Z' };
+  const newestBrief = { ...readyBrief, id: 'brief-new', title: 'Newest brief', updatedAt: '2026-04-28T10:00:00.000Z' };
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [olderBrief, newestBrief],
+    selectedResearchPacketId: 'brief-old',
+  }));
+
+  assert.equal(model.activeArtifacts.brief.id, 'brief-old');
+  assert.equal(model.latestArtifacts.brief.id, 'brief-new');
 });
 
 test('view model separates active artifacts from historical artifacts', () => {

@@ -465,6 +465,7 @@ function deriveStages(context) {
   });
   const publishBlocker = checklist.find((item) => !item.passed);
   const publishPrerequisiteBlocker = checklist.find((item) => !item.passed && item.key !== 'publishApproval');
+  const publishApprovalReady = activeEpisode?.status === 'audio-ready';
   const profileSupportsDiscovery = source && ['brave', 'zai-web', 'rss', 'manual'].includes(source.type);
   const briefBlocked = activeBrief?.status === 'blocked' || briefNeedsReview;
 
@@ -511,8 +512,8 @@ function deriveStages(context) {
     primaryNextAction = action(
       'Approve for publishing',
       'publishing',
-      !publishBlocker || publishBlocker.key === 'publishApproval',
-      publishBlocker ? `${publishBlocker.label}: ${publishBlocker.reason}` : '',
+      (!publishBlocker || publishBlocker.key === 'publishApproval') && publishApprovalReady,
+      !publishApprovalReady ? `Episode status must be audio-ready before publish approval; current status is ${activeEpisode?.status || 'missing'}.` : publishBlocker ? `${publishBlocker.label}: ${publishBlocker.reason}` : '',
     );
   }
 
@@ -656,11 +657,11 @@ export function deriveProductionViewModel(input = {}) {
     publishing: summarizeEpisode(activeEpisode),
   };
   const latestArtifacts = {
-    brief: activeArtifacts.brief || summarizeBrief(latest(packets)),
-    script: activeArtifacts.script || summarizeScript(latest(scripts)),
-    review: activeArtifacts.review || summarizeReview(latest(revisions)),
-    audioCover: activeArtifacts.audioCover || summarizeAudioCover(productionAssets),
-    publishing: activeArtifacts.publishing || summarizeEpisode(latest(episodes)),
+    brief: summarizeBrief(latest(packets)),
+    script: summarizeScript(latest(scripts)),
+    review: summarizeReview(latest(revisions)),
+    audioCover: summarizeAudioCover(productionAssets),
+    publishing: summarizeEpisode(latest(episodes)),
   };
   const historicalArtifacts = deriveHistoricalArtifacts({
     activeIds,
