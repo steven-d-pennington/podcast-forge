@@ -225,6 +225,7 @@ Every heartbeat or resume should:
 3. If a PR is open, finish that PR's review/shepherd/merge loop before starting the next issue.
 4. If no PR/agent is active, start the next unblocked issue from the sprint state queue.
 5. Update this file and sprint state whenever issue ordering, blockers, or escalation status changes.
+6. After the PF3 sprint queue finishes (#82 merged), run a local UI/UX dogfood audit before declaring the sprint done: start/verify the local app at `http://127.0.0.1:3450/ui`, check browser console errors, capture screenshots, assess the guided workflow/Production Cockpit/product feel against the second-pass direction, and save a report under `~/clawd/data/podcast-forge-audit/post-sprint-<timestamp>/report.md` with top remaining UX issues and recommendations.
 
 Escalate to Steven only for:
 
