@@ -1261,7 +1261,6 @@ function renderProductionCommandBar(viewModel, stages) {
   const showTitle = viewModel.selectedShowSummary?.title || 'No show selected';
   const episodeTitle = viewModel.activeDraftEpisodeSummary?.title
     || viewModel.activeArtifacts?.publishing?.title
-    || viewModel.latestArtifacts?.publishing?.title
     || 'No active episode yet';
   const blockerId = 'production-command-blocker';
   const resultId = 'production-command-result';
