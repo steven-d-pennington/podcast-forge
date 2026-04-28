@@ -1169,7 +1169,7 @@ function renderProductionCommandBar(viewModel, stages) {
 
   const metrics = document.createElement('div');
   metrics.className = 'command-bar-metrics';
-  appendCommandBarMetric(metrics, 'Stage', `${viewModel.currentStage.label} | ${commandBarStatusLabel(currentStage?.status || viewModel.currentStage.status)}`);
+  appendCommandBarMetric(metrics, 'Stage', `${viewModel.currentStage.label} | ${commandBarStatusLabel(viewModel.currentStage.status)}`);
   appendCommandBarMetric(metrics, 'Warnings', String(warningCount), warningCount > 0 ? 'warning' : '');
   appendCommandBarMetric(metrics, 'Blockers', String(blockerCount), blockerCount > 0 ? 'blocked' : '');
 
