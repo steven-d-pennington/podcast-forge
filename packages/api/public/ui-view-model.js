@@ -1,6 +1,14 @@
 import {
   publicAssetBaseForFeed,
   publishTargetConfiguredForFeed,
+  sourceActionDescription,
+  sourceActionLabel,
+  sourceConstraintsSummary,
+  sourceCredentialSummary,
+  sourceDiscoveryBlocker,
+  sourceInputSummary,
+  sourceLastResultSummary,
+  sourceProviderLabel,
   validHttpUrl,
 } from './ui-formatters.js';
 
@@ -88,22 +96,36 @@ function summarizeShow(show) {
   });
 }
 
-function summarizeSource(profile, queries = []) {
+function summarizeSource(profile, queries = [], jobs = []) {
   if (!profile) {
     return null;
   }
 
   const enabledQueries = asArray(queries).filter((query) => query.enabled !== false);
+  const credential = sourceCredentialSummary(profile);
+  const blocker = sourceDiscoveryBlocker(profile, queries);
   return compactObject({
     id: profile.id,
     slug: profile.slug,
     name: profile.name || profile.slug || 'Untitled story source',
     type: profile.type,
+    providerType: sourceProviderLabel(profile.type),
     enabled: profile.enabled !== false,
+    statusLabel: profile.enabled !== false ? 'Enabled' : 'Disabled',
     weight: profile.weight,
     freshness: profile.freshness || null,
     queryCount: asArray(queries).length,
     enabledQueryCount: enabledQueries.length,
+    inputSummary: sourceInputSummary(profile, queries),
+    constraintsSummary: sourceConstraintsSummary(profile, queries),
+    credentialStatus: credential.status,
+    credentialLabel: credential.label,
+    credentialRequired: credential.required,
+    nextActionLabel: sourceActionLabel(profile.type),
+    nextActionDescription: sourceActionDescription(profile, queries),
+    discoveryReady: !blocker,
+    discoveryBlocker: blocker || null,
+    lastSearchResult: sourceLastResultSummary(profile, jobs),
   });
 }
 
@@ -536,11 +558,12 @@ function deriveStages(context) {
   const publishPrerequisiteBlocker = checklist.find((item) => !item.passed && item.key !== 'publishApproval');
   const publishApprovalReady = activeEpisode?.status === 'audio-ready';
   const profileSupportsDiscovery = source && ['brave', 'zai-web', 'rss', 'manual'].includes(source.type);
+  const sourceBlocker = source ? sourceDiscoveryBlocker(source, sourceQueries) : '';
   const briefBlocked = Boolean(activeBrief && (!briefReady || briefNeedsReview));
 
   const stages = [
     makeStage('show', show ? 'done' : 'blocked', summarizeShow(show)),
-    makeStage('source', source ? 'done' : show ? 'ready' : 'blocked', summarizeSource(source, sourceQueries)),
+    makeStage('source', source ? 'done' : show ? 'ready' : 'blocked', summarizeSource(source, sourceQueries, jobs)),
     makeStage('discover', hasCandidatePool ? 'done' : source && profileSupportsDiscovery ? 'ready' : 'blocked', null),
     makeStage('story', hasStorySelection ? 'done' : hasCandidatePool ? 'ready' : 'blocked', summarizeCandidates(selectedCandidates)),
     makeStage('brief', activeBrief ? (briefNeedsReview ? 'needs-review' : briefReady ? 'done' : 'blocked') : hasStorySelection ? 'ready' : 'blocked', summarizeBrief(activeBrief)),
@@ -556,7 +579,12 @@ function deriveStages(context) {
   } else if (!source) {
     primaryNextAction = action('Choose story source', 'source', true);
   } else if (!hasCandidatePool) {
-    primaryNextAction = action(source.type === 'manual' ? 'Add manual story' : source.type === 'rss' ? 'Import RSS items' : 'Run source search', 'discover', profileSupportsDiscovery, 'Choose a browser-supported story source before discovery.');
+    primaryNextAction = action(
+      sourceActionLabel(source.type),
+      'discover',
+      profileSupportsDiscovery && !sourceBlocker,
+      sourceBlocker || 'Choose a browser-supported story source before discovery.',
+    );
   } else if (!hasStorySelection) {
     primaryNextAction = action('Pick or cluster story', 'story', true);
   } else if (!activeBrief) {
@@ -851,7 +879,7 @@ export function deriveProductionViewModel(input = {}) {
 
   return {
     selectedShowSummary: summarizeShow(selectedShow),
-    selectedStorySourceSummary: summarizeSource(selectedSource, sourceQueries),
+    selectedStorySourceSummary: summarizeSource(selectedSource, sourceQueries, jobs),
     selectedCandidateStorySummary: summarizeCandidates(selectedCandidates),
     activeDraftEpisodeSummary: activeEpisode && activeEpisode.status !== 'published' ? summarizeEpisode(activeEpisode) : null,
     currentStage: {
