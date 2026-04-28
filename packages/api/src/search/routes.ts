@@ -222,7 +222,7 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
         throw new ApiError(400, 'SOURCE_PROFILE_DISABLED', `Source profile is disabled: ${profile.slug}`);
       }
 
-      const apiKey = apiKeyForSourceSearch(profile.type, options);
+      const credential = apiKeyForSourceSearch(profile.type, options);
 
       const queries = await store.listSourceQueries(profile.id, { enabledOnly: true });
 
@@ -235,7 +235,7 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
         : undefined;
       const candidateScorer = candidateScorerFor(options, rawStore, modelProfile);
       const result = await runSourceSearch({
-        apiKey,
+        apiKey: credential,
         profile,
         queries,
         store,
