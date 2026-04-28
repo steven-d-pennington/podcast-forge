@@ -2993,6 +2993,55 @@ describe('source profile routes', () => {
       productionBody.jobs.map((job: JobRecord) => job.type).sort(),
       ['art.generate', 'audio.preview'],
     );
+
+    const audioAssetResponse = await app.inject({
+      method: 'GET',
+      url: `/episodes/${audioBody.episode.id}/assets/${audioBody.asset.id}/content`,
+    });
+
+    assert.equal(audioAssetResponse.statusCode, 200);
+    assert.match(String(audioAssetResponse.headers['content-type'] ?? ''), /audio\/mpeg/);
+    assert.match(String(audioAssetResponse.headers['cache-control'] ?? ''), /no-store/);
+    assert.match(String(audioAssetResponse.headers['content-disposition'] ?? ''), /inline; filename="audio-preview\.mp3"/);
+    assert.match(audioAssetResponse.body, /^ID3/);
+    assert.doesNotMatch(JSON.stringify(audioAssetResponse.headers), /tmp\/podcast-forge-production-assets/);
+
+    const downloadResponse = await app.inject({
+      method: 'GET',
+      url: `/episodes/${audioBody.episode.id}/assets/${audioBody.asset.id}/content?download=1`,
+    });
+
+    assert.equal(downloadResponse.statusCode, 200);
+    assert.match(String(downloadResponse.headers['content-disposition'] ?? ''), /attachment; filename="audio-preview\.mp3"/);
+
+    const coverAssetResponse = await app.inject({
+      method: 'GET',
+      url: `/episodes/${audioBody.episode.id}/assets/${artBody.asset.id}/content`,
+    });
+
+    assert.equal(coverAssetResponse.statusCode, 200);
+    assert.match(String(coverAssetResponse.headers['content-type'] ?? ''), /image\/png/);
+
+    const blockedAsset = await store.createEpisodeAsset({
+      episodeId: audioBody.episode.id,
+      type: 'audio-preview',
+      label: 'Blocked audio',
+      localPath: '/etc/passwd',
+      objectKey: null,
+      publicUrl: null,
+      mimeType: 'audio/mpeg',
+      byteSize: 10,
+      durationSeconds: 1,
+      checksum: null,
+      metadata: {},
+    });
+    const blockedResponse = await app.inject({
+      method: 'GET',
+      url: `/episodes/${audioBody.episode.id}/assets/${blockedAsset.id}/content`,
+    });
+
+    assert.equal(blockedResponse.statusCode, 403);
+    assert.equal(blockedResponse.json().code, 'ASSET_PATH_NOT_ALLOWED');
   });
 
   it('rejects RSS publishing until an episode is approved for publish', async () => {

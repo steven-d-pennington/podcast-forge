@@ -48,7 +48,7 @@ export interface CoverArtProvider {
   generateCoverArt(context: ProductionProviderContext & { prompt: string }): Promise<GeneratedProductionAsset>;
 }
 
-function localAssetRoot(production: ProductionConfig) {
+export function localAssetRoot(production: ProductionConfig) {
   return production.localAssetDir ?? production.outputDir ?? join('/tmp', 'podcast-forge-production-assets');
 }
 

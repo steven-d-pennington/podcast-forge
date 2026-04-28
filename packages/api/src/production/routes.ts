@@ -1,3 +1,7 @@
+import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z, ZodError } from 'zod';
 
@@ -16,6 +20,7 @@ import type { SourceStore, ShowRecord } from '../sources/store.js';
 import {
   deterministicAudioPreviewProvider,
   deterministicCoverArtProvider,
+  localAssetRoot,
   type AudioPreviewProvider,
   type CoverArtProvider,
   type GeneratedProductionAsset,
@@ -297,6 +302,97 @@ function productionConfig(show: ShowRecord): ProductionConfig {
   return settingsProduction && typeof settingsProduction === 'object' && !Array.isArray(settingsProduction)
     ? settingsProduction as ProductionConfig
     : {};
+}
+
+const streamableAssetTypes = new Set<EpisodeAssetRecord['type']>(['audio-preview', 'audio-final', 'cover-art']);
+
+function productionAssetRoots(production: ProductionConfig) {
+  return [...new Set([
+    localAssetRoot(production),
+    production.localAssetDir,
+    production.outputDir,
+    join('/tmp', 'podcast-forge-production-assets'),
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .map((value) => resolve(value)))];
+}
+
+function isWithinRoot(root: string, candidate: string) {
+  const resolvedRoot = resolve(root);
+  const resolvedCandidate = resolve(candidate);
+  const relativePath = relative(resolvedRoot, resolvedCandidate);
+
+  return relativePath === '' || (relativePath.length > 0 && !relativePath.startsWith('..') && !isAbsolute(relativePath));
+}
+
+function candidatePathFromObjectKey(root: string, objectKey: string | null) {
+  if (!objectKey) {
+    return null;
+  }
+
+  const normalizedKey = objectKey.replace(/\\/g, '/').replace(/^\/+/, '');
+
+  if (!normalizedKey || normalizedKey.split('/').includes('..')) {
+    return null;
+  }
+
+  return resolve(root, normalizedKey);
+}
+
+async function statLocalAsset(candidate: string) {
+  try {
+    const details = await stat(candidate);
+    return details.isFile() ? details : null;
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+async function resolveLocalAssetFile(asset: EpisodeAssetRecord, production: ProductionConfig) {
+  if (!streamableAssetTypes.has(asset.type)) {
+    throw new ApiError(409, 'ASSET_NOT_STREAMABLE', 'Only generated audio and cover art assets can be opened from the local API.');
+  }
+
+  const roots = productionAssetRoots(production);
+  const candidates = [
+    asset.localPath ? resolve(asset.localPath) : null,
+    ...roots.map((root) => candidatePathFromObjectKey(root, asset.objectKey)),
+  ].filter((value): value is string => Boolean(value));
+  let blockedPath = false;
+
+  for (const candidate of [...new Set(candidates)]) {
+    if (!roots.some((root) => isWithinRoot(root, candidate))) {
+      blockedPath = true;
+      continue;
+    }
+
+    const details = await statLocalAsset(candidate);
+
+    if (details) {
+      return { path: candidate, byteSize: details.size };
+    }
+  }
+
+  if (blockedPath && candidates.length > 0) {
+    throw new ApiError(403, 'ASSET_PATH_NOT_ALLOWED', 'Asset file is outside the configured local production asset roots.');
+  }
+
+  throw new ApiError(404, 'ASSET_FILE_NOT_FOUND', 'Generated asset file was not found on the local API host.');
+}
+
+function assetDownloadName(asset: EpisodeAssetRecord, resolvedPath: string) {
+  const rawName = basename(asset.objectKey ?? resolvedPath);
+  const safeName = rawName.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+
+  return safeName || `${asset.id}.bin`;
+}
+
+function contentDisposition(asset: EpisodeAssetRecord, resolvedPath: string, download?: string) {
+  const disposition = download === '1' || download === 'true' ? 'attachment' : 'inline';
+  return `${disposition}; filename="${assetDownloadName(asset, resolvedPath)}"`;
 }
 
 function assertApprovedScript(script: ScriptRecord): asserts script is ScriptRecord & { approvedRevisionId: string } {
@@ -977,6 +1073,41 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
       const jobs = episode ? await jobStore.listJobs({ episodeId: episode.id, types: ['audio.preview', 'art.generate'] }) : [];
 
       return { ok: true, episode, assets, jobs };
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.get<{
+    Params: { episodeId: string; assetId: string };
+    Querystring: { download?: string };
+  }>('/episodes/:episodeId/assets/:assetId/content', async (request, reply) => {
+    try {
+      const rawStore = options.getStore();
+      const productionStore = requireProductionStore(rawStore);
+      const episode = await productionStore.getEpisode(request.params.episodeId);
+
+      if (!episode) {
+        throw new ApiError(404, 'EPISODE_NOT_FOUND', `Episode not found: ${request.params.episodeId}`);
+      }
+
+      const assets = await productionStore.listEpisodeAssets(episode.id);
+      const asset = assets.find((candidate) => candidate.id === request.params.assetId);
+
+      if (!asset) {
+        throw new ApiError(404, 'EPISODE_ASSET_NOT_FOUND', `Episode asset not found: ${request.params.assetId}`);
+      }
+
+      const show = await getShow(rawStore, episode.showId);
+      const file = await resolveLocalAssetFile(asset, productionConfig(show));
+
+      return reply
+        .header('cache-control', 'no-store')
+        .header('x-content-type-options', 'nosniff')
+        .header('content-length', String(file.byteSize))
+        .header('content-disposition', contentDisposition(asset, file.path, request.query.download))
+        .type(asset.mimeType ?? 'application/octet-stream')
+        .send(createReadStream(file.path));
     } catch (error) {
       return sendError(reply, error);
     }

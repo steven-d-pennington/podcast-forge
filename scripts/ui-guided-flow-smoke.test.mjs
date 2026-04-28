@@ -171,6 +171,18 @@ test('production command bar and concrete blocker copy remain present', () => {
   }
 });
 
+test('production assets expose local Play Open Download controls', () => {
+  assertContains(uiJs, 'function productionAssetContentUrl(asset', 'local asset route URL helper');
+  assertContains(uiJs, '/episodes/${encodeURIComponent(asset.episodeId)}/assets/${encodeURIComponent(asset.id)}/content', 'asset route should be episode-scoped');
+  assertContains(uiJs, 'function appendAssetAccessControls(container, asset', 'asset control renderer');
+  assertContains(uiJs, "play.textContent = 'Play'", 'audio asset play link');
+  assertContains(uiJs, "open.textContent = 'Open'", 'asset open link');
+  assertContains(uiJs, "download.textContent = 'Download'", 'asset download link');
+  assertContains(uiJs, 'Public asset host may be unavailable in local runs', 'public URL local fallback warning');
+  assertContains(stylesCss, '.asset-actions', 'asset action styles');
+  assertContains(stylesCss, '.asset-access-warning', 'asset warning styles');
+});
+
 test('workflow action feedback view-model covers success warnings and blockers', () => {
   const show = {
     id: 'show-1',
