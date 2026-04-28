@@ -592,7 +592,7 @@ function deriveWarningsAndBlockers({ activeBrief, activeRevision, activeEpisode,
   }
 
   if (activeEpisode || assets.length > 0) {
-    for (const item of checklist.filter((entry) => !entry.passed)) {
+    for (const item of checklist.filter((entry) => !entry.passed && entry.key !== 'publishApproval')) {
       const target = checklistStage(item.key);
       blockers.push(warningItem(target, `${item.label}: ${item.reason}`, item, 'error'));
     }
@@ -656,6 +656,10 @@ export function deriveProductionViewModel(input = {}) {
     sourceQueries,
   };
   const { stages, currentStage, primaryNextAction, checklist } = deriveStages(context);
+  const navigationActions = stages.map((stage) => action(`Open ${stage.label}`, stage.id, true));
+  const secondaryActions = stages
+    .filter((stage) => stage.id === currentStage.id && stage.id !== primaryNextAction.targetStage)
+    .map((stage) => action(`Open ${stage.label}`, stage.id, true));
   const activeArtifactAudioCover = summarizeAudioCover(activeAssets);
   const activeArtifactAssetIds = new Set([
     activeArtifactAudioCover?.audio?.id,
@@ -715,9 +719,8 @@ export function deriveProductionViewModel(input = {}) {
     latestArtifacts,
     historicalArtifacts,
     primaryNextAction,
-    secondaryActions: stages
-      .filter((stage) => stage.id !== primaryNextAction.targetStage)
-      .map((stage) => action(`Open ${stage.label}`, stage.id, true)),
+    secondaryActions,
+    navigationActions,
     latestActionResult: deriveLatestActionResult(input, jobs),
     warnings,
     blockers,

@@ -414,6 +414,8 @@ test('view model treats publish approval as actionable when prerequisites are re
   assert.equal(model.currentStage.status, 'ready');
   assert.equal(model.primaryNextAction.label, 'Approve for publishing');
   assert.equal(model.primaryNextAction.enabled, true);
+  assert.equal(model.blockers.some((blocker) => blocker.message.includes('Publish approval recorded')), false);
+  assert.ok(model.navigationActions.some((navAction) => navAction.targetStage === 'publishing'));
 });
 
 test('view model blocks publish approval until episode is audio-ready', () => {
