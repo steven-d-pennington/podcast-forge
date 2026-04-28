@@ -438,8 +438,8 @@ Recommended order:
 3. #77 — PF3-03 Render compact 8-stage tracker and expand only current stage ✅ merged (#85)
 4. #78 — PF3-04 Separate active production artifacts from historical/archive artifacts ✅ merged (#86)
 5. #79 — PF3-05 Redesign Story Sources selector and source search controls ✅ merged (#88)
-6. #80 — PF3-06 Move action feedback and job result summaries into workflow context — running
-7. #67 — PF3-06B Make generated audio assets accessible from local UI — promoted into this sprint before #81/#82 so active artifact Play/Open/Download affordances are fixed before final semantics/guardrails
+6. #80 — PF3-06 Move action feedback and job result summaries into workflow context ✅ merged (#89)
+7. #67 — PF3-06B Make generated audio assets accessible from local UI — active next; promoted into this sprint before #81/#82 so active artifact Play/Open/Download affordances are fixed before final semantics/guardrails
 8. #81 — PF3-07 Replace ambiguous workflow labels and improve accessibility semantics
 9. #82 — PF3-08 Add UI architecture guardrails for view-model rendering and complexity
 
