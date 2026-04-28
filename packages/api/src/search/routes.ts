@@ -7,6 +7,7 @@ import { submitManualCandidate } from './manual.js';
 import { resolveRssFeedRefs, type RssFetch } from './rss.js';
 import { createLlmCandidateScorer, type CandidateScorer } from './scoring.js';
 import type { SearchJobStore } from './store.js';
+import type { ZaiWebFetch } from './zai-web.js';
 import { createLlmRuntime } from '../llm/runtime.js';
 import type { LlmRuntime } from '../llm/types.js';
 import { hasModelProfileStore, resolveModelProfile } from '../models/resolver.js';
@@ -29,7 +30,9 @@ class ApiError extends Error {
 export interface SearchRoutesOptions {
   getStore(): SourceStore & Partial<SearchJobStore> & Partial<ModelProfileStore> & Partial<PromptTemplateStore>;
   braveApiKey?: string;
+  zaiApiKey?: string;
   fetchImpl?: BraveFetch;
+  zaiFetchImpl?: ZaiWebFetch;
   rssFetchImpl?: RssFetch;
   candidateScorer?: CandidateScorer;
   llmRuntime?: LlmRuntime;
@@ -143,6 +146,39 @@ function candidateScorerFor(
   });
 }
 
+function resolveZaiApiKey(options: SearchRoutesOptions): string | undefined {
+  return options.zaiApiKey
+    ?? process.env.ZAI_API_KEY
+    ?? process.env.GLM_API_KEY
+    ?? process.env.GLM_API
+    ?? process.env.ZHIPU_API_KEY
+    ?? process.env.ZHIPUAI_API_KEY;
+}
+
+function searchCredentialForSource(profileType: string, options: SearchRoutesOptions): string {
+  if (profileType === 'brave') {
+    const apiKey = options.braveApiKey ?? process.env.BRAVE_API_KEY;
+
+    if (!apiKey) {
+      throw new ApiError(400, 'BRAVE_API_KEY_REQUIRED', 'Set BRAVE_API_KEY before running a Brave source search.');
+    }
+
+    return apiKey;
+  }
+
+  if (profileType === 'zai-web') {
+    const apiKey = resolveZaiApiKey(options);
+
+    if (!apiKey) {
+      throw new ApiError(400, 'ZAI_API_KEY_REQUIRED', 'Set ZAI_API_KEY or GLM_API_KEY before running a Z.AI web source search.');
+    }
+
+    return apiKey;
+  }
+
+  throw new ApiError(400, 'UNSUPPORTED_SOURCE_TYPE', `source.search supports brave and zai-web profiles, not ${profileType}.`);
+}
+
 async function resolveShowId(store: SourceStore, showId?: string, showSlug?: string): Promise<string> {
   if (showId) {
     const show = (await store.listShows()).find((candidate) => candidate.id === showId);
@@ -178,19 +214,15 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
         throw new ApiError(404, 'SOURCE_PROFILE_NOT_FOUND', `Source profile not found: ${request.params.id}`);
       }
 
-      if (profile.type !== 'brave') {
-        throw new ApiError(400, 'UNSUPPORTED_SOURCE_TYPE', `source.search supports brave profiles, not ${profile.type}.`);
+      if (profile.type !== 'brave' && profile.type !== 'zai-web') {
+        throw new ApiError(400, 'UNSUPPORTED_SOURCE_TYPE', `source.search supports brave and zai-web profiles, not ${profile.type}.`);
       }
 
       if (!profile.enabled) {
         throw new ApiError(400, 'SOURCE_PROFILE_DISABLED', `Source profile is disabled: ${profile.slug}`);
       }
 
-      const apiKey = options.braveApiKey ?? process.env.BRAVE_API_KEY;
-
-      if (!apiKey) {
-        throw new ApiError(400, 'BRAVE_API_KEY_REQUIRED', 'Set BRAVE_API_KEY before running a Brave source search.');
-      }
+      const credential = searchCredentialForSource(profile.type, options);
 
       const queries = await store.listSourceQueries(profile.id, { enabledOnly: true });
 
@@ -203,11 +235,12 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
         : undefined;
       const candidateScorer = candidateScorerFor(options, rawStore, modelProfile);
       const result = await runSourceSearch({
-        apiKey,
+        apiKey: credential,
         profile,
         queries,
         store,
         fetchImpl: options.fetchImpl,
+        zaiFetchImpl: options.zaiFetchImpl,
         sleep: options.sleep,
         modelProfile,
         candidateScorer,
