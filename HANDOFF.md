@@ -433,10 +433,10 @@ Constraints:
 - Preserve source provenance, warnings, approval gates, and auditability.
 
 Recommended order:
-1. #75 — PF3-01 Define Produce workspace view-model contract and fixtures
-2. #76 — PF3-02 Render sticky Production Command Bar from view-model
-3. #77 — PF3-03 Render compact 8-stage tracker and expand only current stage
-4. #78 — PF3-04 Separate active production artifacts from historical/archive artifacts
+1. #75 — PF3-01 Define Produce workspace view-model contract and fixtures ✅ merged (#83)
+2. #76 — PF3-02 Render sticky Production Command Bar from view-model ✅ merged (#84)
+3. #77 — PF3-03 Render compact 8-stage tracker and expand only current stage ✅ merged (#85)
+4. #78 — PF3-04 Separate active production artifacts from historical/archive artifacts — active/next
 5. #79 — PF3-05 Redesign Story Sources selector and source search controls
 6. #80 — PF3-06 Move action feedback and job result summaries into workflow context
 7. #81 — PF3-07 Replace ambiguous workflow labels and improve accessibility semantics
