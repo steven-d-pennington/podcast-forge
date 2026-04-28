@@ -37,6 +37,7 @@ function setStatus(message, debugDetails = '', status = debugDetails ? 'warning'
   const detail = debugText(debugDetails);
   els.errorDetails.hidden = !detail;
   els.errorDetailsBody.textContent = detail;
+  refreshProductionCommandBar();
 }
 
 function reportError(error, fallback = 'Something went wrong. Open technical details for the API response.') {
@@ -1035,92 +1036,183 @@ function firstBlockerText(items, fallback) {
   return items.find(Boolean) || fallback;
 }
 
-function nextActionFromStages(stages) {
-  const running = stages.find((stage) => stage.status === 'running');
-  const runnable = stages.find((stage) => !stageIsComplete(stage) && !stage.disabled && typeof stage.action === 'function');
-  const blocked = stages.find((stage) => !stageIsComplete(stage) && (stage.disabled || ['blocked', 'needs review'].includes(stage.status)));
+const commandBarStageTargets = {
+  show: 'showSetupForm',
+  source: 'settingsPanel',
+  discover: 'settingsPanel',
+  story: 'candidatePanel',
+  brief: 'researchPanel',
+  script: 'scriptPanel',
+  review: 'reviewPanel',
+  production: 'productionPanel',
+  publishing: 'reviewPanel',
+};
 
-  return running || runnable || blocked || stages[stages.length - 1];
+function commandBarLegacyStage(stageId, stages) {
+  const legacyStageId = stageId === 'source' ? 'discover' : stageId;
+  return stages.find((stage) => stage.id === legacyStageId) || null;
 }
 
-function renderNextAction(stages) {
-  const stage = nextActionFromStages(stages);
-  els.nextActionPanel.innerHTML = '';
+function commandBarDetailsTarget(stageId, stages) {
+  const legacyStage = commandBarLegacyStage(stageId, stages);
+  return legacyStage?.targetId || commandBarStageTargets[stageId] || 'workflowPanel';
+}
 
-  if (!stage) {
+function commandBarStatusLabel(status) {
+  return String(status || 'unknown').replaceAll('-', ' ');
+}
+
+function openCommandBarPanel(targetId) {
+  if (panelIsAvailable(targetId)) {
+    scrollToPanel(targetId);
     return;
   }
 
-  const copy = document.createElement('div');
-  copy.className = 'next-action-copy';
+  if (targetId === 'showSetupForm') {
+    state.showSetupOpen = true;
+    render();
+    scrollToPanel(targetId);
+    return;
+  }
+
+  scrollToPanel(targetId);
+}
+
+function commandBarActionTarget(action, stages) {
+  if (action.targetPanelId) {
+    return { targetId: action.targetPanelId, action: null, disabled: false };
+  }
+
+  if (action.targetStage === 'source') {
+    return { targetId: 'settingsPanel', action: null, disabled: false };
+  }
+
+  const legacyStage = commandBarLegacyStage(action.targetStage, stages);
+  return {
+    targetId: legacyStage?.targetId || commandBarDetailsTarget(action.targetStage, stages),
+    action: legacyStage?.disabled ? null : legacyStage?.action || null,
+    disabled: Boolean(legacyStage?.disabled),
+    actionReason: legacyStage?.actionReason || '',
+    blockers: legacyStage?.blockers || [],
+  };
+}
+
+function appendCommandBarMetric(container, label, value, className = '') {
+  const item = document.createElement('div');
+  item.className = `command-bar-metric${className ? ` ${className}` : ''}`;
+  const itemLabel = document.createElement('span');
+  itemLabel.textContent = label;
+  const itemValue = document.createElement('strong');
+  itemValue.textContent = value;
+  item.append(itemLabel, itemValue);
+  container.append(item);
+}
+
+function refreshProductionCommandBar() {
+  if (!els.productionCommandBar) {
+    return;
+  }
+
+  state.productionViewModel = deriveProductionViewModel(state);
+  renderProductionCommandBar(state.productionViewModel, buildPipelineStages());
+}
+
+function renderProductionCommandBar(viewModel, stages) {
+  const activeCommandControl = els.productionCommandBar.contains(document.activeElement)
+    ? document.activeElement?.dataset?.commandControl
+    : null;
+  els.productionCommandBar.innerHTML = '';
+
+  if (!viewModel) {
+    return;
+  }
+
+  const action = viewModel.primaryNextAction;
+  const actionTarget = commandBarActionTarget(action, stages);
+  const actionTargetBlocked = Boolean(actionTarget.disabled);
+  const actionBlocked = !action.enabled || actionTargetBlocked;
+  const blockerReason = action.blockerReason
+    || (actionTargetBlocked ? actionTarget.actionReason || actionTarget.blockers?.[0] || 'Wait for the current stage action to finish.' : '')
+    || viewModel.blockers[0]?.message
+    || '';
+  const detailsTarget = commandBarDetailsTarget(viewModel.currentStage.id, stages);
+  const warningCount = viewModel.warnings.length;
+  const blockerCount = viewModel.blockers.length;
+  const result = viewModel.latestActionResult || { status: 'idle', message: 'No action result recorded yet.' };
+  const showTitle = viewModel.selectedShowSummary?.title || 'No show selected';
+  const episodeTitle = viewModel.activeDraftEpisodeSummary?.title
+    || viewModel.activeArtifacts?.publishing?.title
+    || viewModel.latestArtifacts?.publishing?.title
+    || 'No active episode yet';
+  const blockerId = 'production-command-blocker';
+  const resultId = 'production-command-result';
+
+  const context = document.createElement('div');
+  context.className = 'command-bar-context';
   const kicker = document.createElement('span');
-  kicker.className = 'next-action-kicker';
-  kicker.textContent = 'Next best action';
-  const title = document.createElement('h3');
-  title.textContent = stage.status === 'running' ? `Wait for ${stage.title.toLowerCase()}` : stage.actionLabel;
-  const reason = document.createElement('p');
-  reason.textContent = stage.actionReason || stage.next;
-  const meta = document.createElement('p');
-  meta.className = 'next-action-meta';
-  meta.textContent = `Stage ${stage.number}: ${stage.title} | ${stage.status}`;
-  copy.append(kicker, title, reason, meta);
+  kicker.className = 'command-bar-kicker';
+  kicker.textContent = 'Producing';
+  const heading = document.createElement('h2');
+  heading.textContent = showTitle;
+  const episode = document.createElement('p');
+  episode.textContent = episodeTitle;
+  context.append(kicker, heading, episode);
 
-  if (stage.blockers?.length) {
-    const list = document.createElement('ul');
-    list.className = 'next-action-blockers';
-    for (const blocker of stage.blockers.slice(0, 5)) {
-      const item = document.createElement('li');
-      item.textContent = blocker;
-      list.append(item);
+  const metrics = document.createElement('div');
+  metrics.className = 'command-bar-metrics';
+  appendCommandBarMetric(metrics, 'Stage', `${viewModel.currentStage.label} | ${commandBarStatusLabel(viewModel.currentStage.status)}`);
+  appendCommandBarMetric(metrics, 'Warnings', String(warningCount), warningCount > 0 ? 'warning' : '');
+  appendCommandBarMetric(metrics, 'Blockers', String(blockerCount), blockerCount > 0 ? 'blocked' : '');
+
+  const feedback = document.createElement('div');
+  feedback.className = `command-bar-result ${statusClass(result.status || 'idle')}`;
+  feedback.id = resultId;
+  feedback.setAttribute('aria-live', 'polite');
+  const feedbackLabel = document.createElement('span');
+  feedbackLabel.textContent = result.status === 'error' || result.status === 'failed' ? 'Latest failure' : 'Latest result';
+  const feedbackMessage = document.createElement('strong');
+  feedbackMessage.textContent = result.message || 'No action result recorded yet.';
+  feedback.append(feedbackLabel, feedbackMessage);
+
+  const controls = document.createElement('div');
+  controls.className = 'command-bar-controls';
+  const primary = document.createElement('button');
+  primary.type = 'button';
+  primary.className = 'command-bar-primary';
+  primary.dataset.commandControl = 'primary';
+  primary.textContent = action.label;
+  primary.setAttribute('aria-describedby', actionBlocked ? blockerId : resultId);
+  primary.disabled = actionBlocked;
+  primary.title = actionBlocked && blockerReason ? blockerReason : '';
+  primary.addEventListener('click', () => {
+    if (!actionTarget.disabled && typeof actionTarget.action === 'function') {
+      actionTarget.action();
+      return;
     }
-    copy.append(list);
+
+    openCommandBarPanel(actionTarget.targetId || detailsTarget);
+  });
+
+  const details = document.createElement('button');
+  details.type = 'button';
+  details.className = 'secondary command-bar-details';
+  details.dataset.commandControl = 'details';
+  details.textContent = 'Stage details';
+  details.addEventListener('click', () => openCommandBarPanel(detailsTarget));
+  controls.append(primary, details);
+
+  const blocker = document.createElement('p');
+  blocker.id = blockerId;
+  blocker.className = `command-bar-blocker${actionBlocked ? ' visible' : ''}`;
+  blocker.textContent = actionBlocked
+    ? `Blocked: ${blockerReason || 'the current workflow state blocks this action.'}`
+    : blockerCount > 0
+      ? `Current blocker: ${viewModel.blockers[0].message}`
+      : 'Primary action is available.';
+  els.productionCommandBar.append(context, metrics, feedback, controls, blocker);
+  if (activeCommandControl) {
+    els.productionCommandBar.querySelector(`[data-command-control="${activeCommandControl}"]`)?.focus();
   }
-
-  const actions = document.createElement('div');
-  actions.className = 'next-action-controls';
-  const button = document.createElement('button');
-  button.type = 'button';
-
-  if (stage.status === 'running') {
-    const jobTypes = stage.jobTypes || [];
-    const latestRun = latestRunForTypes(jobTypes);
-    button.className = 'secondary';
-    button.textContent = latestRun ? 'View Latest Run' : 'Open Stage Panel';
-    button.addEventListener('click', () => {
-      if (latestRun) {
-        viewLatestJob(jobTypes);
-        return;
-      }
-      scrollToPanel(stage.targetId);
-    });
-  } else if (!stage.disabled && typeof stage.action === 'function') {
-    button.className = stage.primary ? '' : 'secondary';
-    button.textContent = stage.actionLabel;
-    button.addEventListener('click', stage.action);
-  } else if (stage.disabled) {
-    button.className = 'secondary';
-    button.textContent = stage.actionLabel || 'Review Blockers';
-    button.disabled = true;
-    if (stage.targetId && panelIsAvailable(stage.targetId)) {
-      const panelButton = document.createElement('button');
-      panelButton.type = 'button';
-      panelButton.className = 'secondary';
-      panelButton.textContent = 'Open Stage Panel';
-      panelButton.addEventListener('click', () => scrollToPanel(stage.targetId));
-      actions.append(panelButton);
-    }
-  } else if (stage.targetId && panelIsAvailable(stage.targetId)) {
-    button.className = 'secondary';
-    button.textContent = 'Open Stage Panel';
-    button.addEventListener('click', () => scrollToPanel(stage.targetId));
-  } else {
-    button.className = 'secondary';
-    button.textContent = 'Review Blockers';
-    button.disabled = true;
-  }
-
-  actions.prepend(button);
-  els.nextActionPanel.append(copy, actions);
 }
 
 function stageCard(stage) {
@@ -1322,6 +1414,7 @@ function buildPipelineStages() {
 
   return [
     {
+      id: 'show',
       number: 1,
       title: 'Choose show',
       status: show && profile ? 'done' : show ? 'blocked' : 'not started',
@@ -1348,6 +1441,7 @@ function buildPipelineStages() {
       targetId: show ? 'settingsPanel' : 'showSetupForm',
     },
     {
+      id: 'discover',
       number: 2,
       title: 'Find story candidates',
       status: discoverRunning ? 'running' : !profile ? 'blocked' : state.storyCandidates.length > 0 ? 'done' : (profileSupportsDiscovery || profile.type === 'manual') ? 'ready' : 'blocked',
@@ -1383,6 +1477,7 @@ function buildPipelineStages() {
       jobTypes: ['source.search', 'source.ingest'],
     },
     {
+      id: 'story',
       number: 3,
       title: 'Pick / cluster story',
       status: state.storyCandidates.length === 0 ? 'blocked' : candidates.length > 0 ? 'done' : 'ready',
@@ -1405,6 +1500,7 @@ function buildPipelineStages() {
       targetId: 'candidatePanel',
     },
     {
+      id: 'brief',
       number: 4,
       title: 'Build evidence brief',
       status: researchRunning
@@ -1438,6 +1534,7 @@ function buildPipelineStages() {
       jobTypes: ['research.packet'],
     },
     {
+      id: 'script',
       number: 5,
       title: 'Generate script',
       status: scriptRunning ? 'running' : state.selectedScript ? 'done' : packet && !packetBlocked ? 'ready' : 'blocked',
@@ -1465,6 +1562,7 @@ function buildPipelineStages() {
       jobTypes: ['script.generate'],
     },
     {
+      id: 'review',
       number: 6,
       title: 'Integrity review',
       status: integrityRunning || approvalsRunning ? 'running' : scriptReadyForProduction ? 'done' : state.selectedScript && state.selectedRevision ? 'ready' : 'blocked',
@@ -1499,6 +1597,7 @@ function buildPipelineStages() {
       targetId: !state.selectedScript || !state.selectedRevision ? 'scriptPanel' : 'reviewPanel',
     },
     {
+      id: 'production',
       number: 7,
       title: 'Produce audio / cover',
       status: productionActionRunning ? 'running' : audioAsset && coverAsset ? 'done' : scriptReadyForProduction ? 'ready' : 'blocked',
@@ -1522,6 +1621,7 @@ function buildPipelineStages() {
       jobTypes: ['audio.preview', 'art.generate'],
     },
     {
+      id: 'publishing',
       number: 8,
       title: 'Approve and publish',
       status: publishRunning || approvalsRunning ? 'running' : episode?.status === 'published' ? 'done' : episode?.status === 'approved-for-publish' && publishChecklistReady ? 'ready' : episode?.status === 'audio-ready' && publishPreApprovalReady ? 'ready' : 'blocked',
@@ -1586,7 +1686,7 @@ function renderPipeline() {
   }
 
   const stages = buildPipelineStages();
-  renderNextAction(stages);
+  renderProductionCommandBar(viewModel, stages);
   els.pipelineStages.innerHTML = '';
 
   for (const stage of stages) {

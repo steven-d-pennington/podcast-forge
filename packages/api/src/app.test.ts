@@ -31,7 +31,7 @@ describe('api config endpoints', () => {
     assert.match(response.body, /data-surface="workflow"/);
     assert.match(response.body, /data-surface="settings"/);
     assert.match(response.body, /data-surface="debug"/);
-    assert.match(response.body, /nextActionPanel/);
+    assert.match(response.body, /productionCommandBar/);
     assert.match(response.body, /8-stage journey from show selection through sourced evidence, script, integrity review, production assets, approval, and publishing/);
   });
 
@@ -51,7 +51,7 @@ describe('api config endpoints', () => {
     assert.match(response.body, /renderSurfaceVisibility/);
     assert.match(response.body, /runSelectedIntegrityReview/);
     assert.match(response.body, /workflowStoryContext/);
-    assert.match(response.body, /renderNextAction/);
+    assert.match(response.body, /renderProductionCommandBar/);
     assert.match(response.body, /checklistBlockers/);
     assert.match(response.body, /scrollToPanel/);
     assert.match(response.body, /Claim\/source coverage/);

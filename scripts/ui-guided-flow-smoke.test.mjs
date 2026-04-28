@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { deriveProductionViewModel } from '../packages/api/public/ui-view-model.js';
+
 const repoRoot = new URL('../', import.meta.url);
 
 async function readProjectFile(path) {
@@ -45,7 +47,8 @@ test('guided workflow shell stays primary on /ui', () => {
   assertContains(indexHtml, 'id="workflowPanel"', 'workflow panel');
   assertContains(indexHtml, 'id="pipelineStages"', 'pipeline stage container');
   assertContains(indexHtml, 'id="workflowContext"', 'workflow context');
-  assertContains(indexHtml, 'id="nextActionPanel"', 'next action panel');
+  assertContains(indexHtml, 'id="productionCommandBar"', 'production command bar');
+  assertContains(indexHtml, 'Production command bar', 'production command bar label');
   assertMatches(indexHtml, /8-stage journey/i, 'workflow should describe the 8-stage journey');
 
   assert.ok(
@@ -84,11 +87,22 @@ test('editorial stage definitions remain intact and navigable', () => {
   assertContains(uiJs, "card.dataset.stage", 'stage cards should expose stage numbers');
 });
 
-test('next-best-action and concrete blocker copy remain present', () => {
-  assertContains(uiJs, 'function renderNextAction(stages)', 'next-best-action renderer');
+test('production command bar and concrete blocker copy remain present', () => {
+  assertContains(uiJs, 'function renderProductionCommandBar(viewModel, stages)', 'production command bar renderer');
+  assertContains(uiJs, 'viewModel.primaryNextAction', 'command bar primary action from view model');
+  assertContains(uiJs, 'viewModel.latestActionResult', 'command bar latest result from view model');
+  assertContains(uiJs, 'viewModel.warnings.length', 'command bar warning count from view model');
+  assertContains(uiJs, 'action: legacyStage?.disabled ? null : legacyStage?.action || null', 'command bar primary action should invoke available stage actions');
+  assertContains(uiJs, 'commandBarStatusLabel(viewModel.currentStage.status)', 'command bar stage status should stay aligned to the view model');
+  assertContains(uiJs, 'openCommandBarPanel', 'command bar details should open hidden panels before scrolling');
+  assertContains(uiJs, 'primary.disabled = actionBlocked', 'blocked command bar action disabled state');
+  assertContains(uiJs, "viewModel.activeArtifacts?.publishing?.title", 'command bar published episode fallback');
+  assertContains(uiJs, 'No active episode yet', 'command bar active episode fallback');
+  assertContains(uiJs, "dataset.commandControl", 'command bar focus restoration control marker');
+  assertContains(uiJs, 'Latest failure', 'command bar failure summary label');
+  assertContains(uiJs, 'Stage details', 'command bar stage details button');
   assertContains(uiJs, 'function checklistBlockers(checklist', 'checklist blocker helper');
-  assertContains(uiJs, 'next-action-blockers', 'next action blocker list');
-  assertContains(uiJs, 'Review Blockers', 'blocked action fallback');
+  assertContains(uiJs, 'command-bar-blocker', 'command bar blocker summary');
 
   for (const checklistItem of [
     'Research brief approved',
@@ -114,6 +128,61 @@ test('next-best-action and concrete blocker copy remain present', () => {
   ]) {
     assertContains(uiJs, reason, `blocker reason ${reason}`);
   }
+});
+
+test('production command bar view-model fixtures expose primary action and blocker state', () => {
+  const show = {
+    id: 'show-1',
+    slug: 'demo-show',
+    title: 'Demo Show',
+  };
+  const query = {
+    id: 'query-1',
+    sourceProfileId: 'profile-1',
+    query: 'AI policy',
+    enabled: true,
+  };
+  const readyModel = deriveProductionViewModel({
+    shows: [show],
+    feeds: [],
+    profiles: [{ id: 'profile-1', slug: 'demo-sources', name: 'Demo Story Sources', type: 'brave', enabled: true }],
+    queries: [query],
+    storyCandidates: [],
+    researchPackets: [],
+    scripts: [],
+    selectedRevisions: [],
+    production: { episode: null, assets: [], jobs: [] },
+    recentJobs: [],
+    episodes: [],
+    selectedShowSlug: 'demo-show',
+    selectedProfileId: 'profile-1',
+    latestActionResult: { status: 'succeeded', message: 'Source search complete: 3 inserted, 0 skipped.', source: 'test' },
+  });
+
+  assert.equal(readyModel.currentStage.label, 'Find story candidates');
+  assert.equal(readyModel.primaryNextAction.label, 'Run source search');
+  assert.equal(readyModel.primaryNextAction.enabled, true);
+  assert.equal(readyModel.latestActionResult.message, 'Source search complete: 3 inserted, 0 skipped.');
+
+  const blockedModel = deriveProductionViewModel({
+    shows: [show],
+    feeds: [],
+    profiles: [{ id: 'profile-2', slug: 'archive', name: 'Archive Import', type: 'local-json', enabled: true }],
+    queries: [],
+    storyCandidates: [],
+    researchPackets: [],
+    scripts: [],
+    selectedRevisions: [],
+    production: { episode: null, assets: [], jobs: [] },
+    recentJobs: [],
+    episodes: [],
+    selectedShowSlug: 'demo-show',
+    selectedProfileId: 'profile-2',
+  });
+
+  assert.equal(blockedModel.primaryNextAction.label, 'Run source search');
+  assert.equal(blockedModel.primaryNextAction.enabled, false);
+  assert.equal(blockedModel.primaryNextAction.blockerReason, 'Choose a browser-supported story source before discovery.');
 });
 
 test('workflow, settings, and debug surfaces stay separated', () => {
@@ -167,7 +236,7 @@ test('api helper does not mark empty POSTs as JSON bodies', () => {
 
 test('mobile workflow layout affordances are guarded', () => {
   assertMatches(stylesCss, /@media\s*\(max-width:\s*820px\)/, 'mobile breakpoint');
-  assertMatches(stylesCss, /@media\s*\(max-width:\s*820px\)[\s\S]*\.workflow-context,[\s\S]*\.next-action-panel,[\s\S]*\.pipeline-grid,[\s\S]*grid-template-columns:\s*1fr/, 'workflow areas stack on mobile');
+  assertMatches(stylesCss, /@media\s*\(max-width:\s*820px\)[\s\S]*\.production-command-bar,[\s\S]*\.workflow-context,[\s\S]*\.pipeline-grid,[\s\S]*grid-template-columns:\s*1fr/, 'workflow areas stack on mobile');
   assertMatches(stylesCss, /@media\s*\(max-width:\s*820px\)[\s\S]*\.surface-nav,[\s\S]*\.surface-tab,[\s\S]*width:\s*100%/, 'surface tabs become full-width on mobile');
   assertMatches(stylesCss, /@media\s*\(max-width:\s*820px\)[\s\S]*\.confirmation-actions,[\s\S]*\.confirmation-overlay[\s\S]*\.confirmation-dialog/, 'confirmation UI has mobile rules');
 });
