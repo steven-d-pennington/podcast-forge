@@ -1,4 +1,8 @@
-import { publicAssetBaseForFeed } from './ui-formatters.js';
+import {
+  publicAssetBaseForFeed,
+  publishTargetConfiguredForFeed,
+  validHttpUrl,
+} from './ui-formatters.js';
 
 const STAGE_DEFINITIONS = [
   { id: 'show', label: 'Choose show' },
@@ -182,7 +186,7 @@ function summarizeScript(script, revision = null) {
   });
 }
 
-function integrityReviewState(revision) {
+export function integrityReviewState(revision) {
   const review = asObject(revision?.metadata?.integrityReview);
   const override = asObject(review.override);
   const overrideReason = typeof override.reason === 'string' ? override.reason.trim() : '';
@@ -324,19 +328,6 @@ function selectedFeed(feeds, episode, show) {
   return showFeeds.length === 1 ? showFeeds[0] : null;
 }
 
-function validHttpUrl(value) {
-  if (!value) {
-    return false;
-  }
-
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
 function publishChecklist({ packet, script, revision, episode, assets, feed, jobs }) {
   const audio = latest(asArray(assets).filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'));
   const cover = latest(asArray(assets).filter((asset) => asset.type === 'cover-art'));
@@ -346,11 +337,8 @@ function publishChecklist({ packet, script, revision, episode, assets, feed, job
   const scriptApproved = Boolean(script && revision && script.status === 'approved-for-audio' && script.approvedRevisionId === revision.id);
   const feedPublicUrl = feed?.publicFeedUrl || '';
   const publicBaseUrl = publicAssetBaseForFeed(feed);
-  const feedMetadata = asObject(feed?.metadata);
-  const feedStorageConfig = asObject(feed?.storageConfig);
-  const rawTargetPath = firstPresent(feed?.rssFeedPath, feedMetadata.outputPath, feedStorageConfig.outputPath);
   const feedConfigured = Boolean(feed);
-  const targetConfigured = Boolean(feedPublicUrl || (publicBaseUrl && rawTargetPath));
+  const targetConfigured = publishTargetConfiguredForFeed(feed);
   const feedUrlsValid = (!feedPublicUrl || validHttpUrl(feedPublicUrl)) && (!publicBaseUrl || validHttpUrl(publicBaseUrl));
   const audioValid = Boolean(audio && audio.mimeType && audio.mimeType.startsWith('audio/') && (audio.byteSize === null || audio.byteSize === undefined || audio.byteSize > 0));
   const coverValid = Boolean(cover && cover.mimeType && cover.mimeType.startsWith('image/'));

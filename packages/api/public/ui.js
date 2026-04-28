@@ -1,7 +1,7 @@
 import { api, ApiRequestError, debugText } from './ui-api.js';
 import { SETTINGS_SECTIONS, SURFACES } from './ui-constants.js';
 import { els, state } from './ui-state.js';
-import { deriveProductionViewModel } from './ui-view-model.js';
+import { deriveProductionViewModel, integrityReviewState as viewModelIntegrityReviewState } from './ui-view-model.js';
 import {
   applySourceControlState,
   applySourceControlStateToForms,
@@ -15,6 +15,7 @@ import {
   maybeNull,
   optionalNumber,
   outputPathForFeed,
+  publishTargetConfiguredForFeed,
   publicAssetBaseForFeed,
   readOnboardingSetting,
   readPublishingMode,
@@ -23,6 +24,7 @@ import {
   sanitizedDebug,
   slugify,
   sourceControlsSupported,
+  validHttpUrl,
 } from './ui-formatters.js';
 
 function setStatus(message, debugDetails = '', status = debugDetails ? 'warning' : 'info') {
@@ -453,42 +455,8 @@ function productionWarningItems() {
   ];
 }
 
-function validHttpUrl(value) {
-  if (!value) {
-    return false;
-  }
-
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
 function integrityReviewState(revision = state.selectedRevision) {
-  const review = asObject(revision?.metadata?.integrityReview);
-  const override = asObject(review.override);
-  const overrideReason = typeof override.reason === 'string' ? override.reason.trim() : '';
-
-  if (overrideReason) {
-    return {
-      status: 'overridden',
-      blocking: false,
-      review,
-      override,
-    };
-  }
-
-  const allowedStatuses = new Set(['pass', 'pass_with_notes', 'fail', 'missing']);
-  const status = allowedStatuses.has(review.status) ? review.status : 'missing';
-
-  return {
-    status,
-    blocking: status === 'fail' || status === 'missing',
-    review: status === 'missing' && !review.status ? null : review,
-    override: null,
-  };
+  return viewModelIntegrityReviewState(revision);
 }
 
 function integrityReviewPassed(revision = state.selectedRevision) {
@@ -626,7 +594,7 @@ function publishChecklistState() {
   const feedPublicUrl = feed?.publicFeedUrl || '';
   const publicBaseUrl = publicAssetBaseForFeed(feed || {});
   const feedConfigured = Boolean(feed);
-  const targetConfigured = Boolean(feed?.rssFeedPath || outputPathForFeed(feed || {}) || feedPublicUrl);
+  const targetConfigured = publishTargetConfiguredForFeed(feed || {});
   const feedUrlsValid = (!feedPublicUrl || validHttpUrl(feedPublicUrl)) && (!publicBaseUrl || validHttpUrl(publicBaseUrl));
   const audioValid = Boolean(audioAsset && audioAsset.mimeType?.startsWith('audio/') && (audioAsset.byteSize === null || audioAsset.byteSize > 0));
   const coverValid = Boolean(coverAsset && coverAsset.mimeType?.startsWith('image/'));
