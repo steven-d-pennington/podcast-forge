@@ -2277,7 +2277,8 @@ function renderResearchBriefs() {
   for (const packet of state.researchPackets) {
     const scope = artifactScope('brief', packet.id);
     const row = document.createElement('article');
-    row.className = `record-row ${scope.className}-artifact${packet.id === state.selectedResearchPacketId ? ' selected' : ''}`;
+    const isActiveBrief = currentProductionViewModel().activeArtifacts?.brief?.id === packet.id;
+    row.className = `record-row ${scope.className}-artifact${isActiveBrief ? ' selected' : ''}`;
 
     const title = document.createElement('strong');
     title.textContent = packet.title;
@@ -2299,7 +2300,11 @@ function renderResearchBriefs() {
     const useForScript = document.createElement('button');
     useForScript.type = 'button';
     useForScript.className = 'secondary';
-    useForScript.textContent = packet.id === state.selectedResearchPacketId ? 'Selected for Script' : 'Use for Script';
+    useForScript.textContent = isActiveBrief
+      ? 'Active for Script'
+      : scope.className === 'archive'
+        ? 'Select for Audit Only'
+        : 'Use for Script';
     useForScript.addEventListener('click', () => {
       selectResearchPacket(packet);
     });
@@ -2334,7 +2339,8 @@ function renderEpisodes() {
   for (const episode of state.episodes) {
     const scope = artifactScope('publishing', episode.id);
     const row = document.createElement('article');
-    row.className = `record-row ${scope.className}-artifact${episode.id === state.selectedEpisodeId ? ' selected' : ''}`;
+    const isActiveEpisode = currentProductionViewModel().activeArtifacts?.publishing?.id === episode.id;
+    row.className = `record-row ${scope.className}-artifact${isActiveEpisode ? ' selected' : ''}`;
 
     const title = document.createElement('strong');
     title.textContent = episode.episodeNumber ? `EP${episode.episodeNumber}: ${episode.title}` : episode.title;
@@ -2352,7 +2358,11 @@ function renderEpisodes() {
     const select = document.createElement('button');
     select.type = 'button';
     select.className = 'secondary';
-    select.textContent = episode.id === state.selectedEpisodeId ? 'Selected Episode' : 'Select Episode';
+    select.textContent = isActiveEpisode
+      ? 'Active Episode'
+      : scope.className === 'archive'
+        ? 'Select for Audit Only'
+        : 'Select Episode';
     select.addEventListener('click', () => {
       state.selectedEpisodeId = episode.id;
       savePipelineState();
