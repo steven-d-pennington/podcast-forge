@@ -1088,10 +1088,12 @@ function commandBarActionTarget(action, stages) {
   }
 
   const legacyStage = commandBarLegacyStage(action.targetStage, stages);
-  return legacyStage || {
-    targetId: commandBarDetailsTarget(action.targetStage, stages),
+  return {
+    targetId: legacyStage?.targetId || commandBarDetailsTarget(action.targetStage, stages),
     action: null,
-    disabled: false,
+    disabled: Boolean(legacyStage?.disabled),
+    actionReason: legacyStage?.actionReason || '',
+    blockers: legacyStage?.blockers || [],
   };
 }
 
@@ -1111,14 +1113,8 @@ function refreshProductionCommandBar() {
     return;
   }
 
-  const activeCommandControl = els.productionCommandBar.contains(document.activeElement)
-    ? document.activeElement?.dataset?.commandControl
-    : null;
   state.productionViewModel = deriveProductionViewModel(state);
   renderProductionCommandBar(state.productionViewModel, buildPipelineStages());
-  if (activeCommandControl) {
-    els.productionCommandBar.querySelector(`[data-command-control="${activeCommandControl}"]`)?.focus();
-  }
 }
 
 function renderProductionCommandBar(viewModel, stages) {
