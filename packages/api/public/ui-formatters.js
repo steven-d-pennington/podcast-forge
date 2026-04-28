@@ -105,15 +105,15 @@ export function readPublishingMode(show) {
 }
 
 export function outputPathForFeed(feed) {
-  const metadata = asObject(feed.metadata);
-  const storageConfig = asObject(feed.storageConfig);
-  const value = metadata.outputPath || storageConfig.outputPath || feed.rssFeedPath || '';
+  const metadata = asObject(feed?.metadata);
+  const storageConfig = asObject(feed?.storageConfig);
+  const value = metadata.outputPath || storageConfig.outputPath || feed?.rssFeedPath || '';
   return typeof value === 'string' ? safeVisiblePath(value) : '';
 }
 
 export function publicAssetBaseForFeed(feed) {
-  const metadata = asObject(feed.metadata);
-  return typeof metadata.publicAssetBaseUrl === 'string' ? metadata.publicAssetBaseUrl : feed.publicBaseUrl || '';
+  const metadata = asObject(feed?.metadata);
+  return typeof metadata.publicAssetBaseUrl === 'string' ? metadata.publicAssetBaseUrl : feed?.publicBaseUrl || '';
 }
 
 export function safeVisiblePath(value) {

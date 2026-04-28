@@ -1,3 +1,5 @@
+import { outputPathForFeed, publicAssetBaseForFeed } from './ui-formatters.js';
+
 const STAGE_DEFINITIONS = [
   { id: 'show', label: 'Choose show' },
   { id: 'source', label: 'Choose story source' },
@@ -307,31 +309,6 @@ function validHttpUrl(value) {
   } catch {
     return false;
   }
-}
-
-function safeVisiblePath(value) {
-  const text = String(value || '').trim();
-
-  if (!text) {
-    return '';
-  }
-
-  if (text.startsWith('/') || text.startsWith('~') || /^[A-Za-z]:[\\/]/.test(text)) {
-    return '';
-  }
-
-  return text;
-}
-
-function publicAssetBaseForFeed(feed) {
-  const metadata = asObject(feed?.metadata);
-  return typeof metadata.publicAssetBaseUrl === 'string' ? metadata.publicAssetBaseUrl : feed?.publicBaseUrl || '';
-}
-
-function outputPathForFeed(feed) {
-  const metadata = asObject(feed?.metadata);
-  const storageConfig = asObject(feed?.storageConfig);
-  return safeVisiblePath(metadata.outputPath || storageConfig.outputPath || feed?.rssFeedPath || '');
 }
 
 function publishChecklist({ packet, script, revision, episode, assets, feed, jobs }) {

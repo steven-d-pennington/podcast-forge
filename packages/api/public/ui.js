@@ -25,9 +25,9 @@ import {
   sourceControlsSupported,
 } from './ui-formatters.js';
 
-function setStatus(message, debugDetails = '') {
+function setStatus(message, debugDetails = '', status = debugDetails ? 'warning' : 'info') {
   state.latestActionResult = {
-    status: debugDetails ? 'warning' : 'info',
+    status,
     message,
     source: 'ui',
   };
@@ -39,12 +39,12 @@ function setStatus(message, debugDetails = '') {
 
 function reportError(error, fallback = 'Something went wrong. Open technical details for the API response.') {
   if (error instanceof ApiRequestError) {
-    setStatus(error.message, error.debugDetails);
+    setStatus(error.message, error.debugDetails, 'error');
     return error.message;
   }
 
   const message = error instanceof Error && error.message ? error.message : fallback;
-  setStatus(fallback, message);
+  setStatus(fallback, message, 'error');
   return fallback;
 }
 
@@ -1625,7 +1625,7 @@ function renderPipeline() {
     els.pipelineStages.append(stageCard(stage));
   }
 
-  els.pipelineDebug.textContent = JSON.stringify({
+  els.pipelineDebug.textContent = JSON.stringify(sanitizedDebug({
     productionViewModel: viewModel,
     showSlug: state.selectedShowSlug,
     sourceProfileId: state.selectedProfileId,
@@ -1636,7 +1636,7 @@ function renderPipeline() {
     selectedRevisionId: state.selectedRevision?.id ?? null,
     selectedEpisodeId: state.selectedEpisodeId || state.production.episode?.id || null,
     selectedAssetIds: state.selectedAssetIds,
-  }, null, 2);
+  }), null, 2);
 }
 
 function renderQueries() {
