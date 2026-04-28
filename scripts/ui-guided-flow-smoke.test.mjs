@@ -93,7 +93,9 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(uiJs, 'viewModel.latestActionResult', 'command bar latest result from view model');
   assertContains(uiJs, 'viewModel.warnings.length', 'command bar warning count from view model');
   assertContains(uiJs, 'primary.disabled = actionBlocked', 'blocked command bar action disabled state');
+  assertContains(uiJs, "viewModel.activeArtifacts?.publishing?.title", 'command bar published episode fallback');
   assertContains(uiJs, 'No active episode yet', 'command bar active episode fallback');
+  assertContains(uiJs, "dataset.commandControl", 'command bar focus restoration control marker');
   assertContains(uiJs, 'Latest failure', 'command bar failure summary label');
   assertContains(uiJs, 'Stage details', 'command bar stage details button');
   assertContains(uiJs, 'function checklistBlockers(checklist', 'checklist blocker helper');
@@ -231,7 +233,7 @@ test('api helper does not mark empty POSTs as JSON bodies', () => {
 
 test('mobile workflow layout affordances are guarded', () => {
   assertMatches(stylesCss, /@media\s*\(max-width:\s*820px\)/, 'mobile breakpoint');
-  assertMatches(stylesCss, /@media\s*\(max-width:\s*820px\)[\s\S]*\.workflow-context,[\s\S]*\.next-action-panel,[\s\S]*\.pipeline-grid,[\s\S]*grid-template-columns:\s*1fr/, 'workflow areas stack on mobile');
+  assertMatches(stylesCss, /@media\s*\(max-width:\s*820px\)[\s\S]*\.production-command-bar,[\s\S]*\.workflow-context,[\s\S]*\.pipeline-grid,[\s\S]*grid-template-columns:\s*1fr/, 'workflow areas stack on mobile');
   assertMatches(stylesCss, /@media\s*\(max-width:\s*820px\)[\s\S]*\.surface-nav,[\s\S]*\.surface-tab,[\s\S]*width:\s*100%/, 'surface tabs become full-width on mobile');
   assertMatches(stylesCss, /@media\s*\(max-width:\s*820px\)[\s\S]*\.confirmation-actions,[\s\S]*\.confirmation-overlay[\s\S]*\.confirmation-dialog/, 'confirmation UI has mobile rules');
 });

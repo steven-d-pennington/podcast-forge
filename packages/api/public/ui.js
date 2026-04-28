@@ -1122,6 +1122,9 @@ function refreshProductionCommandBar() {
 }
 
 function renderProductionCommandBar(viewModel, stages) {
+  const activeCommandControl = els.productionCommandBar.contains(document.activeElement)
+    ? document.activeElement?.dataset?.commandControl
+    : null;
   els.productionCommandBar.innerHTML = '';
 
   if (!viewModel) {
@@ -1141,7 +1144,10 @@ function renderProductionCommandBar(viewModel, stages) {
   const blockerCount = viewModel.blockers.length;
   const result = viewModel.latestActionResult || { status: 'idle', message: 'No action result recorded yet.' };
   const showTitle = viewModel.selectedShowSummary?.title || 'No show selected';
-  const episodeTitle = viewModel.activeDraftEpisodeSummary?.title || 'No active episode yet';
+  const episodeTitle = viewModel.activeDraftEpisodeSummary?.title
+    || viewModel.activeArtifacts?.publishing?.title
+    || viewModel.latestArtifacts?.publishing?.title
+    || 'No active episode yet';
   const blockerId = 'production-command-blocker';
   const resultId = 'production-command-result';
 
@@ -1212,8 +1218,10 @@ function renderProductionCommandBar(viewModel, stages) {
     : blockerCount > 0
       ? `Current blocker: ${viewModel.blockers[0].message}`
       : 'Primary action is available.';
-
   els.productionCommandBar.append(context, metrics, feedback, controls, blocker);
+  if (activeCommandControl) {
+    els.productionCommandBar.querySelector(`[data-command-control="${activeCommandControl}"]`)?.focus();
+  }
 }
 
 function stageCard(stage) {
