@@ -92,7 +92,9 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(uiJs, 'viewModel.primaryNextAction', 'command bar primary action from view model');
   assertContains(uiJs, 'viewModel.latestActionResult', 'command bar latest result from view model');
   assertContains(uiJs, 'viewModel.warnings.length', 'command bar warning count from view model');
-  assertContains(uiJs, 'action: null,', 'command bar view-model actions navigate by default');
+  assertContains(uiJs, 'action: legacyStage?.disabled ? null : legacyStage?.action || null', 'command bar primary action should invoke available stage actions');
+  assertContains(uiJs, 'commandBarStatusLabel', 'command bar should render human-readable stage status');
+  assertContains(uiJs, 'openCommandBarPanel', 'command bar details should open hidden panels before scrolling');
   assertContains(uiJs, 'primary.disabled = actionBlocked', 'blocked command bar action disabled state');
   assertContains(uiJs, "viewModel.activeArtifacts?.publishing?.title", 'command bar published episode fallback');
   assertContains(uiJs, 'No active episode yet', 'command bar active episode fallback');

@@ -1066,6 +1066,26 @@ function commandBarDetailsTarget(stageId, stages) {
   return legacyStage?.targetId || commandBarStageTargets[stageId] || 'workflowPanel';
 }
 
+function commandBarStatusLabel(status) {
+  return String(status || 'unknown').replaceAll('-', ' ');
+}
+
+function openCommandBarPanel(targetId) {
+  if (panelIsAvailable(targetId)) {
+    scrollToPanel(targetId);
+    return;
+  }
+
+  if (targetId === 'showSetupForm') {
+    state.showSetupOpen = true;
+    render();
+    scrollToPanel(targetId);
+    return;
+  }
+
+  scrollToPanel(targetId);
+}
+
 function commandBarActionTarget(action, stages) {
   if (action.targetPanelId) {
     return { targetId: action.targetPanelId, action: null, disabled: false };
@@ -1117,6 +1137,7 @@ function renderProductionCommandBar(viewModel, stages) {
 
   const action = viewModel.primaryNextAction;
   const actionTarget = commandBarActionTarget(action, stages);
+  const currentStage = commandBarLegacyStage(viewModel.currentStage.id, stages);
   const actionTargetBlocked = Boolean(actionTarget.disabled);
   const actionBlocked = !action.enabled || actionTargetBlocked;
   const blockerReason = action.blockerReason
@@ -1148,7 +1169,7 @@ function renderProductionCommandBar(viewModel, stages) {
 
   const metrics = document.createElement('div');
   metrics.className = 'command-bar-metrics';
-  appendCommandBarMetric(metrics, 'Stage', `${viewModel.currentStage.label} | ${viewModel.currentStage.status}`);
+  appendCommandBarMetric(metrics, 'Stage', `${viewModel.currentStage.label} | ${commandBarStatusLabel(currentStage?.status || viewModel.currentStage.status)}`);
   appendCommandBarMetric(metrics, 'Warnings', String(warningCount), warningCount > 0 ? 'warning' : '');
   appendCommandBarMetric(metrics, 'Blockers', String(blockerCount), blockerCount > 0 ? 'blocked' : '');
 
@@ -1183,7 +1204,7 @@ function renderProductionCommandBar(viewModel, stages) {
       return;
     }
 
-    scrollToPanel(actionTarget.targetId || detailsTarget);
+    openCommandBarPanel(actionTarget.targetId || detailsTarget);
   });
 
   const details = document.createElement('button');
@@ -1191,7 +1212,7 @@ function renderProductionCommandBar(viewModel, stages) {
   details.className = 'secondary command-bar-details';
   details.dataset.commandControl = 'details';
   details.textContent = 'Stage details';
-  details.addEventListener('click', () => scrollToPanel(detailsTarget));
+  details.addEventListener('click', () => openCommandBarPanel(detailsTarget));
   controls.append(primary, details);
 
   const blocker = document.createElement('p');
