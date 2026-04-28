@@ -1044,18 +1044,6 @@ function nextActionFromStages(stages) {
   return running || runnable || blocked || stages[stages.length - 1];
 }
 
-const commandBarStageTitles = {
-  show: 'Choose show',
-  source: 'Find story candidates',
-  discover: 'Find story candidates',
-  story: 'Pick / cluster story',
-  brief: 'Build evidence brief',
-  script: 'Generate script',
-  review: 'Integrity review',
-  production: 'Produce audio / cover',
-  publishing: 'Approve and publish',
-};
-
 const commandBarStageTargets = {
   show: 'showSetupForm',
   source: 'settingsPanel',
@@ -1069,8 +1057,8 @@ const commandBarStageTargets = {
 };
 
 function commandBarLegacyStage(stageId, stages) {
-  const title = commandBarStageTitles[stageId];
-  return stages.find((stage) => stage.title === title) || null;
+  const legacyStageId = stageId === 'source' ? 'discover' : stageId;
+  return stages.find((stage) => stage.id === legacyStageId) || null;
 }
 
 function commandBarDetailsTarget(stageId, stages) {
@@ -1090,7 +1078,7 @@ function commandBarActionTarget(action, stages) {
   const legacyStage = commandBarLegacyStage(action.targetStage, stages);
   return {
     targetId: legacyStage?.targetId || commandBarDetailsTarget(action.targetStage, stages),
-    action: null,
+    action: legacyStage?.disabled ? null : legacyStage?.action || null,
     disabled: Boolean(legacyStage?.disabled),
     actionReason: legacyStage?.actionReason || '',
     blockers: legacyStage?.blockers || [],
@@ -1181,7 +1169,7 @@ function renderProductionCommandBar(viewModel, stages) {
   primary.className = 'command-bar-primary';
   primary.dataset.commandControl = 'primary';
   primary.textContent = action.label;
-  primary.setAttribute('aria-describedby', actionBlocked && blockerReason ? blockerId : resultId);
+  primary.setAttribute('aria-describedby', actionBlocked ? blockerId : resultId);
   primary.disabled = actionBlocked;
   primary.title = actionBlocked && blockerReason ? blockerReason : '';
   primary.addEventListener('click', () => {
@@ -1419,6 +1407,7 @@ function buildPipelineStages() {
 
   return [
     {
+      id: 'show',
       number: 1,
       title: 'Choose show',
       status: show && profile ? 'done' : show ? 'blocked' : 'not started',
@@ -1445,6 +1434,7 @@ function buildPipelineStages() {
       targetId: show ? 'settingsPanel' : 'showSetupForm',
     },
     {
+      id: 'discover',
       number: 2,
       title: 'Find story candidates',
       status: discoverRunning ? 'running' : !profile ? 'blocked' : state.storyCandidates.length > 0 ? 'done' : (profileSupportsDiscovery || profile.type === 'manual') ? 'ready' : 'blocked',
@@ -1480,6 +1470,7 @@ function buildPipelineStages() {
       jobTypes: ['source.search', 'source.ingest'],
     },
     {
+      id: 'story',
       number: 3,
       title: 'Pick / cluster story',
       status: state.storyCandidates.length === 0 ? 'blocked' : candidates.length > 0 ? 'done' : 'ready',
@@ -1502,6 +1493,7 @@ function buildPipelineStages() {
       targetId: 'candidatePanel',
     },
     {
+      id: 'brief',
       number: 4,
       title: 'Build evidence brief',
       status: researchRunning
@@ -1535,6 +1527,7 @@ function buildPipelineStages() {
       jobTypes: ['research.packet'],
     },
     {
+      id: 'script',
       number: 5,
       title: 'Generate script',
       status: scriptRunning ? 'running' : state.selectedScript ? 'done' : packet && !packetBlocked ? 'ready' : 'blocked',
@@ -1562,6 +1555,7 @@ function buildPipelineStages() {
       jobTypes: ['script.generate'],
     },
     {
+      id: 'review',
       number: 6,
       title: 'Integrity review',
       status: integrityRunning || approvalsRunning ? 'running' : scriptReadyForProduction ? 'done' : state.selectedScript && state.selectedRevision ? 'ready' : 'blocked',
@@ -1596,6 +1590,7 @@ function buildPipelineStages() {
       targetId: !state.selectedScript || !state.selectedRevision ? 'scriptPanel' : 'reviewPanel',
     },
     {
+      id: 'production',
       number: 7,
       title: 'Produce audio / cover',
       status: productionActionRunning ? 'running' : audioAsset && coverAsset ? 'done' : scriptReadyForProduction ? 'ready' : 'blocked',
@@ -1619,6 +1614,7 @@ function buildPipelineStages() {
       jobTypes: ['audio.preview', 'art.generate'],
     },
     {
+      id: 'publishing',
       number: 8,
       title: 'Approve and publish',
       status: publishRunning || approvalsRunning ? 'running' : episode?.status === 'published' ? 'done' : episode?.status === 'approved-for-publish' && publishChecklistReady ? 'ready' : episode?.status === 'audio-ready' && publishPreApprovalReady ? 'ready' : 'blocked',
