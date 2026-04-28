@@ -105,15 +105,35 @@ export function readPublishingMode(show) {
 }
 
 export function outputPathForFeed(feed) {
-  const metadata = asObject(feed.metadata);
-  const storageConfig = asObject(feed.storageConfig);
-  const value = metadata.outputPath || storageConfig.outputPath || feed.rssFeedPath || '';
+  const metadata = asObject(feed?.metadata);
+  const storageConfig = asObject(feed?.storageConfig);
+  const value = metadata.outputPath || storageConfig.outputPath || feed?.rssFeedPath || '';
   return typeof value === 'string' ? safeVisiblePath(value) : '';
 }
 
 export function publicAssetBaseForFeed(feed) {
-  const metadata = asObject(feed.metadata);
-  return typeof metadata.publicAssetBaseUrl === 'string' ? metadata.publicAssetBaseUrl : feed.publicBaseUrl || '';
+  const metadata = asObject(feed?.metadata);
+  return typeof metadata.publicAssetBaseUrl === 'string' ? metadata.publicAssetBaseUrl : feed?.publicBaseUrl || '';
+}
+
+export function validHttpUrl(value) {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+export function publishTargetConfiguredForFeed(feed) {
+  const publicFeedUrl = typeof feed?.publicFeedUrl === 'string' ? feed.publicFeedUrl.trim() : '';
+  const publicBaseUrl = publicAssetBaseForFeed(feed);
+  const rssFeedPath = typeof feed?.rssFeedPath === 'string' ? feed.rssFeedPath.trim() : '';
+  return Boolean(publicFeedUrl || (publicBaseUrl && rssFeedPath));
 }
 
 export function safeVisiblePath(value) {

@@ -41,7 +41,7 @@ describe('api config endpoints', () => {
     assert.equal(response.statusCode, 200);
     assert.match(String(response.headers['content-type'] ?? ''), /application\/javascript/);
     assert.match(String(response.headers['cache-control'] ?? ''), /no-store/);
-    for (const modulePath of ['./ui-api.js', './ui-constants.js', './ui-state.js', './ui-formatters.js']) {
+    for (const modulePath of ['./ui-api.js', './ui-constants.js', './ui-state.js', './ui-formatters.js', './ui-view-model.js']) {
       assert.match(response.body, new RegExp(`from\\s+['\"]${modulePath.replace(/[./]/g, '\\$&')}['\"]`));
     }
     assert.match(response.body, /renderSettings/);
@@ -82,6 +82,10 @@ describe('api config endpoints', () => {
       {
         path: '/ui-formatters.js',
         patterns: [/sourceControlsSupported/, /safeVisiblePath/, /linesToCast/],
+      },
+      {
+        path: '/ui-view-model.js',
+        patterns: [/deriveProductionViewModel/, /selectedShowSummary/, /primaryNextAction/],
       },
     ];
 

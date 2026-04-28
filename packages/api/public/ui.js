@@ -1,6 +1,7 @@
 import { api, ApiRequestError, debugText } from './ui-api.js';
 import { SETTINGS_SECTIONS, SURFACES } from './ui-constants.js';
 import { els, state } from './ui-state.js';
+import { deriveProductionViewModel, integrityReviewState as viewModelIntegrityReviewState } from './ui-view-model.js';
 import {
   applySourceControlState,
   applySourceControlStateToForms,
@@ -14,6 +15,7 @@ import {
   maybeNull,
   optionalNumber,
   outputPathForFeed,
+  publishTargetConfiguredForFeed,
   publicAssetBaseForFeed,
   readOnboardingSetting,
   readPublishingMode,
@@ -22,9 +24,15 @@ import {
   sanitizedDebug,
   slugify,
   sourceControlsSupported,
+  validHttpUrl,
 } from './ui-formatters.js';
 
-function setStatus(message, debugDetails = '') {
+function setStatus(message, debugDetails = '', status = debugDetails ? 'warning' : 'info') {
+  state.latestActionResult = {
+    status,
+    message,
+    source: 'ui',
+  };
   els.status.textContent = message;
   const detail = debugText(debugDetails);
   els.errorDetails.hidden = !detail;
@@ -33,12 +41,12 @@ function setStatus(message, debugDetails = '') {
 
 function reportError(error, fallback = 'Something went wrong. Open technical details for the API response.') {
   if (error instanceof ApiRequestError) {
-    setStatus(error.message, error.debugDetails);
+    setStatus(error.message, error.debugDetails, 'error');
     return error.message;
   }
 
   const message = error instanceof Error && error.message ? error.message : fallback;
-  setStatus(fallback, message);
+  setStatus(fallback, message, 'error');
   return fallback;
 }
 
@@ -447,42 +455,8 @@ function productionWarningItems() {
   ];
 }
 
-function validHttpUrl(value) {
-  if (!value) {
-    return false;
-  }
-
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
 function integrityReviewState(revision = state.selectedRevision) {
-  const review = asObject(revision?.metadata?.integrityReview);
-  const override = asObject(review.override);
-  const overrideReason = typeof override.reason === 'string' ? override.reason.trim() : '';
-
-  if (overrideReason) {
-    return {
-      status: 'overridden',
-      blocking: false,
-      review,
-      override,
-    };
-  }
-
-  const allowedStatuses = new Set(['pass', 'pass_with_notes', 'fail', 'missing']);
-  const status = allowedStatuses.has(review.status) ? review.status : 'missing';
-
-  return {
-    status,
-    blocking: status === 'fail' || status === 'missing',
-    review: status === 'missing' && !review.status ? null : review,
-    override: null,
-  };
+  return viewModelIntegrityReviewState(revision);
 }
 
 function integrityReviewPassed(revision = state.selectedRevision) {
@@ -620,7 +594,7 @@ function publishChecklistState() {
   const feedPublicUrl = feed?.publicFeedUrl || '';
   const publicBaseUrl = publicAssetBaseForFeed(feed || {});
   const feedConfigured = Boolean(feed);
-  const targetConfigured = Boolean(feed?.rssFeedPath || outputPathForFeed(feed || {}) || feedPublicUrl);
+  const targetConfigured = publishTargetConfiguredForFeed(feed || {});
   const feedUrlsValid = (!feedPublicUrl || validHttpUrl(feedPublicUrl)) && (!publicBaseUrl || validHttpUrl(publicBaseUrl));
   const audioValid = Boolean(audioAsset && audioAsset.mimeType?.startsWith('audio/') && (audioAsset.byteSize === null || audioAsset.byteSize > 0));
   const coverValid = Boolean(coverAsset && coverAsset.mimeType?.startsWith('image/'));
@@ -1585,6 +1559,7 @@ function buildPipelineStages() {
 }
 
 function renderPipeline() {
+  const viewModel = state.productionViewModel || deriveProductionViewModel(state);
   const show = selectedShow();
   const profile = selectedProfile();
   els.pipelineMeta.textContent = show
@@ -1618,7 +1593,8 @@ function renderPipeline() {
     els.pipelineStages.append(stageCard(stage));
   }
 
-  els.pipelineDebug.textContent = JSON.stringify({
+  els.pipelineDebug.textContent = JSON.stringify(sanitizedDebug({
+    productionViewModel: viewModel,
     showSlug: state.selectedShowSlug,
     sourceProfileId: state.selectedProfileId,
     selectedCandidateIds: state.selectedCandidateIds,
@@ -1628,7 +1604,7 @@ function renderPipeline() {
     selectedRevisionId: state.selectedRevision?.id ?? null,
     selectedEpisodeId: state.selectedEpisodeId || state.production.episode?.id || null,
     selectedAssetIds: state.selectedAssetIds,
-  }, null, 2);
+  }), null, 2);
 }
 
 function renderQueries() {
@@ -3492,6 +3468,7 @@ function renderReviewGates() {
 }
 
 function render() {
+  state.productionViewModel = deriveProductionViewModel(state);
   renderShows();
   renderSettings();
   renderPipeline();
