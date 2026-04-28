@@ -320,9 +320,11 @@ function publishChecklist({ packet, script, revision, episode, assets, feed, job
   const scriptApproved = Boolean(script && revision && script.status === 'approved-for-audio' && script.approvedRevisionId === revision.id);
   const feedPublicUrl = feed?.publicFeedUrl || '';
   const publicBaseUrl = publicAssetBaseForFeed(feed);
-  const rssFeedPath = typeof feed?.rssFeedPath === 'string' ? feed.rssFeedPath.trim() : '';
+  const feedMetadata = asObject(feed?.metadata);
+  const feedStorageConfig = asObject(feed?.storageConfig);
+  const rawTargetPath = firstPresent(feed?.rssFeedPath, feedMetadata.outputPath, feedStorageConfig.outputPath);
   const feedConfigured = Boolean(feed);
-  const targetConfigured = Boolean(feedPublicUrl || (publicBaseUrl && rssFeedPath));
+  const targetConfigured = Boolean(feedPublicUrl || (publicBaseUrl && rawTargetPath));
   const feedUrlsValid = (!feedPublicUrl || validHttpUrl(feedPublicUrl)) && (!publicBaseUrl || validHttpUrl(publicBaseUrl));
   const audioValid = Boolean(audio && audio.mimeType && audio.mimeType.startsWith('audio/') && (audio.byteSize === null || audio.byteSize === undefined || audio.byteSize > 0));
   const coverValid = Boolean(cover && cover.mimeType && cover.mimeType.startsWith('image/'));

@@ -524,6 +524,37 @@ test('view model accepts raw rss path with a public asset base as publish target
   assert.equal(model.blockers.some((blocker) => blocker.message.includes('RSS/public target configured')), false);
 });
 
+test('view model accepts metadata output path with a public asset base as publish target', () => {
+  const metadataOutputFeed = {
+    ...feed,
+    rssFeedPath: '',
+    publicFeedUrl: '',
+    publicBaseUrl: 'https://podcasts.example.com/assets/',
+    metadata: { outputPath: 'feeds/demo.xml' },
+    storageConfig: {},
+  };
+  const model = deriveProductionViewModel(baseInput({
+    feeds: [metadataOutputFeed],
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [readyBrief],
+    selectedResearchPacketId: 'brief-1',
+    scripts: [approvedScript],
+    selectedScriptId: 'script-1',
+    selectedScript: approvedScript,
+    selectedRevision: passedReviewRevision,
+    selectedRevisions: [passedReviewRevision],
+    production: { episode, assets: [audioAsset, coverAsset], jobs: [] },
+    episodes: [episode],
+    selectedEpisodeId: 'episode-1',
+    selectedAssetIds: ['asset-audio-1', 'asset-cover-1'],
+  }));
+
+  assert.equal(model.currentStage.id, 'publishing');
+  assert.equal(model.primaryNextAction.enabled, true);
+  assert.equal(model.blockers.some((blocker) => blocker.message.includes('RSS/public target configured')), false);
+});
+
 test('view model deduplicates overlapping recent and production jobs', () => {
   const recentJob = {
     id: 'job-1',
