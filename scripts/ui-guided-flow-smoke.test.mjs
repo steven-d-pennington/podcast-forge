@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { deriveProductionViewModel } from '../packages/api/public/ui-view-model.js';
+
 const repoRoot = new URL('../', import.meta.url);
 
 async function readProjectFile(path) {
@@ -45,7 +47,8 @@ test('guided workflow shell stays primary on /ui', () => {
   assertContains(indexHtml, 'id="workflowPanel"', 'workflow panel');
   assertContains(indexHtml, 'id="pipelineStages"', 'pipeline stage container');
   assertContains(indexHtml, 'id="workflowContext"', 'workflow context');
-  assertContains(indexHtml, 'id="nextActionPanel"', 'next action panel');
+  assertContains(indexHtml, 'id="productionCommandBar"', 'production command bar');
+  assertContains(indexHtml, 'Production command bar', 'production command bar label');
   assertMatches(indexHtml, /8-stage journey/i, 'workflow should describe the 8-stage journey');
 
   assert.ok(
@@ -84,10 +87,17 @@ test('editorial stage definitions remain intact and navigable', () => {
   assertContains(uiJs, "card.dataset.stage", 'stage cards should expose stage numbers');
 });
 
-test('next-best-action and concrete blocker copy remain present', () => {
-  assertContains(uiJs, 'function renderNextAction(stages)', 'next-best-action renderer');
+test('production command bar and concrete blocker copy remain present', () => {
+  assertContains(uiJs, 'function renderProductionCommandBar(viewModel, stages)', 'production command bar renderer');
+  assertContains(uiJs, 'viewModel.primaryNextAction', 'command bar primary action from view model');
+  assertContains(uiJs, 'viewModel.latestActionResult', 'command bar latest result from view model');
+  assertContains(uiJs, 'viewModel.warnings.length', 'command bar warning count from view model');
+  assertContains(uiJs, 'aria-disabled', 'blocked command bar action accessibility state');
+  assertContains(uiJs, 'No active episode yet', 'command bar active episode fallback');
+  assertContains(uiJs, 'Latest failure', 'command bar failure summary label');
+  assertContains(uiJs, 'Stage details', 'command bar stage details button');
   assertContains(uiJs, 'function checklistBlockers(checklist', 'checklist blocker helper');
-  assertContains(uiJs, 'next-action-blockers', 'next action blocker list');
+  assertContains(uiJs, 'command-bar-blocker', 'command bar blocker summary');
   assertContains(uiJs, 'Review Blockers', 'blocked action fallback');
 
   for (const checklistItem of [
@@ -114,6 +124,61 @@ test('next-best-action and concrete blocker copy remain present', () => {
   ]) {
     assertContains(uiJs, reason, `blocker reason ${reason}`);
   }
+});
+
+test('production command bar view-model fixtures expose primary action and blocker state', () => {
+  const show = {
+    id: 'show-1',
+    slug: 'demo-show',
+    title: 'Demo Show',
+  };
+  const query = {
+    id: 'query-1',
+    sourceProfileId: 'profile-1',
+    query: 'AI policy',
+    enabled: true,
+  };
+  const readyModel = deriveProductionViewModel({
+    shows: [show],
+    feeds: [],
+    profiles: [{ id: 'profile-1', slug: 'demo-sources', name: 'Demo Story Sources', type: 'brave', enabled: true }],
+    queries: [query],
+    storyCandidates: [],
+    researchPackets: [],
+    scripts: [],
+    selectedRevisions: [],
+    production: { episode: null, assets: [], jobs: [] },
+    recentJobs: [],
+    episodes: [],
+    selectedShowSlug: 'demo-show',
+    selectedProfileId: 'profile-1',
+    latestActionResult: { status: 'succeeded', message: 'Source search complete: 3 inserted, 0 skipped.', source: 'test' },
+  });
+
+  assert.equal(readyModel.currentStage.label, 'Find story candidates');
+  assert.equal(readyModel.primaryNextAction.label, 'Run source search');
+  assert.equal(readyModel.primaryNextAction.enabled, true);
+  assert.equal(readyModel.latestActionResult.message, 'Source search complete: 3 inserted, 0 skipped.');
+
+  const blockedModel = deriveProductionViewModel({
+    shows: [show],
+    feeds: [],
+    profiles: [{ id: 'profile-2', slug: 'archive', name: 'Archive Import', type: 'local-json', enabled: true }],
+    queries: [],
+    storyCandidates: [],
+    researchPackets: [],
+    scripts: [],
+    selectedRevisions: [],
+    production: { episode: null, assets: [], jobs: [] },
+    recentJobs: [],
+    episodes: [],
+    selectedShowSlug: 'demo-show',
+    selectedProfileId: 'profile-2',
+  });
+
+  assert.equal(blockedModel.primaryNextAction.label, 'Run source search');
+  assert.equal(blockedModel.primaryNextAction.enabled, false);
+  assert.equal(blockedModel.primaryNextAction.blockerReason, 'Choose a browser-supported story source before discovery.');
 });
 
 test('workflow, settings, and debug surfaces stay separated', () => {

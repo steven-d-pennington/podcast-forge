@@ -37,6 +37,7 @@ function setStatus(message, debugDetails = '', status = debugDetails ? 'warning'
   const detail = debugText(debugDetails);
   els.errorDetails.hidden = !detail;
   els.errorDetailsBody.textContent = detail;
+  refreshProductionCommandBar();
 }
 
 function reportError(error, fallback = 'Something went wrong. Open technical details for the API response.') {
@@ -1043,6 +1044,166 @@ function nextActionFromStages(stages) {
   return running || runnable || blocked || stages[stages.length - 1];
 }
 
+const commandBarStageTitles = {
+  show: 'Choose show',
+  source: 'Find story candidates',
+  discover: 'Find story candidates',
+  story: 'Pick / cluster story',
+  brief: 'Build evidence brief',
+  script: 'Generate script',
+  review: 'Integrity review',
+  production: 'Produce audio / cover',
+  publishing: 'Approve and publish',
+};
+
+const commandBarStageTargets = {
+  show: 'showSetupForm',
+  source: 'settingsPanel',
+  discover: 'settingsPanel',
+  story: 'candidatePanel',
+  brief: 'researchPanel',
+  script: 'scriptPanel',
+  review: 'reviewPanel',
+  production: 'productionPanel',
+  publishing: 'reviewPanel',
+};
+
+function commandBarLegacyStage(stageId, stages) {
+  const title = commandBarStageTitles[stageId];
+  return stages.find((stage) => stage.title === title) || null;
+}
+
+function commandBarDetailsTarget(stageId, stages) {
+  const legacyStage = commandBarLegacyStage(stageId, stages);
+  return legacyStage?.targetId || commandBarStageTargets[stageId] || 'workflowPanel';
+}
+
+function commandBarActionTarget(action, stages) {
+  if (action.targetStage === 'brief' && /^Resolve research warnings/i.test(action.label)) {
+    return { targetId: 'reviewPanel', action: null, disabled: false };
+  }
+
+  if (action.targetStage === 'source') {
+    return { targetId: 'settingsPanel', action: null, disabled: false };
+  }
+
+  const legacyStage = commandBarLegacyStage(action.targetStage, stages);
+  return legacyStage || {
+    targetId: commandBarDetailsTarget(action.targetStage, stages),
+    action: null,
+    disabled: false,
+  };
+}
+
+function appendCommandBarMetric(container, label, value, className = '') {
+  const item = document.createElement('div');
+  item.className = `command-bar-metric${className ? ` ${className}` : ''}`;
+  const itemLabel = document.createElement('span');
+  itemLabel.textContent = label;
+  const itemValue = document.createElement('strong');
+  itemValue.textContent = value;
+  item.append(itemLabel, itemValue);
+  container.append(item);
+}
+
+function refreshProductionCommandBar() {
+  if (!els.productionCommandBar) {
+    return;
+  }
+
+  state.productionViewModel = deriveProductionViewModel(state);
+  renderProductionCommandBar(state.productionViewModel, buildPipelineStages());
+}
+
+function renderProductionCommandBar(viewModel, stages) {
+  els.productionCommandBar.innerHTML = '';
+
+  if (!viewModel) {
+    return;
+  }
+
+  const action = viewModel.primaryNextAction;
+  const actionTarget = commandBarActionTarget(action, stages);
+  const actionBlocked = !action.enabled;
+  const blockerReason = action.blockerReason || viewModel.blockers[0]?.message || '';
+  const detailsTarget = commandBarDetailsTarget(viewModel.currentStage.id, stages);
+  const warningCount = viewModel.warnings.length;
+  const blockerCount = viewModel.blockers.length;
+  const result = viewModel.latestActionResult || { status: 'idle', message: 'No action result recorded yet.' };
+  const showTitle = viewModel.selectedShowSummary?.title || 'No show selected';
+  const episodeTitle = viewModel.activeDraftEpisodeSummary?.title || 'No active episode yet';
+  const blockerId = 'production-command-blocker';
+  const resultId = 'production-command-result';
+
+  const context = document.createElement('div');
+  context.className = 'command-bar-context';
+  const kicker = document.createElement('span');
+  kicker.className = 'command-bar-kicker';
+  kicker.textContent = 'Producing';
+  const heading = document.createElement('h2');
+  heading.textContent = showTitle;
+  const episode = document.createElement('p');
+  episode.textContent = episodeTitle;
+  context.append(kicker, heading, episode);
+
+  const metrics = document.createElement('div');
+  metrics.className = 'command-bar-metrics';
+  appendCommandBarMetric(metrics, 'Stage', `${viewModel.currentStage.label} | ${viewModel.currentStage.status}`);
+  appendCommandBarMetric(metrics, 'Warnings', String(warningCount), warningCount > 0 ? 'warning' : '');
+  appendCommandBarMetric(metrics, 'Blockers', String(blockerCount), blockerCount > 0 ? 'blocked' : '');
+
+  const feedback = document.createElement('div');
+  feedback.className = `command-bar-result ${statusClass(result.status || 'idle')}`;
+  feedback.id = resultId;
+  feedback.setAttribute('aria-live', 'polite');
+  const feedbackLabel = document.createElement('span');
+  feedbackLabel.textContent = result.status === 'error' || result.status === 'failed' ? 'Latest failure' : 'Latest result';
+  const feedbackMessage = document.createElement('strong');
+  feedbackMessage.textContent = result.message || 'No action result recorded yet.';
+  feedback.append(feedbackLabel, feedbackMessage);
+
+  const controls = document.createElement('div');
+  controls.className = 'command-bar-controls';
+  const primary = document.createElement('button');
+  primary.type = 'button';
+  primary.className = 'command-bar-primary';
+  primary.textContent = action.label;
+  primary.setAttribute('aria-describedby', actionBlocked && blockerReason ? blockerId : resultId);
+  primary.setAttribute('aria-disabled', actionBlocked ? 'true' : 'false');
+  primary.title = actionBlocked && blockerReason ? blockerReason : '';
+  primary.addEventListener('click', () => {
+    if (actionBlocked) {
+      setStatus(`Action blocked: ${blockerReason || 'the current workflow state blocks this action.'}`, '', 'warning');
+      return;
+    }
+
+    if (!actionTarget.disabled && typeof actionTarget.action === 'function') {
+      actionTarget.action();
+      return;
+    }
+
+    scrollToPanel(actionTarget.targetId || detailsTarget);
+  });
+
+  const details = document.createElement('button');
+  details.type = 'button';
+  details.className = 'secondary command-bar-details';
+  details.textContent = 'Stage details';
+  details.addEventListener('click', () => scrollToPanel(detailsTarget));
+  controls.append(primary, details);
+
+  const blocker = document.createElement('p');
+  blocker.id = blockerId;
+  blocker.className = `command-bar-blocker${actionBlocked ? ' visible' : ''}`;
+  blocker.textContent = actionBlocked
+    ? `Blocked: ${blockerReason || 'the current workflow state blocks this action.'}`
+    : blockerCount > 0
+      ? `Current blocker: ${viewModel.blockers[0].message}`
+      : 'Primary action is available.';
+
+  els.productionCommandBar.append(context, metrics, feedback, controls, blocker);
+}
+
 function renderNextAction(stages) {
   const stage = nextActionFromStages(stages);
   els.nextActionPanel.innerHTML = '';
@@ -1586,7 +1747,7 @@ function renderPipeline() {
   }
 
   const stages = buildPipelineStages();
-  renderNextAction(stages);
+  renderProductionCommandBar(viewModel, stages);
   els.pipelineStages.innerHTML = '';
 
   for (const stage of stages) {

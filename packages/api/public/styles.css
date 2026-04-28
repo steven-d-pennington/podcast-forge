@@ -189,6 +189,147 @@ button:disabled {
   min-width: 0;
 }
 
+.production-command-bar {
+  align-items: stretch;
+  background: #ffffff;
+  border: 1px solid #b8c7d9;
+  border-radius: 8px;
+  box-shadow: 0 16px 34px rgba(31, 91, 149, 0.14);
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: minmax(190px, 1.2fr) minmax(210px, 1fr) minmax(220px, 1.2fr) auto;
+  padding: 0.9rem;
+  position: sticky;
+  top: 0.75rem;
+  z-index: 20;
+}
+
+.command-bar-context,
+.command-bar-result {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.command-bar-kicker,
+.command-bar-metric span,
+.command-bar-result span {
+  color: #687486;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.command-bar-context h2,
+.command-bar-context p,
+.command-bar-result strong,
+.command-bar-blocker {
+  margin: 0;
+}
+
+.command-bar-context h2 {
+  color: #20242c;
+  font-size: 1.05rem;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.command-bar-context p,
+.command-bar-result strong,
+.command-bar-blocker {
+  color: #3f4b5a;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.command-bar-metrics {
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.command-bar-metric {
+  background: #f8fafc;
+  border: 1px solid #d8dde5;
+  border-radius: 6px;
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+  padding: 0.45rem 0.55rem;
+}
+
+.command-bar-metric strong {
+  color: #20242c;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.command-bar-metric.warning {
+  background: #fff9d9;
+  border-color: #d8cf73;
+}
+
+.command-bar-metric.blocked {
+  background: #fff1df;
+  border-color: #e2c391;
+}
+
+.command-bar-result {
+  background: #f8fafc;
+  border: 1px solid #d8dde5;
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+}
+
+.command-bar-result.error,
+.command-bar-result.failed {
+  background: #fff4f4;
+  border-color: #c55353;
+}
+
+.command-bar-result.warning {
+  background: #fff9d9;
+  border-color: #d8cf73;
+}
+
+.command-bar-controls {
+  align-content: center;
+  display: grid;
+  gap: 0.45rem;
+  justify-items: stretch;
+}
+
+.production-command-bar .command-bar-primary {
+  min-height: 2.55rem;
+  min-width: 11rem;
+}
+
+.production-command-bar .command-bar-primary[aria-disabled="true"] {
+  background: #eef1f5;
+  border-color: #c9ced6;
+  color: #586575;
+  cursor: not-allowed;
+}
+
+.command-bar-details {
+  min-height: 2.35rem;
+}
+
+.command-bar-blocker {
+  background: #f8fafc;
+  border: 1px solid #d8dde5;
+  border-radius: 6px;
+  grid-column: 1 / -1;
+  padding: 0.5rem 0.6rem;
+}
+
+.command-bar-blocker.visible {
+  background: #fff1df;
+  border-color: #e2c391;
+  color: #70440f;
+}
+
 .panel.pipeline-panel {
   border-color: #b8c7d9;
   box-shadow: 0 10px 30px rgba(31, 91, 149, 0.08);
@@ -1403,6 +1544,7 @@ textarea {
   .layout,
   .grid,
   .grid.two,
+  .production-command-bar,
   .workflow-context,
   .next-action-panel,
   .pipeline-grid,
@@ -1444,6 +1586,16 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .production-command-bar {
+    top: 0.5rem;
+  }
+
+  .command-bar-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .command-bar-controls,
+  .command-bar-controls button,
   .next-action-controls,
   .next-action-controls button,
   .confirmation-actions,
