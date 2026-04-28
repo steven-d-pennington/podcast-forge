@@ -434,6 +434,38 @@ function assetContentType(asset: EpisodeAssetRecord) {
   return 'application/octet-stream';
 }
 
+function normalizedClientIp(ip: string) {
+  const trimmed = ip.trim().replace(/^\[/, '').replace(/\]$/, '');
+  return trimmed.startsWith('::ffff:') ? trimmed.slice('::ffff:'.length) : trimmed;
+}
+
+function isLocalOrPrivateClientIp(ip: string) {
+  const normalized = normalizedClientIp(ip);
+
+  if (normalized === 'localhost' || normalized === '::1' || normalized === '0:0:0:0:0:0:0:1') {
+    return true;
+  }
+
+  const octets = normalized.split('.').map((part) => Number(part));
+  if (octets.length === 4 && octets.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)) {
+    const [first, second] = octets;
+    return first === 10
+      || first === 127
+      || (first === 172 && second >= 16 && second <= 31)
+      || (first === 192 && second === 168)
+      || (first === 169 && second === 254);
+  }
+
+  const lower = normalized.toLowerCase();
+  return lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('fe80:');
+}
+
+function assertLocalAssetRequest(ip: string) {
+  if (!isLocalOrPrivateClientIp(ip)) {
+    throw new ApiError(403, 'ASSET_CONTENT_LOCAL_ONLY', 'Generated asset content is only available to local or private-network clients.');
+  }
+}
+
 function assertApprovedScript(script: ScriptRecord): asserts script is ScriptRecord & { approvedRevisionId: string } {
   if (script.status !== 'approved-for-audio' || !script.approvedRevisionId) {
     throw new ApiError(409, 'SCRIPT_NOT_APPROVED_FOR_AUDIO', 'Script must be approved for audio before production jobs can run.');
@@ -1122,6 +1154,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
     Querystring: { download?: string };
   }>('/episodes/:episodeId/assets/:assetId/content', async (request, reply) => {
     try {
+      assertLocalAssetRequest(request.ip);
       const rawStore = options.getStore();
       const productionStore = requireProductionStore(rawStore);
       const episode = await productionStore.getEpisode(request.params.episodeId);

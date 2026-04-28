@@ -3025,6 +3025,15 @@ describe('source profile routes', () => {
     assert.equal(coverAssetResponse.statusCode, 200);
     assert.match(String(coverAssetResponse.headers['content-type'] ?? ''), /image\/png/);
 
+    const publicClientResponse = await app.inject({
+      method: 'GET',
+      url: `/episodes/${audioBody.episode.id}/assets/${audioBody.asset.id}/content`,
+      remoteAddress: '203.0.113.10',
+    });
+
+    assert.equal(publicClientResponse.statusCode, 403);
+    assert.equal(publicClientResponse.json().code, 'ASSET_CONTENT_LOCAL_ONLY');
+
     const blockedAsset = await store.createEpisodeAsset({
       episodeId: audioBody.episode.id,
       type: 'audio-preview',

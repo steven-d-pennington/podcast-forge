@@ -466,10 +466,6 @@ function isAudioAsset(asset) {
   return asset?.type === 'audio-preview' || asset?.type === 'audio-final' || asset?.mimeType?.startsWith('audio/');
 }
 
-function isCoverAsset(asset) {
-  return asset?.type === 'cover-art' || asset?.mimeType?.startsWith('image/');
-}
-
 function isLocalUiHost() {
   const hostname = window.location.hostname.toLowerCase();
   const privateLanPattern = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/;
