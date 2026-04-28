@@ -1026,6 +1026,61 @@ function stageIsComplete(stage) {
   return stage.status === 'done';
 }
 
+function stageStatusLabel(stage, currentStageId) {
+  if (stage.id === currentStageId) {
+    return 'current';
+  }
+
+  if (stage.status === 'done') {
+    return 'complete';
+  }
+
+  if (stage.status === 'needs review' || stage.status === 'needs-review') {
+    return 'warning';
+  }
+
+  if (stage.status === 'not started') {
+    return 'not started';
+  }
+
+  if (stage.status === 'blocked') {
+    return 'blocked';
+  }
+
+  if (stage.status === 'ready') {
+    return 'ready';
+  }
+
+  return String(stage.status || 'not started');
+}
+
+function currentPipelineStageId(viewModel, stages) {
+  const viewModelStageId = viewModel?.currentStage?.id === 'source'
+    ? 'show'
+    : viewModel?.currentStage?.id;
+
+  if (viewModelStageId && stages.some((stage) => stage.id === viewModelStageId)) {
+    return viewModelStageId;
+  }
+
+  return stages.find((stage) => !stageIsComplete(stage))?.id || stages[stages.length - 1]?.id || '';
+}
+
+function pipelineStageIsExpanded(stage, currentStageId) {
+  return stage.id === currentStageId || state.expandedPipelineStageIds.includes(stage.id);
+}
+
+function setPipelineStageExpanded(stageId, expanded) {
+  const expandedIds = new Set(state.expandedPipelineStageIds);
+  if (expanded) {
+    expandedIds.add(stageId);
+  } else {
+    expandedIds.delete(stageId);
+  }
+  state.expandedPipelineStageIds = [...expandedIds];
+  renderPipeline();
+}
+
 function checklistBlockers(checklist, includePublishApproval = true) {
   return checklist
     .filter((item) => !item.passed && (includePublishApproval || item.key !== 'publishApproval'))
@@ -1215,10 +1270,14 @@ function renderProductionCommandBar(viewModel, stages) {
   }
 }
 
-function stageCard(stage) {
+function stageCard(stage, currentStageId = '') {
+  const statusLabel = stageStatusLabel(stage, currentStageId);
+  const expanded = pipelineStageIsExpanded(stage, currentStageId);
   const card = document.createElement('article');
-  card.className = `pipeline-card ${statusClass(stage.status)}${stage.active ? ' active' : ''}`;
+  card.className = `pipeline-card ${statusClass(statusLabel)}${expanded ? ' expanded' : ' collapsed'}${stage.id === currentStageId ? ' current' : ''}`;
   card.dataset.stage = String(stage.number);
+  card.dataset.stageId = stage.id;
+  card.dataset.stageStatus = statusLabel;
 
   const top = document.createElement('div');
   top.className = 'pipeline-top';
@@ -1230,9 +1289,35 @@ function stageCard(stage) {
   title.textContent = stage.title;
   heading.append(step, title);
   const status = document.createElement('span');
-  status.className = `status-pill ${statusClass(stage.status)}`;
-  status.textContent = stage.status;
+  status.className = `status-pill ${statusClass(statusLabel)}`;
+  status.textContent = statusLabel;
   top.append(heading, status);
+
+  const summary = document.createElement('div');
+  summary.className = 'pipeline-summary';
+  const summaryText = document.createElement('p');
+  summaryText.textContent = stage.artifact;
+  const summaryNext = document.createElement('p');
+  summaryNext.textContent = stage.blockers?.length
+    ? `Blocked: ${stage.blockers[0]}`
+    : stage.next;
+  summary.append(summaryText, summaryNext);
+  card.append(top, summary);
+
+  if (!expanded) {
+    const expandButton = document.createElement('button');
+    expandButton.type = 'button';
+    expandButton.className = 'secondary pipeline-expand';
+    expandButton.textContent = 'Expand stage';
+    expandButton.setAttribute('aria-expanded', 'false');
+    expandButton.setAttribute('aria-label', `Expand ${stage.title}`);
+    expandButton.addEventListener('click', () => setPipelineStageExpanded(stage.id, true));
+    card.append(expandButton);
+    return card;
+  }
+
+  const body = document.createElement('div');
+  body.className = 'pipeline-card-body';
 
   const artifacts = document.createElement('div');
   artifacts.className = 'pipeline-artifacts';
@@ -1252,6 +1337,17 @@ function stageCard(stage) {
   nextText.textContent = stage.next;
   next.append(nextLabel, nextText);
 
+  if (stage.blockers?.length) {
+    const blockers = document.createElement('ul');
+    blockers.className = 'pipeline-blockers';
+    for (const blocker of stage.blockers) {
+      const item = document.createElement('li');
+      item.textContent = blocker;
+      blockers.append(item);
+    }
+    body.append(blockers);
+  }
+
   const button = document.createElement('button');
   button.type = 'button';
   button.className = stage.primary ? '' : 'secondary';
@@ -1266,7 +1362,7 @@ function stageCard(stage) {
   actionReason.className = `pipeline-action-reason${stage.disabled ? ' blocked' : ''}`;
   actionReason.textContent = stage.actionReason || (stage.disabled ? stage.next : `Action available: ${stage.next}`);
 
-  card.append(top, artifacts, next, button, actionReason);
+  body.append(artifacts, next, button, actionReason);
 
   if (stage.targetId && panelIsAvailable(stage.targetId)) {
     const panelButton = document.createElement('button');
@@ -1274,7 +1370,7 @@ function stageCard(stage) {
     panelButton.className = 'secondary';
     panelButton.textContent = 'Open Stage Panel';
     panelButton.addEventListener('click', () => scrollToPanel(stage.targetId));
-    card.append(panelButton);
+    body.append(panelButton);
   }
 
   if (stage.jobTypes?.length) {
@@ -1284,9 +1380,21 @@ function stageCard(stage) {
     jobButton.textContent = 'View Latest Run';
     jobButton.disabled = !latestRunForTypes(stage.jobTypes);
     jobButton.addEventListener('click', () => viewLatestJob(stage.jobTypes));
-    card.append(jobButton);
+    body.append(jobButton);
   }
 
+  if (stage.id !== currentStageId) {
+    const collapseButton = document.createElement('button');
+    collapseButton.type = 'button';
+    collapseButton.className = 'secondary pipeline-expand';
+    collapseButton.textContent = 'Collapse stage';
+    collapseButton.setAttribute('aria-expanded', 'true');
+    collapseButton.setAttribute('aria-label', `Collapse ${stage.title}`);
+    collapseButton.addEventListener('click', () => setPipelineStageExpanded(stage.id, false));
+    body.append(collapseButton);
+  }
+
+  card.append(body);
   return card;
 }
 
@@ -1686,11 +1794,12 @@ function renderPipeline() {
   }
 
   const stages = buildPipelineStages();
+  const currentStageId = currentPipelineStageId(viewModel, stages);
   renderProductionCommandBar(viewModel, stages);
   els.pipelineStages.innerHTML = '';
 
   for (const stage of stages) {
-    els.pipelineStages.append(stageCard(stage));
+    els.pipelineStages.append(stageCard(stage, currentStageId));
   }
 
   els.pipelineDebug.textContent = JSON.stringify(sanitizedDebug({
