@@ -118,6 +118,8 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(uiJs, 'function renderProductionCommandBar(viewModel, stages)', 'production command bar renderer');
   assertContains(uiJs, 'viewModel.primaryNextAction', 'command bar primary action from view model');
   assertContains(uiJs, 'viewModel.latestActionResult', 'command bar latest result from view model');
+  assertContains(uiJs, 'viewModel.workflowActionFeedback', 'command bar workflow feedback from view model');
+  assertContains(uiJs, "viewModel.workflowActionFeedback.status !== 'idle'", 'idle workflow feedback should not render as a persistent panel');
   assertContains(uiJs, 'viewModel.warnings.length', 'command bar warning count from view model');
   assertContains(uiJs, 'action: legacyStage?.disabled ? null : legacyStage?.action || null', 'command bar primary action should invoke available stage actions');
   assertContains(uiJs, 'commandBarStatusLabel(viewModel.currentStage.status)', 'command bar stage status should stay aligned to the view model');
@@ -128,6 +130,13 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(uiJs, "dataset.commandControl", 'command bar focus restoration control marker');
   assertContains(uiJs, 'Latest failure', 'command bar failure summary label');
   assertContains(uiJs, 'Stage details', 'command bar stage details button');
+  assertContains(uiJs, 'function renderWorkflowFeedbackPanel(feedback', 'workflow feedback panel renderer');
+  assertContains(uiJs, 'function attachWorkflowFeedback(stages, viewModel, currentStageId)', 'stage feedback attachment helper');
+  assertContains(uiJs, "label.textContent = compact ? 'Current stage result' : 'Action result'", 'current stage result label');
+  assertContains(uiJs, 'workflowFeedbackDetailText(feedback)', 'feedback details keep warning/debug data available');
+  assertContains(stylesCss, '.workflow-feedback-panel.warning', 'workflow feedback warning style');
+  assertContains(stylesCss, '.workflow-feedback-panel.blocked', 'workflow feedback blocked style');
+  assertContains(stylesCss, '.workflow-feedback-details pre', 'workflow feedback detail style');
   assertContains(uiJs, 'function checklistBlockers(checklist', 'checklist blocker helper');
   assertContains(uiJs, 'command-bar-blocker', 'command bar blocker summary');
   assertContains(uiJs, 'artifactScopeWarnings', 'view model archive warnings should render in workflow context');
@@ -160,6 +169,130 @@ test('production command bar and concrete blocker copy remain present', () => {
   ]) {
     assertContains(uiJs, reason, `blocker reason ${reason}`);
   }
+});
+
+test('workflow action feedback view-model covers success warnings and blockers', () => {
+  const show = {
+    id: 'show-1',
+    slug: 'demo-show',
+    title: 'Demo Show',
+  };
+  const query = {
+    id: 'query-1',
+    sourceProfileId: 'profile-1',
+    query: 'AI policy',
+    enabled: true,
+  };
+  const baseState = {
+    shows: [show],
+    feeds: [],
+    profiles: [{ id: 'profile-1', slug: 'demo-sources', name: 'Demo Story Sources', type: 'brave', enabled: true }],
+    queries: [query],
+    storyCandidates: [],
+    researchPackets: [],
+    scripts: [],
+    selectedRevisions: [],
+    production: { episode: null, assets: [], jobs: [] },
+    episodes: [],
+    selectedShowSlug: 'demo-show',
+    selectedProfileId: 'profile-1',
+  };
+
+  const successModel = deriveProductionViewModel({
+    ...baseState,
+    recentJobs: [{
+      id: 'job-search-ok',
+      type: 'source.search',
+      status: 'succeeded',
+      input: { sourceProfileId: 'profile-1', sourceProfileSlug: 'demo-sources' },
+      output: { inserted: 3, updated: 1, skipped: 2 },
+      updatedAt: '2026-04-28T12:00:00Z',
+    }],
+  });
+
+  assert.equal(successModel.workflowActionFeedback.status, 'succeeded');
+  assert.equal(successModel.workflowActionFeedback.stage, 'discover');
+  assert.match(successModel.workflowActionFeedback.message, /3 inserted, 1 updated, 2 skipped/);
+  assert.match(successModel.latestActionResult.conciseMessage, /Source search succeeded/);
+  assert.match(successModel.workflowActionFeedback.nextStep, /Review candidate stories/);
+
+  const warningModel = deriveProductionViewModel({
+    ...baseState,
+    recentJobs: [{
+      id: 'job-search-warning',
+      type: 'source.search',
+      status: 'succeeded',
+      input: { sourceProfileId: 'profile-1', sourceProfileSlug: 'demo-sources' },
+      output: { inserted: 2, skipped: 1, warnings: [{ code: 'DOMAIN_DROPPED', message: 'Filtered one blocked domain.' }] },
+      updatedAt: '2026-04-28T12:05:00Z',
+    }],
+  });
+
+  assert.equal(warningModel.workflowActionFeedback.status, 'warning');
+  assert.equal(warningModel.workflowActionFeedback.warnings.length, 1);
+  assert.match(warningModel.workflowActionFeedback.message, /1 warning/);
+  assert.match(warningModel.workflowActionFeedback.nextStep, /full warning records/);
+
+  const blockedModel = deriveProductionViewModel({
+    ...baseState,
+    profiles: [{
+      id: 'profile-1',
+      slug: 'demo-sources',
+      name: 'Demo Story Sources',
+      type: 'brave',
+      enabled: true,
+      credentialStatus: { required: true, available: false, label: 'Brave credential missing' },
+    }],
+    recentJobs: [{
+      id: 'job-stale-warning',
+      type: 'source.search',
+      status: 'succeeded',
+      input: { sourceProfileId: 'profile-1', sourceProfileSlug: 'demo-sources' },
+      output: { inserted: 0, warnings: [{ code: 'STALE', message: 'Previous search warning.' }] },
+      updatedAt: '2026-04-28T12:10:00Z',
+    }],
+  });
+
+  assert.equal(blockedModel.workflowActionFeedback.status, 'blocked');
+  assert.equal(blockedModel.workflowActionFeedback.stage, 'discover');
+  assert.match(blockedModel.workflowActionFeedback.message, /Search Brave blocked: Brave credential missing/);
+  assert.equal(blockedModel.workflowActionFeedback.nextStep, 'Brave credential missing');
+});
+
+test('workflow action feedback gives failure next-step guidance for jobs', () => {
+  const show = {
+    id: 'show-1',
+    slug: 'demo-show',
+    title: 'Demo Show',
+  };
+  const failureModel = deriveProductionViewModel({
+    shows: [show],
+    feeds: [],
+    profiles: [{ id: 'profile-1', slug: 'demo-sources', name: 'Demo Story Sources', type: 'brave', enabled: true }],
+    queries: [{ id: 'query-1', sourceProfileId: 'profile-1', query: 'AI policy', enabled: true }],
+    storyCandidates: [{ id: 'candidate-1', title: 'Policy Story', status: 'selected', canonicalUrl: 'https://example.com/story' }],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [],
+    scripts: [],
+    selectedRevisions: [],
+    production: { episode: null, assets: [], jobs: [] },
+    recentJobs: [{
+      id: 'job-brief-failed',
+      type: 'research.packet',
+      status: 'failed',
+      error: 'Source fetch failed',
+      updatedAt: '2026-04-28T13:00:00Z',
+    }],
+    episodes: [],
+    selectedShowSlug: 'demo-show',
+    selectedProfileId: 'profile-1',
+  });
+
+  assert.equal(failureModel.workflowActionFeedback.status, 'failed');
+  assert.equal(failureModel.workflowActionFeedback.stage, 'brief');
+  assert.match(failureModel.workflowActionFeedback.message, /Research brief build failed: Source fetch failed/);
+  assert.match(failureModel.workflowActionFeedback.nextStep, /source availability before rebuilding/);
+  assert.equal(failureModel.workflowActionFeedback.job.id, 'job-brief-failed');
 });
 
 test('production command bar view-model fixtures expose primary action and blocker state', () => {
