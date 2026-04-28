@@ -132,6 +132,8 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(uiJs, 'command-bar-blocker', 'command bar blocker summary');
   assertContains(uiJs, 'artifactScopeWarnings', 'view model archive warnings should render in workflow context');
   assertContains(uiJs, 'History/archive records remain available for audit, but production and publishing actions use active/current artifacts only.', 'workflow should explain active versus archive state');
+  assertContains(uiJs, 'const researchPacketId = selectedResearchPacket()?.id', 'script generation should use active/current research packet selection');
+  assert.doesNotMatch(uiJs, /const researchPacketId = state\.selectedResearchPacketId/, 'script generation must not post archived saved packet ids');
   assert.doesNotMatch(uiJs, /latestArtifacts\?\.publishing\?\.title/, 'command bar must not present archived/latest episodes as active production context');
 
   for (const checklistItem of [

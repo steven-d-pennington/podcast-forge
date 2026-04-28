@@ -4310,7 +4310,7 @@ async function buildResearchBriefFromSelected() {
 }
 
 async function generateScriptFromSelectedResearch() {
-  const researchPacketId = state.selectedResearchPacketId || els.scriptResearchPacketId.value.trim();
+  const researchPacketId = selectedResearchPacket()?.id || els.scriptResearchPacketId.value.trim();
 
   if (!researchPacketId) {
     return;
