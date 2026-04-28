@@ -1327,7 +1327,7 @@ function buildPipelineStages() {
   const productionActionRunning = productionRunning || isActionRunning('production');
   const packetWarningCount = packet?.warnings?.length || 0;
   const packetBlocked = packet?.status === 'blocked';
-  const profileSupportsDiscovery = profile && ['brave', 'rss'].includes(profile.type);
+  const profileSupportsDiscovery = profile && ['brave', 'zai-web', 'rss'].includes(profile.type);
   const checklist = publishChecklistState();
   const publishChecklistReady = checklist.every((item) => item.passed);
   const publishPreApprovalReady = checklist.filter((item) => item.key !== 'publishApproval').every((item) => item.passed);
@@ -1395,13 +1395,13 @@ function buildPipelineStages() {
             ? 'Add a manual URL to create a candidate story with explicit source provenance.'
             : profileSupportsDiscovery
               ? `Ready: run ${profile.type === 'rss' ? 'RSS import' : 'source search'} to load candidate stories.`
-              : 'Blocked: this story source type cannot run discovery from the browser; use Brave, RSS, or manual intake.',
+              : 'Blocked: this story source type cannot run discovery from the browser; use Brave, Z.AI, RSS, or manual intake.',
       blockers: !profile
         ? ['Choose a story source/search recipe.']
         : !profileSupportsDiscovery && profile.type !== 'manual'
-          ? ['Choose a Brave, RSS, or manual story source for browser-triggered discovery.']
+          ? ['Choose a Brave, Z.AI, RSS, or manual story source for browser-triggered discovery.']
           : [],
-      actionLabel: !profile ? 'Choose Story Source' : profile.type === 'rss' ? 'Import RSS Items' : profile.type === 'brave' ? 'Run Source Search' : profile.type === 'manual' ? 'Add Manual Story' : 'Open Source Settings',
+      actionLabel: !profile ? 'Choose Story Source' : profile.type === 'rss' ? 'Import RSS Items' : ['brave', 'zai-web'].includes(profile.type) ? 'Run Source Search' : profile.type === 'manual' ? 'Add Manual Story' : 'Open Source Settings',
       action: !profile ? () => scrollToPanel('settingsPanel') : profileSupportsDiscovery ? runSelectedProfileDiscovery : profile.type === 'manual' ? focusManualStoryForm : () => scrollToPanel('settingsPanel'),
       disabled: discoverRunning,
       active: state.storyCandidates.length > 0,
@@ -2277,7 +2277,7 @@ function renderSettingsSources() {
       <div class="grid">
         <label class="field"><span>Name</span><input name="name" type="text" required></label>
         <label class="field"><span>Slug</span><input name="slug" type="text" required></label>
-        <label class="field"><span>Type</span><select name="type"><option value="brave">Brave</option><option value="rss">RSS</option><option value="manual">Manual</option><option value="local-json">Local JSON</option></select></label>
+        <label class="field"><span>Type</span><select name="type"><option value="brave">Brave</option><option value="zai-web">Z.AI Web Search</option><option value="rss">RSS</option><option value="manual">Manual</option><option value="local-json">Local JSON</option></select></label>
         <label class="field"><span>Weight</span><input name="weight" type="number" min="0" step="0.001" required></label>
         <label class="field"><span>Freshness window</span><input name="freshness" type="text" placeholder="pd, pw, pm"></label>
         <label class="toggle admin-toggle"><input name="enabled" type="checkbox"><span>Enabled</span></label>
@@ -3866,7 +3866,7 @@ function syncClusterFormFromInputs() {
 async function runSelectedProfileDiscovery() {
   const profile = selectedProfile();
 
-  if (!profile || !['brave', 'rss'].includes(profile.type)) {
+  if (!profile || !['brave', 'zai-web', 'rss'].includes(profile.type)) {
     focusManualStoryForm();
     return;
   }

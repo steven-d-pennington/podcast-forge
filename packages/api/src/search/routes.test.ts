@@ -5,6 +5,7 @@ import { buildApp } from '../app.js';
 import type { BraveFetch } from './brave.js';
 import type { RssFetch } from './rss.js';
 import type { CandidateScorer, CandidateScoringRequest } from './scoring.js';
+import type { ZaiWebFetch } from './zai-web.js';
 import type {
   CreateJobInput,
   CreateStoryCandidateInput,
@@ -256,6 +257,16 @@ function rssFetch(xml: string): RssFetch {
   });
 }
 
+function zaiWebFetch(results: Array<Record<string, unknown>>): ZaiWebFetch {
+  return async () => ({
+    ok: true,
+    status: 200,
+    async json() {
+      return { search_result: results };
+    },
+  });
+}
+
 const deterministicScorer: CandidateScorer = {
   async score(request: CandidateScoringRequest) {
     if (request.candidate.title.includes('Fail')) {
@@ -286,6 +297,42 @@ const deterministicScorer: CandidateScorer = {
 };
 
 describe('search routes candidate scoring', () => {
+  it('runs a Z.AI web source.search job with GLM-compatible credentials', async () => {
+    const store = new FakeSearchStore();
+    store.profiles[0] = {
+      ...store.profiles[0],
+      slug: 'zai-news',
+      name: 'Z.AI News',
+      type: 'zai-web',
+      freshness: 'pd',
+    };
+    const app = buildApp({
+      sourceStore: store,
+      zaiApiKey: 'test-zai-key',
+      zaiFetchImpl: zaiWebFetch([{
+        title: 'High value ZAI result',
+        link: 'https://example.com/zai-story',
+        content: 'Structured Z.AI search result.',
+        media: 'Example News',
+        publish_date: '2026-04-23',
+        refer: 'ref_1',
+      }]),
+    });
+
+    try {
+      const response = await app.inject({ method: 'POST', url: '/source-profiles/22222222-2222-4222-8222-222222222222/search' });
+      const body = response.json();
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(body.inserted, 1);
+      assert.equal(body.candidates[0].url, 'https://example.com/zai-story');
+      assert.equal(body.candidates[0].metadata.provider, 'zai-web');
+      assert.match(JSON.stringify(body.job.logs), /Z\.AI web query returned candidates/);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('enforces Brave include and exclude domains without substring overmatching', async () => {
     const store = new FakeSearchStore();
     store.profiles[0].includeDomains = ['https://AI.com/news'];

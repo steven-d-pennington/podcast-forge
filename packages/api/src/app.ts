@@ -33,6 +33,7 @@ import type { BraveFetch } from './search/brave.js';
 import type { RssFetch } from './search/rss.js';
 import type { CandidateScorer } from './search/scoring.js';
 import type { SearchJobStore } from './search/store.js';
+import type { ZaiWebFetch } from './search/zai-web.js';
 import type { LlmRuntime } from './llm/types.js';
 import { registerSchedulerRoutes } from './scheduler/routes.js';
 import type { SchedulerStore } from './scheduler/store.js';
@@ -52,7 +53,9 @@ interface BuildAppOptions extends FastifyServerOptions {
     & Partial<ProductionStore>
     & Partial<SchedulerStore>;
   braveApiKey?: string;
+  zaiApiKey?: string;
   fetchImpl?: BraveFetch;
+  zaiFetchImpl?: ZaiWebFetch;
   rssFetchImpl?: RssFetch;
   candidateScorer?: CandidateScorer;
   llmRuntime?: LlmRuntime;
@@ -92,7 +95,9 @@ export function buildApp(options: BuildAppOptions = {}) {
   const {
     sourceStore,
     braveApiKey,
+    zaiApiKey,
     fetchImpl,
+    zaiFetchImpl,
     rssFetchImpl,
     candidateScorer,
     llmRuntime,
@@ -216,7 +221,9 @@ export function buildApp(options: BuildAppOptions = {}) {
       return resolvedSourceStore;
     },
     braveApiKey,
+    zaiApiKey,
     fetchImpl,
+    zaiFetchImpl,
     rssFetchImpl,
     candidateScorer,
     llmRuntime,
