@@ -420,6 +420,29 @@ test('view model covers audio produced with cover still active work', () => {
   assert.equal(model.primaryNextAction.enabled, true);
 });
 
+test('view model falls back to current production assets when saved asset selection is stale', () => {
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [readyBrief],
+    selectedResearchPacketId: 'brief-1',
+    scripts: [approvedScript],
+    selectedScriptId: 'script-1',
+    selectedScript: approvedScript,
+    selectedRevision: passedReviewRevision,
+    selectedRevisions: [passedReviewRevision],
+    production: { episode, assets: [audioAsset, coverAsset], jobs: [] },
+    episodes: [episode],
+    selectedEpisodeId: 'episode-1',
+    selectedAssetIds: ['asset-deleted'],
+  }));
+
+  assert.equal(model.activeArtifacts.audioCover.status, 'ready');
+  assert.equal(model.activeArtifacts.audioCover.audio.id, 'asset-audio-1');
+  assert.equal(model.activeArtifacts.audioCover.cover.id, 'asset-cover-1');
+  assert.equal(model.currentStage.id, 'publishing');
+});
+
 test('view model treats publish approval as actionable when prerequisites are ready', () => {
   const model = deriveProductionViewModel(baseInput({
     storyCandidates: [candidate],

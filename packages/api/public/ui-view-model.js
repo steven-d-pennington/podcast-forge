@@ -666,8 +666,9 @@ export function deriveProductionViewModel(input = {}) {
   const activeRevision = input.selectedRevision || revisions[0] || null;
   const activeEpisode = production.episode || episodes.find((episode) => episode.id === input.selectedEpisodeId) || null;
   const selectedAssetIds = new Set(asArray(input.selectedAssetIds));
-  const activeAssets = selectedAssetIds.size > 0
-    ? productionAssets.filter((asset) => selectedAssetIds.has(asset.id))
+  const selectedAssets = productionAssets.filter((asset) => selectedAssetIds.has(asset.id));
+  const activeAssets = selectedAssetIds.size > 0 && selectedAssets.length > 0
+    ? selectedAssets
     : productionAssets;
   const feed = selectedFeed(feeds, activeEpisode, selectedShow);
   const sourceQueries = selectedSource ? queries.filter((query) => !query.sourceProfileId || query.sourceProfileId === selectedSource.id) : [];
