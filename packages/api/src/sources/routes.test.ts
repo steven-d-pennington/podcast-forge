@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { after, beforeEach, describe, it } from 'node:test';
 
 import { buildApp } from '../app.js';
@@ -3042,6 +3045,53 @@ describe('source profile routes', () => {
 
     assert.equal(blockedResponse.statusCode, 403);
     assert.equal(blockedResponse.json().code, 'ASSET_PATH_NOT_ALLOWED');
+
+    const outsideDir = await mkdtemp(join(tmpdir(), 'podcast-forge-outside-'));
+    const outsideFile = join(outsideDir, 'outside.mp3');
+    await writeFile(outsideFile, 'outside asset');
+    const symlinkPath = `${audioBody.asset.localPath}.link`;
+    await symlink(outsideFile, symlinkPath);
+    const symlinkAsset = await store.createEpisodeAsset({
+      episodeId: audioBody.episode.id,
+      type: 'audio-preview',
+      label: 'Symlink audio',
+      localPath: symlinkPath,
+      objectKey: null,
+      publicUrl: null,
+      mimeType: 'audio/mpeg',
+      byteSize: 13,
+      durationSeconds: 1,
+      checksum: null,
+      metadata: {},
+    });
+    const symlinkResponse = await app.inject({
+      method: 'GET',
+      url: `/episodes/${audioBody.episode.id}/assets/${symlinkAsset.id}/content`,
+    });
+
+    assert.equal(symlinkResponse.statusCode, 403);
+    assert.equal(symlinkResponse.json().code, 'ASSET_PATH_NOT_ALLOWED');
+
+    const htmlMimeAsset = await store.createEpisodeAsset({
+      episodeId: audioBody.episode.id,
+      type: 'audio-preview',
+      label: 'Suspicious MIME audio',
+      localPath: audioBody.asset.localPath,
+      objectKey: null,
+      publicUrl: null,
+      mimeType: 'text/html',
+      byteSize: audioBody.asset.byteSize,
+      durationSeconds: 1,
+      checksum: null,
+      metadata: {},
+    });
+    const htmlMimeResponse = await app.inject({
+      method: 'GET',
+      url: `/episodes/${audioBody.episode.id}/assets/${htmlMimeAsset.id}/content`,
+    });
+
+    assert.equal(htmlMimeResponse.statusCode, 200);
+    assert.match(String(htmlMimeResponse.headers['content-type'] ?? ''), /application\/octet-stream/);
   });
 
   it('rejects RSS publishing until an episode is approved for publish', async () => {

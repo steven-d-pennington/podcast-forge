@@ -470,31 +470,52 @@ function isCoverAsset(asset) {
   return asset?.type === 'cover-art' || asset?.mimeType?.startsWith('image/');
 }
 
-function publicAssetWarning(asset, hasLocalAccess) {
+function isLocalUiHost() {
+  const hostname = window.location.hostname.toLowerCase();
+  const privateLanPattern = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/;
+  return hostname === 'localhost'
+    || hostname === '0.0.0.0'
+    || hostname === '::1'
+    || hostname.startsWith('127.')
+    || privateLanPattern.test(hostname);
+}
+
+function assetAccessUrls(asset) {
+  const localUrl = productionAssetContentUrl(asset);
+  const publicUrl = asset?.publicUrl || '';
+  const preferLocal = Boolean(localUrl && isLocalUiHost());
+  const primary = preferLocal ? localUrl : (publicUrl || localUrl);
+  const download = preferLocal || !publicUrl ? productionAssetContentUrl(asset, true) : publicUrl;
+  const fallback = primary === localUrl ? publicUrl : localUrl;
+
+  return { localUrl, publicUrl, primary, download, fallback, preferLocal };
+}
+
+function publicAssetWarning(asset, urls) {
   if (!asset) {
     return '';
   }
 
   if (!asset.publicUrl) {
-    return hasLocalAccess ? 'No public asset URL is recorded; using the local API asset route.' : 'No public or local asset URL is available.';
+    return urls.localUrl ? 'No public asset URL is recorded; using the local API asset route.' : 'No public or local asset URL is available.';
   }
 
   let parsed;
   try {
     parsed = new URL(asset.publicUrl, window.location.origin);
   } catch (_error) {
-    return hasLocalAccess
+    return urls.localUrl
       ? 'The recorded public asset URL is not usable; using the local API asset route.'
       : 'The recorded public asset URL is not usable from the browser.';
   }
 
   if (!['http:', 'https:'].includes(parsed.protocol)) {
-    return hasLocalAccess
+    return urls.localUrl
       ? 'The recorded public asset URL is not http(s); using the local API asset route.'
       : 'The recorded public asset URL is not http(s).';
   }
 
-  if (hasLocalAccess && parsed.origin !== window.location.origin) {
+  if (urls.preferLocal && parsed.origin !== window.location.origin) {
     return 'Public asset host may be unavailable in local runs; Play, Open, and Download use the local API asset route.';
   }
 
@@ -502,14 +523,14 @@ function publicAssetWarning(asset, hasLocalAccess) {
 }
 
 function assetAccessUrl(asset) {
-  return productionAssetContentUrl(asset) || asset?.publicUrl || '';
+  return assetAccessUrls(asset).primary;
 }
 
 function appendAssetAccessControls(container, asset, options = {}) {
-  const localUrl = productionAssetContentUrl(asset);
-  const accessUrl = localUrl || asset?.publicUrl || '';
-  const downloadUrl = localUrl ? productionAssetContentUrl(asset, true) : asset?.publicUrl || '';
-  const warning = publicAssetWarning(asset, Boolean(localUrl));
+  const urls = assetAccessUrls(asset);
+  const accessUrl = urls.primary;
+  const downloadUrl = urls.download;
+  const warning = publicAssetWarning(asset, urls);
 
   if (warning) {
     const note = document.createElement('p');
@@ -571,6 +592,16 @@ function appendAssetAccessControls(container, asset, options = {}) {
     open.rel = 'noopener';
     open.textContent = 'Open';
     controls.append(open);
+  }
+
+  if (urls.fallback) {
+    const fallback = document.createElement('a');
+    fallback.className = 'asset-link-button secondary';
+    fallback.href = urls.fallback;
+    fallback.target = '_blank';
+    fallback.rel = 'noopener';
+    fallback.textContent = urls.fallback === urls.localUrl ? 'Local API' : 'Public URL';
+    controls.append(fallback);
   }
 
   if (downloadUrl) {

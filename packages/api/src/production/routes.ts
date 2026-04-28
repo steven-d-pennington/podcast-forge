@@ -1,6 +1,6 @@
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
-import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+import { realpath, stat } from 'node:fs/promises';
+import { basename, isAbsolute, relative, resolve } from 'node:path';
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z, ZodError } from 'zod';
@@ -311,9 +311,27 @@ function productionAssetRoots(production: ProductionConfig) {
     localAssetRoot(production),
     production.localAssetDir,
     production.outputDir,
-    join('/tmp', 'podcast-forge-production-assets'),
   ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     .map((value) => resolve(value)))];
+}
+
+async function realProductionAssetRoots(production: ProductionConfig) {
+  const roots = [];
+
+  for (const root of productionAssetRoots(production)) {
+    try {
+      roots.push(await realpath(root));
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        roots.push(root);
+        continue;
+      }
+
+      throw new ApiError(500, 'ASSET_ROOT_UNAVAILABLE', 'Configured production asset root could not be inspected.');
+    }
+  }
+
+  return [...new Set(roots.map((root) => resolve(root)))];
 }
 
 function isWithinRoot(root: string, candidate: string) {
@@ -340,14 +358,15 @@ function candidatePathFromObjectKey(root: string, objectKey: string | null) {
 
 async function statLocalAsset(candidate: string) {
   try {
-    const details = await stat(candidate);
-    return details.isFile() ? details : null;
+    const realCandidate = await realpath(candidate);
+    const details = await stat(realCandidate);
+    return details.isFile() ? { path: resolve(realCandidate), byteSize: details.size } : null;
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return null;
     }
 
-    throw error;
+    throw new ApiError(500, 'ASSET_FILE_UNAVAILABLE', 'Generated asset file could not be inspected.');
   }
 }
 
@@ -356,15 +375,16 @@ async function resolveLocalAssetFile(asset: EpisodeAssetRecord, production: Prod
     throw new ApiError(409, 'ASSET_NOT_STREAMABLE', 'Only generated audio and cover art assets can be opened from the local API.');
   }
 
-  const roots = productionAssetRoots(production);
+  const configuredRoots = productionAssetRoots(production);
+  const roots = await realProductionAssetRoots(production);
   const candidates = [
     asset.localPath ? resolve(asset.localPath) : null,
-    ...roots.map((root) => candidatePathFromObjectKey(root, asset.objectKey)),
+    ...configuredRoots.map((root) => candidatePathFromObjectKey(root, asset.objectKey)),
   ].filter((value): value is string => Boolean(value));
   let blockedPath = false;
 
   for (const candidate of [...new Set(candidates)]) {
-    if (!roots.some((root) => isWithinRoot(root, candidate))) {
+    if (!configuredRoots.some((root) => isWithinRoot(root, candidate))) {
       blockedPath = true;
       continue;
     }
@@ -372,7 +392,12 @@ async function resolveLocalAssetFile(asset: EpisodeAssetRecord, production: Prod
     const details = await statLocalAsset(candidate);
 
     if (details) {
-      return { path: candidate, byteSize: details.size };
+      if (!roots.some((root) => isWithinRoot(root, details.path))) {
+        blockedPath = true;
+        continue;
+      }
+
+      return details;
     }
   }
 
@@ -393,6 +418,20 @@ function assetDownloadName(asset: EpisodeAssetRecord, resolvedPath: string) {
 function contentDisposition(asset: EpisodeAssetRecord, resolvedPath: string, download?: string) {
   const disposition = download === '1' || download === 'true' ? 'attachment' : 'inline';
   return `${disposition}; filename="${assetDownloadName(asset, resolvedPath)}"`;
+}
+
+function assetContentType(asset: EpisodeAssetRecord) {
+  const mimeType = asset.mimeType ?? '';
+
+  if ((asset.type === 'audio-preview' || asset.type === 'audio-final') && mimeType.startsWith('audio/')) {
+    return mimeType;
+  }
+
+  if (asset.type === 'cover-art' && mimeType.startsWith('image/')) {
+    return mimeType;
+  }
+
+  return 'application/octet-stream';
 }
 
 function assertApprovedScript(script: ScriptRecord): asserts script is ScriptRecord & { approvedRevisionId: string } {
@@ -1106,7 +1145,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
         .header('x-content-type-options', 'nosniff')
         .header('content-length', String(file.byteSize))
         .header('content-disposition', contentDisposition(asset, file.path, request.query.download))
-        .type(asset.mimeType ?? 'application/octet-stream')
+        .type(assetContentType(asset))
         .send(createReadStream(file.path));
     } catch (error) {
       return sendError(reply, error);
