@@ -443,15 +443,7 @@ function selectedAssets() {
     activeAudioCover?.audio?.id,
     activeAudioCover?.cover?.id,
   ].filter(Boolean));
-  if (activeAssetIds.size > 0) {
-    return state.production.assets.filter((asset) => activeAssetIds.has(asset.id));
-  }
-  if (state.selectedCandidateIds.length > 0 && !currentProductionViewModel().activeArtifacts?.publishing) {
-    return [];
-  }
-  const selected = new Set(state.selectedAssetIds);
-  const assets = state.production.assets.filter((asset) => selected.has(asset.id));
-  return assets.length > 0 ? assets : state.production.assets;
+  return state.production.assets.filter((asset) => activeAssetIds.has(asset.id));
 }
 
 function currentProductionViewModel() {
@@ -469,7 +461,15 @@ function artifactScope(kind, id) {
     };
   }
 
-  const historyKey = kind === 'brief' ? 'briefs' : kind === 'script' ? 'scripts' : kind === 'publishing' ? 'publishing' : kind;
+  const historyKey = kind === 'brief'
+    ? 'briefs'
+    : kind === 'script'
+      ? 'scripts'
+      : kind === 'review'
+        ? 'reviews'
+        : kind === 'publishing'
+          ? 'publishing'
+          : kind;
   const archived = asArray(viewModel.historicalArtifacts?.[historyKey]).find((artifact) => artifact.id === id);
   return {
     label: archived?.stateLabel || 'History/archive',

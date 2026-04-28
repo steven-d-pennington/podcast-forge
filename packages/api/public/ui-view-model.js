@@ -751,7 +751,7 @@ export function deriveProductionViewModel(input = {}) {
   const pathAssets = selectedAssetIds.size > 0 && selectedAssets.length > 0
     ? selectedAssets
     : productionAssets;
-  const activeAssets = activeEpisode ? pathAssets.filter((asset) => asset.episodeId === activeEpisode.id || !asset.episodeId) : [];
+  const activeAssets = activeEpisode ? pathAssets.filter((asset) => asset.episodeId === activeEpisode.id) : [];
   const feed = selectedFeed(feeds, activeEpisode, selectedShow);
   const sourceQueries = selectedSource ? queries.filter((query) => !query.sourceProfileId || query.sourceProfileId === selectedSource.id) : [];
   const context = {

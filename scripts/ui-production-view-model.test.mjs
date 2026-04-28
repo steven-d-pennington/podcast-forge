@@ -461,6 +461,29 @@ test('view model falls back to current production assets when saved asset select
   assert.equal(model.currentStage.id, 'publishing');
 });
 
+test('view model keeps unlinked production assets archived instead of active', () => {
+  const unlinkedAudio = { ...audioAsset, id: 'asset-unlinked-audio', episodeId: undefined };
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [readyBrief],
+    selectedResearchPacketId: 'brief-1',
+    scripts: [approvedScript],
+    selectedScriptId: 'script-1',
+    selectedScript: approvedScript,
+    selectedRevision: passedReviewRevision,
+    selectedRevisions: [passedReviewRevision],
+    production: { episode, assets: [unlinkedAudio], jobs: [] },
+    episodes: [episode],
+    selectedEpisodeId: 'episode-1',
+    selectedAssetIds: ['asset-unlinked-audio'],
+  }));
+
+  assert.equal(model.activeArtifacts.audioCover, null);
+  assert.ok(model.historicalArtifacts.audioCover.some((item) => item.id === 'asset-unlinked-audio' && item.stateLabel === 'History/archive'));
+  assert.ok(model.artifactScopeWarnings.some((item) => item.message.includes('not part of current production')));
+});
+
 test('view model archives production artifacts that do not match the selected candidate path', () => {
   const currentBrief = {
     ...readyBrief,
