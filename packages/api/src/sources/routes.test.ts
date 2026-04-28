@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { after, beforeEach, describe, it } from 'node:test';
 
 import { buildApp } from '../app.js';
@@ -3049,7 +3049,7 @@ describe('source profile routes', () => {
     const outsideDir = await mkdtemp(join(tmpdir(), 'podcast-forge-outside-'));
     const outsideFile = join(outsideDir, 'outside.mp3');
     await writeFile(outsideFile, 'outside asset');
-    const symlinkPath = `${audioBody.asset.localPath}.link`;
+    const symlinkPath = join(dirname(audioBody.asset.localPath), `outside-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3.link`);
     await symlink(outsideFile, symlinkPath);
     const symlinkAsset = await store.createEpisodeAsset({
       episodeId: audioBody.episode.id,
