@@ -1,8 +1,9 @@
-import { searchBraveNews, type BraveCandidate, type BraveFetch } from './brave.js';
+import { searchBraveNews, type BraveFetch } from './brave.js';
 import { normalizeTitle, type SourceCandidate } from './candidate.js';
 import { filterCandidatesForSourceControls, type SourceControlSummary } from './controls.js';
 import { fetchRssCandidates, type RssFetch } from './rss.js';
 import { scoreCandidateBatch, scoringLimitFromProfile, type CandidateScorer, type CandidateScoringBatchResult } from './scoring.js';
+import { searchZaiWeb, type ZaiWebFetch } from './zai-web.js';
 import type { JobRecord, SearchJobStore, StoryCandidateRecord } from './store.js';
 import type { ResolvedModelProfile } from '../models/resolver.js';
 import type { SourceProfileRecord, SourceQueryRecord, SourceStore } from '../sources/store.js';
@@ -20,6 +21,7 @@ interface RunSourceSearchOptions {
   queries: SourceQueryRecord[];
   store: SourceStore & SearchJobStore;
   fetchImpl?: BraveFetch;
+  zaiFetchImpl?: ZaiWebFetch;
   sleep?: (ms: number) => Promise<void>;
   modelProfile?: ResolvedModelProfile;
   candidateScorer?: CandidateScorer;
@@ -53,9 +55,31 @@ function asPositiveNumber(value: unknown): number | undefined {
   return undefined;
 }
 
-function queryIdFromCandidate(candidate: BraveCandidate): string | null {
+function queryIdFromCandidate(candidate: SourceCandidate): string | null {
   const query = asObject(candidate.metadata.query);
   return typeof query.id === 'string' ? query.id : null;
+}
+
+function providerLabel(profile: SourceProfileRecord): string {
+  return profile.type === 'zai-web' ? 'Z.AI web' : 'Brave news';
+}
+
+async function searchProviderCandidates(options: RunSourceSearchOptions, query: SourceQueryRecord) {
+  if (options.profile.type === 'zai-web') {
+    return searchZaiWeb({
+      apiKey: options.apiKey,
+      profile: options.profile,
+      queries: [query],
+      fetchImpl: options.zaiFetchImpl,
+    });
+  }
+
+  return searchBraveNews({
+    apiKey: options.apiKey,
+    profile: options.profile,
+    queries: [query],
+    fetchImpl: options.fetchImpl,
+  });
 }
 
 function sourceQueryIdFromCandidate(candidate: SourceCandidate): string | null {
@@ -236,21 +260,17 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
     const sourceControlWarnings: Array<Record<string, unknown>> = [];
 
     for (const [index, query] of options.queries.entries()) {
-      logs.push(log('info', 'Running Brave news query.', { sourceQueryId: query.id, query: query.query }));
+      const provider = providerLabel(options.profile);
+      logs.push(log('info', `Running ${provider} query.`, { sourceQueryId: query.id, query: query.query }));
 
-      const rawCandidates = await searchBraveNews({
-        apiKey: options.apiKey,
-        profile: options.profile,
-        queries: [query],
-        fetchImpl: options.fetchImpl,
-      });
+      const rawCandidates = await searchProviderCandidates(options, query);
       const filtered = filterCandidatesForSourceControls(rawCandidates, options.profile, query, { verifyFreshness: false });
       const candidates = filtered.candidates;
       sourceControlSummaries.push(filtered.controls);
       addFilterTotals(sourceControlDropped, filtered.dropped);
       sourceControlWarnings.push(...filtered.warnings);
 
-      logs.push(log('info', 'Brave news query returned candidates.', {
+      logs.push(log('info', `${provider} query returned candidates.`, {
         sourceQueryId: query.id,
         candidateCount: rawCandidates.length,
         sourceControls: filterSummary(rawCandidates.length, candidates.length, filtered.dropped, filtered.warnings),

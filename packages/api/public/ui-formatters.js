@@ -12,12 +12,16 @@ export function listToLines(value) {
 }
 
 export function sourceControlsSupported(type) {
-  return type === 'brave' || type === 'rss';
+  return type === 'brave' || type === 'zai-web' || type === 'rss';
 }
 
 export function sourceControlHelp(type) {
   if (type === 'brave') {
     return 'Freshness is sent to Brave. Domain filters are enforced after results return.';
+  }
+
+  if (type === 'zai-web') {
+    return 'Freshness and the first include-domain filter are sent to Z.AI Web Search. Domain filters are also enforced after results return.';
   }
 
   if (type === 'rss') {

@@ -29,6 +29,13 @@
       "when": 1777140000000,
       "tag": "0003_show_onboarding",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1777345000000,
+      "tag": "0004_zai_web_source_type",
+      "breakpoints": true
     }
   ]
 }
