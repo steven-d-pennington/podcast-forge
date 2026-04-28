@@ -264,6 +264,9 @@ test('active artifacts and archive labels are guarded in static UI modules', () 
   assertContains(uiJs, 'currentProductionViewModel().activeArtifacts?.audioCover', 'asset selection should come from active view-model state');
   assertContains(stylesCss, '.artifact-scope-panel.warning', 'mixed artifact warning style');
   assertContains(stylesCss, '.scope-pill.archive', 'archive pill style');
+  assertContains(uiJs, 'function renderProductionArchiveAssets(archivedAssets)', 'archive production assets should render as labeled audit records');
+  assertContains(uiJs, 'History/archive production assets', 'archive production asset heading');
+  assertContains(uiJs, 'Kept for audit only; not used by production or publishing actions.', 'archive production assets should not look actionable');
   assertContains(stylesCss, '.active-artifact', 'active artifact row style');
   assertContains(stylesCss, '.archive-artifact', 'archive artifact row style');
 });

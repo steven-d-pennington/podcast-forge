@@ -3050,17 +3050,56 @@ function latestJob(type) {
   return state.production.jobs.find((job) => job.type === type);
 }
 
-function latestAsset(type) {
-  return state.production.assets.find((asset) => asset.type === type);
+function renderProductionArchiveAssets(archivedAssets) {
+  if (archivedAssets.length === 0) {
+    return;
+  }
+
+  const heading = document.createElement('div');
+  heading.className = 'production-row archive-artifact';
+  const headingTitle = document.createElement('strong');
+  headingTitle.textContent = 'History/archive production assets';
+  const headingMeta = document.createElement('span');
+  headingMeta.textContent = 'Kept for audit only; not used by production or publishing actions.';
+  heading.append(headingTitle, headingMeta);
+  els.productionAssets.append(heading);
+
+  for (const asset of archivedAssets) {
+    const row = document.createElement('div');
+    row.className = 'production-row archive-artifact';
+    const title = document.createElement('strong');
+    title.textContent = `History/archive ${asset.type || asset.productionKind || 'asset'}`;
+    const meta = document.createElement('span');
+    meta.textContent = asset.url || asset.mimeType || asset.status || 'Asset recorded; local path hidden';
+    row.append(title, meta);
+    els.productionAssets.append(row);
+  }
 }
 
 function renderProduction() {
+  const viewModel = currentProductionViewModel();
+  const archivedAssets = asArray(viewModel.historicalArtifacts?.audioCover);
   const script = activeSelectedScript();
   const revision = activeSelectedRevision();
   const hasScript = Boolean(script && revision);
-  els.productionPanel.hidden = !hasScript;
+  els.productionPanel.hidden = !hasScript && archivedAssets.length === 0;
+
+  els.productionJobs.innerHTML = '';
+  els.productionAssets.innerHTML = '';
 
   if (!hasScript) {
+    els.generateAudioPreview.disabled = true;
+    els.generateCoverArt.disabled = true;
+    els.productionMeta.textContent = archivedAssets.length > 0
+      ? 'No active/current script is selected. History/archive production assets below are retained for audit only.'
+      : 'No active/current script is selected for production.';
+    if (archivedAssets.length > 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'No active/current production jobs. Generate or select an active script before creating new audio or cover assets.';
+      els.productionJobs.append(empty);
+      renderProductionArchiveAssets(archivedAssets);
+    }
     return;
   }
 
@@ -3114,27 +3153,28 @@ function renderProduction() {
   }
 
   els.productionAssets.innerHTML = '';
-  const assets = [latestAsset('audio-preview'), latestAsset('cover-art')].filter(Boolean);
+  const assets = selectedAssets();
   if (assets.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
     empty.textContent = readyForProduction
-      ? 'No audio or cover assets recorded yet. Next action: create missing preview audio and cover art.'
-      : 'No audio or cover assets recorded yet. Next action: complete script approval and integrity review before production.';
+      ? 'No active/current audio or cover assets recorded yet. Next action: create missing preview audio and cover art.'
+      : 'No active/current audio or cover assets recorded yet. Next action: complete script approval and integrity review before production.';
     els.productionAssets.append(empty);
-    return;
+  } else {
+    for (const asset of assets) {
+      const row = document.createElement('div');
+      row.className = 'production-row active-artifact';
+      const title = document.createElement('strong');
+      title.textContent = `Active/current ${asset.label || asset.type}`;
+      const meta = document.createElement('span');
+      meta.textContent = asset.publicUrl || asset.objectKey || asset.mimeType || 'Asset recorded; local path hidden';
+      row.append(title, meta);
+      els.productionAssets.append(row);
+    }
   }
 
-  for (const asset of assets) {
-    const row = document.createElement('div');
-    row.className = 'production-row active-artifact';
-    const title = document.createElement('strong');
-    title.textContent = `Active/current ${asset.label || asset.type}`;
-    const meta = document.createElement('span');
-    meta.textContent = asset.publicUrl || asset.objectKey || asset.mimeType || 'Asset recorded; local path hidden';
-    row.append(title, meta);
-    els.productionAssets.append(row);
-  }
+  renderProductionArchiveAssets(archivedAssets);
 }
 
 function renderJobRuns() {

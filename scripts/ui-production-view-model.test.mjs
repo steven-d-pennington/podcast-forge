@@ -532,6 +532,30 @@ test('view model does not promote unlinked legacy packets as current for a selec
   assert.equal(model.primaryNextAction.label, 'Build research brief');
 });
 
+test('view model does not promote multi-candidate packets for a narrower selected story', () => {
+  const multiCandidateBrief = {
+    ...readyBrief,
+    id: 'brief-multi',
+    title: 'Multi-story brief',
+    content: {
+      candidateIds: ['candidate-1', 'candidate-2'],
+    },
+    createdAt: '2026-04-27T16:30:00.000Z',
+    updatedAt: '2026-04-27T16:45:00.000Z',
+  };
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate, newerCandidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [multiCandidateBrief],
+    selectedResearchPacketId: 'brief-multi',
+  }));
+
+  assert.equal(model.activeArtifacts.brief, null);
+  assert.ok(model.historicalArtifacts.briefs.some((item) => item.id === 'brief-multi' && item.stateLabel === 'History/archive'));
+  assert.ok(model.artifactScopeWarnings.some((item) => item.message.includes('not part of current production')));
+  assert.equal(model.primaryNextAction.label, 'Build research brief');
+});
+
 test('view model treats publish approval as actionable when prerequisites are ready', () => {
   const model = deriveProductionViewModel(baseInput({
     storyCandidates: [candidate],
