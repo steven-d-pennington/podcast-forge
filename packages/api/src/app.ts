@@ -192,6 +192,17 @@ export function buildApp(options: BuildAppOptions = {}) {
       resolvedSourceStore ??= createDbSourceStore();
       return resolvedSourceStore;
     },
+    sourceCredentialStatus: {
+      brave: Boolean(braveApiKey ?? process.env.BRAVE_API_KEY),
+      'zai-web': Boolean(
+        zaiApiKey
+        ?? process.env.ZAI_API_KEY
+        ?? process.env.GLM_API_KEY
+        ?? process.env.GLM_API
+        ?? process.env.ZHIPU_API_KEY
+        ?? process.env.ZHIPUAI_API_KEY,
+      ),
+    },
   });
 
   registerShowRoutes(app, {

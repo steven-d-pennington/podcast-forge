@@ -5,7 +5,9 @@ import { normalizeDomainList } from '../search/controls.js';
 import type {
   CreateSourceProfileInput,
   CreateSourceQueryInput,
+  SourceProfileRecord,
   SourceStore,
+  SourceType,
   UpdateSourceProfileInput,
   UpdateSourceQueryInput,
 } from './store.js';
@@ -165,6 +167,7 @@ async function findSourceQueryProfile(store: SourceStore, queryId: string): Prom
 
 export interface SourceRoutesOptions {
   getStore(): SourceStore;
+  sourceCredentialStatus?: Partial<Record<SourceType, boolean>>;
 }
 
 function parseBody<T>(schema: z.ZodType<T>, body: unknown): T {
@@ -181,6 +184,60 @@ function isDatabaseAvailabilityError(error: unknown): boolean {
   }
 
   return ['3D000', '28P01', '42P01', 'ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT'].includes(String(error.code));
+}
+
+function sourceCredentialStatus(profile: SourceProfileRecord, options: SourceRoutesOptions) {
+  if (profile.type === 'brave') {
+    const available = Boolean(options.sourceCredentialStatus?.brave);
+    return {
+      required: true,
+      available,
+      label: available ? 'Brave credential configured' : 'Brave credential missing',
+      provider: 'Brave',
+    };
+  }
+
+  if (profile.type === 'zai-web') {
+    const available = Boolean(options.sourceCredentialStatus?.['zai-web']);
+    return {
+      required: true,
+      available,
+      label: available ? 'Z.AI Web Search credential configured' : 'Z.AI Web Search credential missing',
+      provider: 'Z.AI Web Search',
+    };
+  }
+
+  if (profile.type === 'rss') {
+    return {
+      required: false,
+      available: true,
+      label: 'No credential required; feed URLs are checked from enabled search queries or RSS config.',
+      provider: 'RSS',
+    };
+  }
+
+  if (profile.type === 'manual') {
+    return {
+      required: false,
+      available: true,
+      label: 'No credential required; operators paste source URLs manually.',
+      provider: 'Manual URL',
+    };
+  }
+
+  return {
+    required: false,
+    available: true,
+    label: 'No credential required; local JSON availability depends on configured import settings.',
+    provider: 'Local JSON',
+  };
+}
+
+function withSourceAvailability(profile: SourceProfileRecord, options: SourceRoutesOptions) {
+  return {
+    ...profile,
+    credentialStatus: sourceCredentialStatus(profile, options),
+  };
 }
 
 async function resolveShowId(store: SourceStore, showId?: string, showSlug?: string): Promise<string> {
@@ -265,7 +322,7 @@ export function registerSourceRoutes(app: FastifyInstance, options: SourceRoutes
   app.get<{ Querystring: { showSlug?: string } }>('/source-profiles', async (request, reply) => {
     try {
       const profiles = await getStore().listSourceProfiles({ showSlug: request.query.showSlug });
-      return { ok: true, sourceProfiles: profiles };
+      return { ok: true, sourceProfiles: profiles.map((profile) => withSourceAvailability(profile, options)) };
     } catch (error) {
       return sendError(reply, error);
     }
@@ -282,7 +339,7 @@ export function registerSourceRoutes(app: FastifyInstance, options: SourceRoutes
       };
       const profile = await store.createSourceProfile(input);
 
-      return reply.code(201).send({ ok: true, sourceProfile: profile });
+      return reply.code(201).send({ ok: true, sourceProfile: withSourceAvailability(profile, options) });
     } catch (error) {
       return sendError(reply, error);
     }
@@ -322,7 +379,7 @@ export function registerSourceRoutes(app: FastifyInstance, options: SourceRoutes
           })));
       }
 
-      return { ok: true, sourceProfile: profile };
+      return { ok: true, sourceProfile: withSourceAvailability(profile, options) };
     } catch (error) {
       return sendError(reply, error);
     }

@@ -249,9 +249,11 @@ test('view model covers source selected with no candidate stories', () => {
   assert.equal(model.selectedStorySourceSummary.queryCount, 1);
   assert.equal(model.stages.find((stage) => stage.id === 'source').artifact.queryCount, 1);
   assert.equal(model.stages.find((stage) => stage.id === 'source').artifact.enabledQueryCount, 1);
+  assert.equal(model.selectedStorySourceSummary.providerType, 'Brave');
+  assert.match(model.selectedStorySourceSummary.inputSummary, /1 enabled search query/);
   assert.equal(model.currentStage.id, 'discover');
   assert.equal(model.currentStage.status, 'ready');
-  assert.equal(model.primaryNextAction.label, 'Run source search');
+  assert.equal(model.primaryNextAction.label, 'Search Brave');
   assert.equal(model.primaryNextAction.enabled, true);
 });
 
