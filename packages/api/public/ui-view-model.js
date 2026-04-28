@@ -294,8 +294,14 @@ function productionWarnings(episode, assets, jobs) {
   ].filter(Boolean);
 }
 
-function selectedFeed(feeds, episode) {
-  return asArray(feeds).find((feed) => feed.id === episode?.feedId) || asArray(feeds)[0] || null;
+function selectedFeed(feeds, episode, show) {
+  const matchingEpisodeFeed = asArray(feeds).find((feed) => feed.id === episode?.feedId);
+  if (matchingEpisodeFeed) {
+    return matchingEpisodeFeed;
+  }
+
+  const showFeeds = show?.id ? asArray(feeds).filter((feed) => feed.showId === show.id) : asArray(feeds);
+  return showFeeds.length === 1 ? showFeeds[0] : null;
 }
 
 function validHttpUrl(value) {
@@ -469,7 +475,7 @@ function deriveStages(context) {
     makeStage('story', hasStorySelection ? 'done' : hasCandidatePool ? 'ready' : 'blocked', summarizeCandidates(selectedCandidates)),
     makeStage('brief', activeBrief ? (briefNeedsReview ? 'needs-review' : briefBlocked ? 'blocked' : 'done') : hasStorySelection ? 'ready' : 'blocked', summarizeBrief(activeBrief)),
     makeStage('script', activeScript ? 'done' : activeBrief && !briefBlocked ? 'ready' : 'blocked', summarizeScript(activeScript, activeRevision)),
-    makeStage('review', readyForProduction ? 'done' : activeScript && activeRevision ? 'needs-review' : 'blocked', summarizeReview(activeRevision)),
+    makeStage('review', readyForProduction ? 'done' : activeScript ? (activeRevision ? 'needs-review' : 'ready') : 'blocked', summarizeReview(activeRevision)),
     makeStage('production', audio && cover ? 'done' : readyForProduction ? 'ready' : 'blocked', summarizeAudioCover(assets)),
     makeStage('publishing', activeEpisode?.status === 'published' ? 'done' : audio && cover ? (publishPrerequisiteBlocker ? 'blocked' : 'ready') : 'blocked', summarizeEpisode(activeEpisode)),
   ];
@@ -633,7 +639,7 @@ export function deriveProductionViewModel(input = {}) {
   const activeAssets = selectedAssetIds.size > 0
     ? productionAssets.filter((asset) => selectedAssetIds.has(asset.id))
     : productionAssets;
-  const feed = selectedFeed(feeds, activeEpisode);
+  const feed = selectedFeed(feeds, activeEpisode, selectedShow);
   const sourceQueries = selectedSource ? queries.filter((query) => !query.sourceProfileId || query.sourceProfileId === selectedSource.id) : [];
   const context = {
     show: selectedShow,

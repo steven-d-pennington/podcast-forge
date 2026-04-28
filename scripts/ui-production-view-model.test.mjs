@@ -300,6 +300,7 @@ test('view model recovers downstream workflow when candidate selection is stale'
   assert.equal(model.stages.find((stage) => stage.id === 'discover').status, 'done');
   assert.equal(model.stages.find((stage) => stage.id === 'story').status, 'done');
   assert.equal(model.currentStage.id, 'review');
+  assert.equal(model.currentStage.status, 'ready');
   assert.equal(model.primaryNextAction.label, 'Select script revision');
   assert.equal(model.primaryNextAction.enabled, true);
 });
@@ -551,6 +552,37 @@ test('view model accepts metadata output path with a public asset base as publis
   }));
 
   assert.equal(model.currentStage.id, 'publishing');
+  assert.equal(model.primaryNextAction.enabled, true);
+  assert.equal(model.blockers.some((blocker) => blocker.message.includes('RSS/public target configured')), false);
+});
+
+test('view model falls back only to an unambiguous selected-show feed', () => {
+  const otherShowFeed = {
+    ...feed,
+    id: 'feed-other-show',
+    showId: 'show-other',
+    rssFeedPath: '',
+    publicFeedUrl: '',
+    publicBaseUrl: '',
+  };
+  const episodeWithoutFeed = { ...episode, feedId: null };
+  const model = deriveProductionViewModel(baseInput({
+    feeds: [otherShowFeed, feed],
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [readyBrief],
+    selectedResearchPacketId: 'brief-1',
+    scripts: [approvedScript],
+    selectedScriptId: 'script-1',
+    selectedScript: approvedScript,
+    selectedRevision: passedReviewRevision,
+    selectedRevisions: [passedReviewRevision],
+    production: { episode: episodeWithoutFeed, assets: [audioAsset, coverAsset], jobs: [] },
+    episodes: [episodeWithoutFeed],
+    selectedEpisodeId: 'episode-1',
+    selectedAssetIds: ['asset-audio-1', 'asset-cover-1'],
+  }));
+
   assert.equal(model.primaryNextAction.enabled, true);
   assert.equal(model.blockers.some((blocker) => blocker.message.includes('RSS/public target configured')), false);
 });
