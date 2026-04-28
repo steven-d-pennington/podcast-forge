@@ -414,3 +414,32 @@ Recommended order:
 11. #53 — PF2-10 Split UI state/render helpers into testable modules or sections ✅ merged (#66)
 12. #54 — PF2-11 Replace destructive/critical prompts with explicit confirmation dialogs ✅ merged (#68)
 13. #55 — PF2-12 Add local UI smoke checks for the guided flow ✅ merged (#69)
+
+## Third-pass UI architecture sprint — Produce view-model + Production Cockpit
+
+Created: 2026-04-27
+Sprint plan: `/home/steven/clawd/data/podcast-forge-vm-sprint-2026-04-27/SPRINT_PLAN.md`
+Sprint state: `~/clawd/data/podcast-forge-sprint-state.json`
+
+Goal: introduce a proper static frontend view-model layer and render the Produce workflow as a guided Production Cockpit, without starting a framework migration.
+
+Constraints:
+- Keep the static frontend stack for this sprint: `packages/api/public/index.html`, split `ui-*.js` modules, `styles.css`, and Fastify static routes.
+- One GitHub issue per coding agent.
+- One branch/worktree/PR per issue because Produce/UI files remain conflict-prone.
+- Merge/review gate between issues: `npm run check`, Copilot dynamic log inspection when available, local review fallback when needed.
+- Skip `npx jest`; use package scripts only.
+- No live provider/model/network calls in tests.
+- Preserve source provenance, warnings, approval gates, and auditability.
+
+Recommended order:
+1. #75 — PF3-01 Define Produce workspace view-model contract and fixtures
+2. #76 — PF3-02 Render sticky Production Command Bar from view-model
+3. #77 — PF3-03 Render compact 8-stage tracker and expand only current stage
+4. #78 — PF3-04 Separate active production artifacts from historical/archive artifacts
+5. #79 — PF3-05 Redesign Story Sources selector and source search controls
+6. #80 — PF3-06 Move action feedback and job result summaries into workflow context
+7. #81 — PF3-07 Replace ambiguous workflow labels and improve accessibility semantics
+8. #82 — PF3-08 Add UI architecture guardrails for view-model rendering and complexity
+
+Existing open bug #67 — Make generated audio assets accessible from local UI — remains in the backlog and should be pulled in after the cockpit/view-model state is stable, because the active artifact panel should make Play/Open/Download state obvious.
