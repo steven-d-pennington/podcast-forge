@@ -2031,7 +2031,7 @@ function renderPipeline() {
 
   els.workflowContext.append(renderStorySourceSummary(viewModel.selectedStorySourceSummary));
 
-  if (viewModel.workflowActionFeedback) {
+  if (viewModel.workflowActionFeedback && viewModel.workflowActionFeedback.status !== 'idle') {
     els.workflowContext.append(renderWorkflowFeedbackPanel(viewModel.workflowActionFeedback));
   }
 

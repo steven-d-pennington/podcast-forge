@@ -538,11 +538,15 @@ function deriveWorkflowActionFeedback(input, jobs, currentStage, primaryNextActi
   }
 
   const latestJob = latest(jobs.filter((job) => jobResultStage(job) !== 'workflow')) || latest(jobs);
+  const blocked = actionResultFromBlockedAction(primaryNextAction);
+  if (blocked && (!latestJob || blocked.stage === jobResultStage(latestJob))) {
+    return blocked;
+  }
+
   if (latestJob && ['failed', 'warning'].includes(jobResultStatus(latestJob))) {
     return actionResultFromJob(latestJob);
   }
 
-  const blocked = actionResultFromBlockedAction(primaryNextAction);
   if (blocked) {
     return blocked;
   }

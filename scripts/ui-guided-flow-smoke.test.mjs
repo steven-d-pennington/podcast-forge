@@ -119,6 +119,7 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(uiJs, 'viewModel.primaryNextAction', 'command bar primary action from view model');
   assertContains(uiJs, 'viewModel.latestActionResult', 'command bar latest result from view model');
   assertContains(uiJs, 'viewModel.workflowActionFeedback', 'command bar workflow feedback from view model');
+  assertContains(uiJs, "viewModel.workflowActionFeedback.status !== 'idle'", 'idle workflow feedback should not render as a persistent panel');
   assertContains(uiJs, 'viewModel.warnings.length', 'command bar warning count from view model');
   assertContains(uiJs, 'action: legacyStage?.disabled ? null : legacyStage?.action || null', 'command bar primary action should invoke available stage actions');
   assertContains(uiJs, 'commandBarStatusLabel(viewModel.currentStage.status)', 'command bar stage status should stay aligned to the view model');
@@ -242,7 +243,14 @@ test('workflow action feedback view-model covers success warnings and blockers',
       enabled: true,
       credentialStatus: { required: true, available: false, label: 'Brave credential missing' },
     }],
-    recentJobs: [],
+    recentJobs: [{
+      id: 'job-stale-warning',
+      type: 'source.search',
+      status: 'succeeded',
+      input: { sourceProfileId: 'profile-1', sourceProfileSlug: 'demo-sources' },
+      output: { inserted: 0, warnings: [{ code: 'STALE', message: 'Previous search warning.' }] },
+      updatedAt: '2026-04-28T12:10:00Z',
+    }],
   });
 
   assert.equal(blockedModel.workflowActionFeedback.status, 'blocked');
