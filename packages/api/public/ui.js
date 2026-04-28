@@ -3114,8 +3114,9 @@ function renderProduction() {
 
   els.generateAudioPreview.disabled = !readyForProduction || audioRunning;
   els.generateCoverArt.disabled = !readyForProduction || artRunning;
+  const activeEpisode = selectedEpisode();
   els.productionMeta.textContent = readyForProduction
-    ? (state.production.episode ? `Episode ${state.production.episode.slug}` : 'No audio or cover asset tasks yet.')
+    ? (activeEpisode ? `Episode ${activeEpisode.slug}` : 'No active/current episode yet. Create audio or cover tasks for the active script.')
     : approved
       ? `Integrity gate: ${integrityReviewLabel(integrity.status)}. Run review or override before creating assets.`
       : 'Approval gate: approve the selected revision before creating audio or cover assets.';

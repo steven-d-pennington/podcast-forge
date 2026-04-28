@@ -361,8 +361,9 @@ function episodeMatchesPath(episode, activeBrief, activeScript) {
   return true;
 }
 
-function activePathWarning(label, title) {
-  return `${label}${title ? ` "${title}"` : ''} is not part of current production for the selected candidate story.`;
+function activePathWarning(label, title, hasCandidateSelection) {
+  const pathDescription = hasCandidateSelection ? 'the selected candidate story' : 'the current production path';
+  return `${label}${title ? ` "${title}"` : ''} is not part of current production for ${pathDescription}.`;
 }
 
 function productionWarnings(episode, assets, jobs) {
@@ -785,28 +786,32 @@ export function deriveProductionViewModel(input = {}) {
     episodeId: activeEpisode?.id || null,
     assetIds: activeArtifactAssetIds,
   };
+  const hasCandidateSelection = selectedCandidateIds.size > 0;
+  const inactiveArtifactReason = hasCandidateSelection
+    ? 'Not part of current production for the selected candidate story.'
+    : 'Not part of current production path.';
   const inactiveSelectedArtifacts = [
     selectedBrief && selectedBrief.id !== activeIds.briefId ? {
       stage: 'brief',
-      message: activePathWarning('Research brief', selectedBrief.title),
-      source: markArtifact(summarizeBrief(selectedBrief), 'archive', 'Not part of current production for the selected candidate story.'),
+      message: activePathWarning('Research brief', selectedBrief.title, hasCandidateSelection),
+      source: markArtifact(summarizeBrief(selectedBrief), 'archive', inactiveArtifactReason),
     } : null,
     selectedScript && selectedScript.id !== activeIds.scriptId ? {
       stage: 'script',
-      message: activePathWarning('Script draft', selectedScript.title),
-      source: markArtifact(summarizeScript(selectedScript, selectedRevision), 'archive', 'Not part of current production for the selected candidate story.'),
+      message: activePathWarning('Script draft', selectedScript.title, hasCandidateSelection),
+      source: markArtifact(summarizeScript(selectedScript, selectedRevision), 'archive', inactiveArtifactReason),
     } : null,
     selectedEpisode && selectedEpisode.id !== activeIds.episodeId ? {
       stage: 'publishing',
-      message: activePathWarning('Episode', selectedEpisode.title || selectedEpisode.slug),
-      source: markArtifact(summarizeEpisode(selectedEpisode), 'archive', 'Not part of current production for the selected candidate story.'),
+      message: activePathWarning('Episode', selectedEpisode.title || selectedEpisode.slug, hasCandidateSelection),
+      source: markArtifact(summarizeEpisode(selectedEpisode), 'archive', inactiveArtifactReason),
     } : null,
     ...pathAssets
       .filter((asset) => !activeIds.assetIds.has(asset.id) && isAudioCoverAsset(asset))
       .map((asset) => ({
         stage: 'production',
-        message: activePathWarning('Production asset', asset.label || asset.type),
-        source: markArtifact(summarizeAsset(asset), 'archive', 'Not part of current production for the selected candidate story.'),
+        message: activePathWarning('Production asset', asset.label || asset.type, hasCandidateSelection),
+        source: markArtifact(summarizeAsset(asset), 'archive', inactiveArtifactReason),
       })),
   ].filter(Boolean);
   const activeArtifacts = {
