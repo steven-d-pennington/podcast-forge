@@ -494,6 +494,31 @@ test('view model covers publish blocked with concrete blocker reason', () => {
   assert.ok(model.blockers.some((blocker) => blocker.stage === 'publishing'));
 });
 
+test('view model keeps approved publish action scoped to RSS blockers', () => {
+  const approvedEpisode = { ...episode, status: 'approved-for-publish' };
+  const model = deriveProductionViewModel(baseInput({
+    feeds: [],
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [readyBrief],
+    selectedResearchPacketId: 'brief-1',
+    scripts: [approvedScript],
+    selectedScriptId: 'script-1',
+    selectedScript: approvedScript,
+    selectedRevision: passedReviewRevision,
+    selectedRevisions: [passedReviewRevision],
+    production: { episode: approvedEpisode, assets: [audioAsset, coverAsset], jobs: [] },
+    episodes: [approvedEpisode],
+    selectedEpisodeId: 'episode-1',
+    selectedAssetIds: ['asset-audio-1', 'asset-cover-1'],
+  }));
+
+  assert.equal(model.primaryNextAction.label, 'Publish to RSS');
+  assert.equal(model.primaryNextAction.enabled, false);
+  assert.match(model.primaryNextAction.blockerReason, /Feed metadata configured/);
+  assert.doesNotMatch(model.primaryNextAction.blockerReason, /audio-ready/);
+});
+
 test('view model does not treat private local feed paths as publish targets', () => {
   const localPathFeed = {
     ...feed,

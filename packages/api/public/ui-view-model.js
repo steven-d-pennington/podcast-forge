@@ -524,8 +524,13 @@ function deriveStages(context) {
     primaryNextAction = action('Approve script for audio', 'review', true);
   } else if (!audio || !cover) {
     primaryNextAction = action(`Create missing ${audio ? 'cover art' : cover ? 'audio' : 'audio and cover art'}`, 'production', readyForProduction);
-  } else if (activeEpisode?.status === 'approved-for-publish' && !publishBlocker) {
-    primaryNextAction = action('Publish to RSS', 'publishing', true);
+  } else if (activeEpisode?.status === 'approved-for-publish') {
+    primaryNextAction = action(
+      'Publish to RSS',
+      'publishing',
+      !publishBlocker,
+      publishBlocker ? `${publishBlocker.label}: ${publishBlocker.reason}` : '',
+    );
   } else if (activeEpisode?.status === 'published') {
     primaryNextAction = action('Review publishing record', 'publishing', false, 'Episode is already published.');
   } else {
