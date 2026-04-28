@@ -731,6 +731,7 @@ export function deriveProductionViewModel(input = {}) {
   const selectedShow = shows.find((show) => show.slug === input.selectedShowSlug) || null;
   const selectedSource = profiles.find((profile) => profile.id === input.selectedProfileId) || null;
   const selectedCandidateIds = new Set(asArray(input.selectedCandidateIds));
+  const hasCandidateSelection = selectedCandidateIds.size > 0;
   const selectedCandidates = candidates.filter((candidate) => selectedCandidateIds.has(candidate.id));
   const selectedScript = input.selectedScript || scripts.find((script) => script.id === input.selectedScriptId) || null;
   const selectedScriptBrief = selectedScript?.researchPacketId ? packets.find((packet) => packet.id === selectedScript.researchPacketId) : null;
@@ -746,7 +747,9 @@ export function deriveProductionViewModel(input = {}) {
   const activeRevision = activeScript && selectedRevision?.scriptId === activeScript.id ? selectedRevision : null;
   const selectedEpisode = production.episode || episodes.find((episode) => episode.id === input.selectedEpisodeId) || null;
   const latestMatchingEpisode = activeBrief ? latest(episodes.filter((episode) => episodeMatchesPath(episode, activeBrief, activeScript))) : null;
-  const activeEpisode = episodeMatchesPath(selectedEpisode, activeBrief, activeScript) ? selectedEpisode : latestMatchingEpisode;
+  const activeEpisode = !activeBrief && hasCandidateSelection
+    ? null
+    : (episodeMatchesPath(selectedEpisode, activeBrief, activeScript) ? selectedEpisode : latestMatchingEpisode);
   const selectedAssetIds = new Set(asArray(input.selectedAssetIds));
   const selectedAssets = productionAssets.filter((asset) => selectedAssetIds.has(asset.id));
   const pathAssets = selectedAssetIds.size > 0 && selectedAssets.length > 0
@@ -786,7 +789,6 @@ export function deriveProductionViewModel(input = {}) {
     episodeId: activeEpisode?.id || null,
     assetIds: activeArtifactAssetIds,
   };
-  const hasCandidateSelection = selectedCandidateIds.size > 0;
   const inactiveArtifactReason = hasCandidateSelection
     ? 'Not part of current production for the selected candidate story.'
     : 'Not part of current production path.';

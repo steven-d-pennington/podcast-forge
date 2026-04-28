@@ -272,12 +272,19 @@ test('view model covers candidate selected with no research brief', () => {
   const model = deriveProductionViewModel(baseInput({
     storyCandidates: [candidate],
     selectedCandidateIds: ['candidate-1'],
+    production: { episode, assets: [audioAsset, coverAsset], jobs: [] },
+    episodes: [episode],
+    selectedEpisodeId: 'episode-1',
   }));
 
   assert.equal(model.selectedCandidateStorySummary.count, 1);
   assert.equal(model.selectedCandidateStorySummary.primary.title, candidate.title);
   assert.equal(model.currentStage.id, 'brief');
   assert.equal(model.currentStage.status, 'ready');
+  assert.equal(model.activeArtifacts.publishing, null);
+  assert.equal(model.activeArtifacts.audioCover, null);
+  assert.ok(model.historicalArtifacts.audioCover.some((item) => item.id === 'asset-audio-1'));
+  assert.ok(model.artifactScopeWarnings.some((item) => item.stage === 'publishing'));
   assert.equal(model.primaryNextAction.label, 'Build research brief');
   assert.equal(model.primaryNextAction.enabled, true);
 });

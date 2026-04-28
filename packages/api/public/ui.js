@@ -4311,9 +4311,13 @@ async function buildResearchBriefFromSelected() {
 }
 
 async function generateScriptFromSelectedResearch() {
-  const researchPacketId = selectedResearchPacket()?.id || els.scriptResearchPacketId.value.trim();
+  const researchPacketId = selectedResearchPacket()?.id || (state.selectedCandidateIds.length > 0 ? '' : els.scriptResearchPacketId.value.trim());
 
   if (!researchPacketId) {
+    setStatus(state.selectedCandidateIds.length > 0
+      ? 'Script generation blocked: build or select the active/current research brief for this story first.'
+      : 'Choose a research brief before generating a script draft.');
+    render();
     return;
   }
 
