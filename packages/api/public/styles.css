@@ -395,6 +395,17 @@ button:disabled {
   margin: 0;
 }
 
+.artifact-scope-warning-list {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.artifact-scope-warning-list p {
+  background: rgba(255, 255, 255, 0.54);
+  border-radius: 4px;
+  padding: 0.3rem 0.4rem;
+}
+
 .workflow-context-item strong {
   color: #20242c;
   font-size: 0.95rem;

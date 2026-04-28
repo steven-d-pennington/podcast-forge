@@ -510,6 +510,28 @@ test('view model archives production artifacts that do not match the selected ca
   assert.equal(model.primaryNextAction.label, 'Generate script draft');
 });
 
+test('view model does not promote unlinked legacy packets as current for a selected candidate', () => {
+  const legacyBrief = {
+    ...readyBrief,
+    id: 'brief-legacy',
+    title: 'Legacy unlinked brief',
+    content: {},
+    createdAt: '2026-04-27T16:30:00.000Z',
+    updatedAt: '2026-04-27T16:45:00.000Z',
+  };
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [legacyBrief],
+    selectedResearchPacketId: 'brief-legacy',
+  }));
+
+  assert.equal(model.activeArtifacts.brief, null);
+  assert.ok(model.historicalArtifacts.briefs.some((item) => item.id === 'brief-legacy' && item.stateLabel === 'History/archive'));
+  assert.ok(model.artifactScopeWarnings.some((item) => item.message.includes('not part of current production')));
+  assert.equal(model.primaryNextAction.label, 'Build research brief');
+});
+
 test('view model treats publish approval as actionable when prerequisites are ready', () => {
   const model = deriveProductionViewModel(baseInput({
     storyCandidates: [candidate],

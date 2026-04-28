@@ -1878,11 +1878,22 @@ function renderPipeline() {
   scopeLabel.textContent = scopeWarnings.length > 0 ? 'Current production warning' : 'Artifact scope';
   const scopeText = document.createElement('strong');
   scopeText.textContent = scopeWarnings.length > 0
-    ? scopeWarnings[0].message
+    ? `${scopeWarnings.length} artifact${scopeWarnings.length === 1 ? '' : 's'} not part of current production.`
     : archiveCount > 0 ? `${archiveCount} history/archive artifact${archiveCount === 1 ? '' : 's'} kept out of active state.` : 'Only active/current artifacts are shown as production state.';
   const scopeDetail = document.createElement('p');
   scopeDetail.textContent = 'History/archive records remain available for audit, but production and publishing actions use active/current artifacts only.';
-  scopePanel.append(scopeLabel, scopeText, scopeDetail);
+  scopePanel.append(scopeLabel, scopeText);
+  if (scopeWarnings.length > 0) {
+    const warningList = document.createElement('div');
+    warningList.className = 'artifact-scope-warning-list';
+    scopeWarnings.forEach((warning) => {
+      const warningItem = document.createElement('p');
+      warningItem.textContent = warning.message;
+      warningList.append(warningItem);
+    });
+    scopePanel.append(warningList);
+  }
+  scopePanel.append(scopeDetail);
   els.workflowContext.append(scopePanel);
 
   const stages = buildPipelineStages();
@@ -3337,10 +3348,12 @@ function renderScripts() {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `profile-button ${scope.className}-artifact${script.id === state.selectedScriptId ? ' active' : ''}`;
-    button.innerHTML = `<strong></strong><span></span>`;
-    button.querySelector('strong').textContent = script.title;
-    appendScopePill(button.querySelector('strong'), scope);
-    button.querySelector('span').textContent = `${scope.label} | ${script.format} | ${script.status} | updated ${new Date(script.updatedAt).toLocaleString()}`;
+    const title = document.createElement('strong');
+    title.textContent = script.title;
+    appendScopePill(title, scope);
+    const meta = document.createElement('span');
+    meta.textContent = `${scope.label} | ${script.format} | ${script.status} | updated ${new Date(script.updatedAt).toLocaleString()}`;
+    button.append(title, meta);
     button.addEventListener('click', async () => {
       await loadScript(script.id);
       savePipelineState();

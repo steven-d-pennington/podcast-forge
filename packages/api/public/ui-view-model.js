@@ -339,7 +339,7 @@ function packetMatchesCandidateSelection(packet, selectedCandidateIds) {
   }
 
   const packetIds = new Set(packetCandidateIds(packet));
-  return packetIds.size === 0 || [...selectedCandidateIds].every((id) => packetIds.has(id));
+  return packetIds.size > 0 && [...selectedCandidateIds].every((id) => packetIds.has(id));
 }
 
 function episodeMatchesPath(episode, activeBrief, activeScript) {
