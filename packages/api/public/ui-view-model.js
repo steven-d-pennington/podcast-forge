@@ -42,17 +42,15 @@ function newest(items) {
 }
 
 function uniqueById(items) {
-  const seen = new Set();
-  const unique = [];
+  const selected = new Map();
   for (const item of asArray(items)) {
-    const key = item?.id || `${item?.type || 'item'}:${item?.createdAt || unique.length}`;
-    if (seen.has(key)) {
-      continue;
+    const key = item?.id || `${item?.type || 'item'}:${item?.createdAt || selected.size}`;
+    const existing = selected.get(key);
+    if (!existing || timestamp(item?.updatedAt || item?.createdAt || item?.generatedAt || item?.discoveredAt || item?.publishedAt) >= timestamp(existing.updatedAt || existing.createdAt || existing.generatedAt || existing.discoveredAt || existing.publishedAt)) {
+      selected.set(key, item);
     }
-    seen.add(key);
-    unique.push(item);
   }
-  return unique;
+  return [...selected.values()];
 }
 
 function firstPresent(...values) {
@@ -334,8 +332,8 @@ function publishChecklist({ packet, script, revision, episode, assets, feed, job
   const feedConfigured = Boolean(feed);
   const targetConfigured = Boolean(feed?.rssFeedPath || outputPathForFeed(feed) || feedPublicUrl);
   const feedUrlsValid = (!feedPublicUrl || validHttpUrl(feedPublicUrl)) && (!publicBaseUrl || validHttpUrl(publicBaseUrl));
-  const audioValid = Boolean(audio && (!audio.mimeType || audio.mimeType.startsWith('audio/')) && (audio.byteSize === null || audio.byteSize === undefined || audio.byteSize > 0));
-  const coverValid = Boolean(cover && (!cover.mimeType || cover.mimeType.startsWith('image/')));
+  const audioValid = Boolean(audio && audio.mimeType && audio.mimeType.startsWith('audio/') && (audio.byteSize === null || audio.byteSize === undefined || audio.byteSize > 0));
+  const coverValid = Boolean(cover && cover.mimeType && cover.mimeType.startsWith('image/'));
   const packetReady = Boolean(packet && ['ready', 'approved', 'research-ready'].includes(packet.status || asObject(packet.content?.readiness).status));
 
   return [

@@ -411,11 +411,17 @@ test('view model covers publish blocked with concrete blocker reason', () => {
 });
 
 test('view model deduplicates overlapping recent and production jobs', () => {
-  const duplicateJob = {
+  const recentJob = {
     id: 'job-1',
     type: 'production.audio',
-    status: 'succeeded',
+    status: 'running',
     createdAt: '2026-04-27T14:20:00.000Z',
+    updatedAt: '2026-04-27T14:30:00.000Z',
+    summary: { warnings: [{ message: 'Stale warning.' }] },
+  };
+  const duplicateJob = {
+    ...recentJob,
+    status: 'succeeded',
     updatedAt: '2026-04-27T14:45:00.000Z',
     summary: { warnings: [{ message: 'Preview asset needs review.' }] },
   };
@@ -430,7 +436,7 @@ test('view model deduplicates overlapping recent and production jobs', () => {
     selectedScript: approvedScript,
     selectedRevision: passedReviewRevision,
     selectedRevisions: [passedReviewRevision],
-    recentJobs: [duplicateJob],
+    recentJobs: [recentJob],
     production: { episode, assets: [audioAsset, coverAsset], jobs: [duplicateJob] },
     episodes: [episode],
     selectedEpisodeId: 'episode-1',
@@ -439,7 +445,9 @@ test('view model deduplicates overlapping recent and production jobs', () => {
   }));
 
   assert.equal(model.latestActionResult.job.id, 'job-1');
+  assert.equal(model.latestActionResult.status, 'succeeded');
   assert.equal(model.warnings.filter((warning) => warning.message === 'Preview asset needs review.').length, 1);
+  assert.equal(model.warnings.filter((warning) => warning.message === 'Stale warning.').length, 0);
 });
 
 test('view model keeps latest artifacts independent from active selection', () => {
