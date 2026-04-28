@@ -192,7 +192,7 @@ test('production command bar view-model fixtures expose primary action and block
   });
 
   assert.equal(readyModel.currentStage.label, 'Find story candidates');
-  assert.equal(readyModel.primaryNextAction.label, 'Run source search');
+  assert.equal(readyModel.primaryNextAction.label, 'Search Brave');
   assert.equal(readyModel.primaryNextAction.enabled, true);
   assert.equal(readyModel.latestActionResult.message, 'Source search complete: 3 inserted, 0 skipped.');
 
@@ -212,9 +212,103 @@ test('production command bar view-model fixtures expose primary action and block
     selectedProfileId: 'profile-2',
   });
 
-  assert.equal(blockedModel.primaryNextAction.label, 'Run source search');
+  assert.equal(blockedModel.primaryNextAction.label, 'Review Local JSON Settings');
   assert.equal(blockedModel.primaryNextAction.enabled, false);
-  assert.equal(blockedModel.primaryNextAction.blockerReason, 'Choose a browser-supported story source before discovery.');
+  assert.equal(blockedModel.primaryNextAction.blockerReason, 'Local JSON import is not available from the browser workflow yet.');
+});
+
+test('story source summaries use editorial labels and hide credential values', () => {
+  assertContains(uiJs, 'Selected Story Source / Search Recipe', 'selected story source summary heading');
+  assertContains(uiJs, 'sourceProviderLabel(profile.type)', 'source selector provider labels');
+  assertContains(uiJs, 'Credential/config', 'credential/config summary label');
+  assertContains(uiJs, 'sourceActionDescription(profile, state.queries)', 'source action description');
+
+  const show = {
+    id: 'show-1',
+    slug: 'demo-show',
+    title: 'Demo Show',
+  };
+  const zaiQuery = {
+    id: 'query-zai',
+    sourceProfileId: 'profile-zai',
+    query: 'AI regulation filings',
+    enabled: true,
+    freshness: 'pw',
+    includeDomains: ['example.com'],
+    excludeDomains: ['rumor.example'],
+  };
+  const zaiModel = deriveProductionViewModel({
+    shows: [show],
+    feeds: [],
+    profiles: [{
+      id: 'profile-zai',
+      slug: 'zai-signals',
+      name: 'Policy Signals',
+      type: 'zai-web',
+      enabled: true,
+      credentialStatus: { required: true, available: true, label: 'Z.AI Web Search credential configured' },
+    }],
+    queries: [zaiQuery],
+    storyCandidates: [],
+    researchPackets: [],
+    scripts: [],
+    selectedRevisions: [],
+    production: { episode: null, assets: [], jobs: [] },
+    recentJobs: [{
+      id: 'job-zai',
+      type: 'source.search',
+      status: 'succeeded',
+      input: { sourceProfileId: 'profile-zai', sourceProfileSlug: 'zai-signals' },
+      output: { inserted: 2, skipped: 1, warnings: [{ code: 'DOMAIN_DROPPED' }] },
+      updatedAt: '2026-04-28T12:00:00Z',
+    }],
+    episodes: [],
+    selectedShowSlug: 'demo-show',
+    selectedProfileId: 'profile-zai',
+  });
+
+  assert.equal(zaiModel.selectedStorySourceSummary.providerType, 'Z.AI Web Search');
+  assert.equal(zaiModel.selectedStorySourceSummary.nextActionLabel, 'Search Z.AI Web');
+  assert.equal(zaiModel.selectedStorySourceSummary.credentialLabel, 'Z.AI Web Search credential configured');
+  assert.match(zaiModel.selectedStorySourceSummary.inputSummary, /1 enabled search query/);
+  assert.match(zaiModel.selectedStorySourceSummary.constraintsSummary, /freshness pw/);
+  assert.match(zaiModel.selectedStorySourceSummary.lastSearchResult, /2 inserted, 1 skipped, 1 warning/);
+
+  const braveModel = deriveProductionViewModel({
+    shows: [show],
+    feeds: [],
+    profiles: [{
+      id: 'profile-brave',
+      slug: 'brave-news',
+      name: 'Daily News Search',
+      type: 'brave',
+      enabled: true,
+      config: { ['api' + 'Key']: 'hidden' },
+      credentialStatus: { required: true, available: false, label: 'Brave credential missing' },
+    }],
+    queries: [{
+      id: 'query-brave',
+      sourceProfileId: 'profile-brave',
+      query: 'AI product news',
+      enabled: true,
+    }],
+    storyCandidates: [],
+    researchPackets: [],
+    scripts: [],
+    selectedRevisions: [],
+    production: { episode: null, assets: [], jobs: [] },
+    recentJobs: [],
+    episodes: [],
+    selectedShowSlug: 'demo-show',
+    selectedProfileId: 'profile-brave',
+  });
+
+  assert.equal(braveModel.selectedStorySourceSummary.providerType, 'Brave');
+  assert.equal(braveModel.selectedStorySourceSummary.credentialStatus, 'missing');
+  assert.equal(braveModel.selectedStorySourceSummary.discoveryReady, false);
+  assert.equal(braveModel.primaryNextAction.enabled, false);
+  assert.equal(braveModel.primaryNextAction.blockerReason, 'Brave credential missing');
+  assert.doesNotMatch(JSON.stringify(braveModel.selectedStorySourceSummary), /hidden/);
 });
 
 test('workflow, settings, and debug surfaces stay separated', () => {

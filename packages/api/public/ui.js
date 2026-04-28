@@ -23,7 +23,14 @@ import {
   safeVisiblePath,
   sanitizedDebug,
   slugify,
+  sourceActionDescription,
+  sourceActionLabel,
+  sourceConstraintsSummary,
   sourceControlsSupported,
+  sourceCredentialSummary,
+  sourceDiscoveryBlocker,
+  sourceInputSummary,
+  sourceProviderLabel,
   validHttpUrl,
 } from './ui-formatters.js';
 
@@ -870,12 +877,24 @@ function renderProfiles() {
   }
 
   for (const profile of state.profiles) {
+    const profileQueries = profile.id === state.selectedProfileId ? state.queries : [];
+    const credential = sourceCredentialSummary(profile);
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = `profile-button${profile.id === state.selectedProfileId ? ' active' : ''}`;
-    button.innerHTML = `<strong></strong><span></span>`;
+    button.className = `profile-button${profile.id === state.selectedProfileId ? ' active' : ''}${profile.enabled ? '' : ' disabled'}`;
+    button.innerHTML = `
+      <strong></strong>
+      <span class="profile-provider"></span>
+      <span class="profile-summary"></span>
+      <span class="profile-availability"></span>
+    `;
     button.querySelector('strong').textContent = profile.name;
-    button.querySelector('span').textContent = `${profile.type} | ${profile.enabled ? 'enabled' : 'disabled'} | weight ${profile.weight}`;
+    button.querySelector('.profile-provider').textContent = `${sourceProviderLabel(profile.type)} | ${profile.enabled ? 'enabled' : 'disabled'}`;
+    button.querySelector('.profile-summary').textContent = profile.id === state.selectedProfileId
+      ? sourceInputSummary(profile, profileQueries)
+      : 'Select to review search recipe inputs.';
+    button.querySelector('.profile-availability').textContent = credential.label;
+    button.querySelector('.profile-availability').classList.add(credential.status);
     button.addEventListener('click', async () => {
       state.selectedProfileId = profile.id;
       savePipelineState();
@@ -1258,6 +1277,7 @@ function renderProductionCommandBar(viewModel, stages) {
   const warningCount = viewModel.warnings.length;
   const blockerCount = viewModel.blockers.length;
   const result = viewModel.latestActionResult || { status: 'idle', message: 'No action result recorded yet.' };
+  const sourceSummary = viewModel.selectedStorySourceSummary;
   const showTitle = viewModel.selectedShowSummary?.title || 'No show selected';
   const episodeTitle = viewModel.activeDraftEpisodeSummary?.title
     || viewModel.activeArtifacts?.publishing?.title
@@ -1279,6 +1299,7 @@ function renderProductionCommandBar(viewModel, stages) {
   const metrics = document.createElement('div');
   metrics.className = 'command-bar-metrics';
   appendCommandBarMetric(metrics, 'Stage', `${viewModel.currentStage.label} | ${commandBarStatusLabel(viewModel.currentStage.status)}`);
+  appendCommandBarMetric(metrics, 'Story source', sourceSummary ? `${sourceSummary.providerType} | ${sourceSummary.statusLabel}` : 'Choose source');
   appendCommandBarMetric(metrics, 'Warnings', String(warningCount), warningCount > 0 ? 'warning' : '');
   appendCommandBarMetric(metrics, 'Blockers', String(blockerCount), blockerCount > 0 ? 'blocked' : '');
 
@@ -1549,6 +1570,66 @@ function workflowRevisionContext() {
   return 'No active run or revision';
 }
 
+function appendSourceSummaryMetric(container, label, value, className = '') {
+  const item = document.createElement('div');
+  item.className = `story-source-metric${className ? ` ${className}` : ''}`;
+  const itemLabel = document.createElement('span');
+  itemLabel.textContent = label;
+  const itemValue = document.createElement('strong');
+  itemValue.textContent = value;
+  item.append(itemLabel, itemValue);
+  container.append(item);
+}
+
+function renderStorySourceSummary(summary) {
+  const panel = document.createElement('section');
+  panel.className = `story-source-summary${summary?.discoveryReady === false ? ' blocked' : ''}`;
+  panel.setAttribute('aria-label', 'Selected story source summary');
+
+  const header = document.createElement('div');
+  header.className = 'story-source-summary-header';
+  const heading = document.createElement('div');
+  const kicker = document.createElement('span');
+  kicker.textContent = 'Selected Story Source / Search Recipe';
+  const title = document.createElement('h3');
+  title.textContent = summary?.name || 'Choose a story source';
+  heading.append(kicker, title);
+  const badge = document.createElement('span');
+  badge.className = `status-pill ${summary?.enabled ? 'done' : 'blocked'}`;
+  badge.textContent = summary ? summary.statusLabel : 'not selected';
+  header.append(heading, badge);
+
+  const metrics = document.createElement('div');
+  metrics.className = 'story-source-metrics';
+  appendSourceSummaryMetric(metrics, 'Provider', summary?.providerType || 'Choose a source');
+  appendSourceSummaryMetric(metrics, 'Inputs', summary?.inputSummary || 'No input summary yet.');
+  appendSourceSummaryMetric(metrics, 'Constraints', summary?.constraintsSummary || 'No constraints selected.');
+  appendSourceSummaryMetric(
+    metrics,
+    'Credential/config',
+    summary?.credentialLabel || 'No credential/config status yet.',
+    summary?.credentialStatus || '',
+  );
+  appendSourceSummaryMetric(metrics, 'Last result', summary?.lastSearchResult || 'No source run recorded yet.');
+
+  const action = document.createElement('p');
+  action.className = 'story-source-action';
+  action.textContent = summary
+    ? `${summary.nextActionLabel}: ${summary.nextActionDescription}`
+    : 'Choose a Story Source/Search Recipe to see what discovery will do next.';
+
+  if (summary?.discoveryBlocker) {
+    const blocker = document.createElement('p');
+    blocker.className = 'story-source-blocker';
+    blocker.textContent = `Blocked: ${summary.discoveryBlocker}`;
+    panel.append(header, metrics, action, blocker);
+    return panel;
+  }
+
+  panel.append(header, metrics, action);
+  return panel;
+}
+
 function buildPipelineStages() {
   const show = selectedShow();
   const profile = selectedProfile();
@@ -1577,6 +1658,9 @@ function buildPipelineStages() {
   const packetWarningCount = packet?.warnings?.length || 0;
   const packetBlocked = packet?.status === 'blocked';
   const profileSupportsDiscovery = profile && ['brave', 'zai-web', 'rss'].includes(profile.type);
+  const profileDiscoveryBlocker = profile ? sourceDiscoveryBlocker(profile, state.queries) : '';
+  const profileActionLabel = profile ? sourceActionLabel(profile.type) : 'Choose Story Source';
+  const profileActionDescription = profile ? sourceActionDescription(profile, state.queries) : 'Choose a Story Source/Search Recipe before finding candidate stories.';
   const checklist = publishChecklistState();
   const publishChecklistReady = checklist.every((item) => item.passed);
   const publishPreApprovalReady = checklist.filter((item) => item.key !== 'publishApproval').every((item) => item.passed);
@@ -1636,7 +1720,7 @@ function buildPipelineStages() {
         : profile.type === 'manual'
           ? 'Paste a manual source URL below to add a possible story.'
           : profileSupportsDiscovery
-            ? `Run ${profile.type === 'rss' ? 'RSS import' : 'source search'} for the selected story source.`
+            ? profileActionDescription
             : 'This source type is not wired for browser-triggered discovery yet.',
       actionReason: discoverRunning
         ? 'Discovery is already running; wait for the task run to finish or inspect progress.'
@@ -1645,16 +1729,18 @@ function buildPipelineStages() {
           : profile.type === 'manual'
             ? 'Add a manual URL to create a candidate story with explicit source provenance.'
             : profileSupportsDiscovery
-              ? `Ready: run ${profile.type === 'rss' ? 'RSS import' : 'source search'} to load candidate stories.`
+              ? (profileDiscoveryBlocker ? `Blocked: ${profileDiscoveryBlocker}` : `Ready: ${profileActionDescription}`)
               : 'Blocked: this story source type cannot run discovery from the browser; use Brave, Z.AI, RSS, or manual intake.',
       blockers: !profile
         ? ['Choose a story source/search recipe.']
+        : profileDiscoveryBlocker
+          ? [profileDiscoveryBlocker]
         : !profileSupportsDiscovery && profile.type !== 'manual'
           ? ['Choose a Brave, Z.AI, RSS, or manual story source for browser-triggered discovery.']
           : [],
-      actionLabel: !profile ? 'Choose Story Source' : profile.type === 'rss' ? 'Import RSS Items' : ['brave', 'zai-web'].includes(profile.type) ? 'Run Source Search' : profile.type === 'manual' ? 'Add Manual Story' : 'Open Source Settings',
+      actionLabel: profileActionLabel,
       action: !profile ? () => scrollToPanel('settingsPanel') : profileSupportsDiscovery ? runSelectedProfileDiscovery : profile.type === 'manual' ? focusManualStoryForm : () => scrollToPanel('settingsPanel'),
-      disabled: discoverRunning,
+      disabled: discoverRunning || Boolean(profileDiscoveryBlocker),
       active: state.storyCandidates.length > 0,
       targetId: profile?.type === 'manual' ? 'manualStoryPanel' : 'settingsPanel',
       jobTypes: ['source.search', 'source.ingest'],
@@ -1867,6 +1953,8 @@ function renderPipeline() {
     item.append(itemLabel, itemValue);
     els.workflowContext.append(item);
   }
+
+  els.workflowContext.append(renderStorySourceSummary(viewModel.selectedStorySourceSummary));
 
   const scopeWarnings = asArray(viewModel.artifactScopeWarnings);
   const archiveCounts = viewModel.historicalArtifacts || {};
@@ -2583,7 +2671,7 @@ function renderSettingsSources() {
       <div class="grid">
         <label class="field"><span>Name</span><input name="name" type="text" required></label>
         <label class="field"><span>Slug</span><input name="slug" type="text" required></label>
-        <label class="field"><span>Type</span><select name="type"><option value="brave">Brave</option><option value="zai-web">Z.AI Web Search</option><option value="rss">RSS</option><option value="manual">Manual</option><option value="local-json">Local JSON</option></select></label>
+        <label class="field"><span>Type</span><select name="type"><option value="brave">Brave</option><option value="zai-web">Z.AI Web Search</option><option value="rss">RSS</option><option value="manual">Manual URL</option><option value="local-json">Local JSON</option></select></label>
         <label class="field"><span>Weight</span><input name="weight" type="number" min="0" step="0.001" required></label>
         <label class="field"><span>Freshness window</span><input name="freshness" type="text" placeholder="pd, pw, pm"></label>
         <label class="toggle admin-toggle"><input name="enabled" type="checkbox"><span>Enabled</span></label>
@@ -4227,8 +4315,14 @@ async function runSelectedProfileDiscovery() {
     return;
   }
 
+  const blocker = sourceDiscoveryBlocker(profile, state.queries);
+  if (blocker) {
+    setStatus(`${sourceActionLabel(profile.type)} blocked: ${blocker}`, '', 'warning');
+    return;
+  }
+
   setActionRunning('discover', true);
-  setStatus(profile.type === 'rss' ? 'Importing RSS items...' : 'Running source search...');
+  setStatus(`${sourceActionLabel(profile.type)} running...`);
 
   try {
     const path = profile.type === 'rss'
@@ -4238,7 +4332,9 @@ async function runSelectedProfileDiscovery() {
     await loadStoryCandidates();
     await loadJobs();
     render();
-    setStatus(`${profile.type === 'rss' ? 'RSS import' : 'Source search'} complete: ${body.inserted} inserted, ${body.skipped} skipped.`);
+    const warnings = asArray(body.job?.output?.warnings);
+    const warningText = warnings.length > 0 ? `, ${warnings.length} warning${warnings.length === 1 ? '' : 's'}` : '';
+    setStatus(`${sourceActionLabel(profile.type)} complete: ${body.inserted} inserted, ${body.skipped} skipped${warningText}.`);
   } catch (error) {
     reportError(error);
   } finally {
