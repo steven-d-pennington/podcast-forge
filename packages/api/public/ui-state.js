@@ -47,6 +47,7 @@ export const state = {
   selectedProfileId: '',
   activeSurface: 'workflow',
   activeSettingsTab: 'shows',
+  expandedPipelineStageIds: [],
   showSetupOpen: false,
   runningActions: {},
 };

@@ -81,10 +81,36 @@ test('editorial stage definitions remain intact and navigable', () => {
 
   const targetIdCount = uiJs.match(/\btargetId:/g)?.length ?? 0;
   assert.ok(targetIdCount >= 8, 'pipeline stages should keep panel target IDs for navigation');
-  assertContains(uiJs, 'function stageCard(stage)', 'stage card renderer');
+  assertContains(uiJs, 'function stageCard(stage', 'stage card renderer');
   assertContains(uiJs, 'scrollToPanel(stage.targetId)', 'stage card panel navigation');
   assertContains(uiJs, 'function scrollToPanel(id)', 'panel scroll helper');
   assertContains(uiJs, "card.dataset.stage", 'stage cards should expose stage numbers');
+});
+
+test('stage tracker progressively discloses only the current stage by default', () => {
+  assertContains(uiJs, 'function currentPipelineStageId(viewModel, stages)', 'current pipeline stage mapper');
+  assertContains(uiJs, "viewModel?.currentStage?.id === 'source'", 'view-model source stage should map into the 8-stage tracker');
+  assertContains(uiJs, 'function pipelineStageIsExpanded(stage, currentStageId)', 'stage expansion helper');
+  assertContains(uiJs, 'stage.id === currentStageId || state.expandedPipelineStageIds.includes(stage.id)', 'current stage should be expanded by default');
+  assertContains(uiJs, 'if (!expanded)', 'collapsed stage branch');
+  assertContains(uiJs, "expandButton.textContent = 'Expand stage'", 'collapsed stages should expose an expand control');
+  assertContains(uiJs, "collapseButton.textContent = 'Collapse stage'", 'expanded non-current stages should expose a collapse control');
+  assertContains(uiJs, "card.className = `pipeline-card ${statusClass(statusLabel)}${expanded ? ' expanded' : ' collapsed'}${stage.id === currentStageId ? ' current' : ''}`", 'stage cards should mark collapsed/current state');
+  assertContains(uiJs, "button.textContent = stage.actionLabel", 'existing stage action remains available when expanded');
+  assertContains(uiJs, 'body.append(artifacts, next, button, actionReason)', 'expanded stage body keeps action context');
+  assertContains(uiJs, 'els.pipelineStages.append(stageCard(stage, currentStageId))', 'render should pass the current stage into each card');
+  assertContains(uiJs, "currentBadge.textContent = 'current'", 'current stage should be called out separately from status');
+  assertContains(uiJs, 'function pruneExpandedPipelineStages(stages)', 'expanded stage state should be pruned during render');
+  assertContains(uiJs, 'state.expandedPipelineStageIds = []', 'changing workflow context should reset expanded stage state');
+
+  for (const status of ['not started', 'blocked', 'ready', 'complete', 'warning']) {
+    assertContains(uiJs, `return '${status}'`, `stage tracker status ${status}`);
+  }
+
+  assertContains(stylesCss, '.pipeline-card.collapsed .pipeline-expand', 'collapsed tracker styles');
+  assertContains(stylesCss, '.pipeline-card-body', 'expanded tracker body styles');
+  assertContains(stylesCss, '.status-pill.current', 'current status style');
+  assertContains(stylesCss, '.status-pill.complete', 'complete status style');
 });
 
 test('production command bar and concrete blocker copy remain present', () => {
