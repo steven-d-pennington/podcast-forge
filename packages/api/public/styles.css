@@ -305,7 +305,7 @@ button:disabled {
   min-width: 11rem;
 }
 
-.production-command-bar .command-bar-primary[aria-disabled="true"] {
+.production-command-bar .command-bar-primary:disabled {
   background: #eef1f5;
   border-color: #c9ced6;
   color: #586575;

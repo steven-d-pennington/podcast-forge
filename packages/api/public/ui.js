@@ -1124,8 +1124,12 @@ function renderProductionCommandBar(viewModel, stages) {
 
   const action = viewModel.primaryNextAction;
   const actionTarget = commandBarActionTarget(action, stages);
-  const actionBlocked = !action.enabled;
-  const blockerReason = action.blockerReason || viewModel.blockers[0]?.message || '';
+  const actionTargetBlocked = Boolean(actionTarget.disabled);
+  const actionBlocked = !action.enabled || actionTargetBlocked;
+  const blockerReason = action.blockerReason
+    || (actionTargetBlocked ? actionTarget.actionReason || actionTarget.blockers?.[0] || 'Wait for the current stage action to finish.' : '')
+    || viewModel.blockers[0]?.message
+    || '';
   const detailsTarget = commandBarDetailsTarget(viewModel.currentStage.id, stages);
   const warningCount = viewModel.warnings.length;
   const blockerCount = viewModel.blockers.length;
@@ -1169,7 +1173,7 @@ function renderProductionCommandBar(viewModel, stages) {
   primary.className = 'command-bar-primary';
   primary.textContent = action.label;
   primary.setAttribute('aria-describedby', actionBlocked && blockerReason ? blockerId : resultId);
-  primary.setAttribute('aria-disabled', actionBlocked ? 'true' : 'false');
+  primary.disabled = actionBlocked;
   primary.title = actionBlocked && blockerReason ? blockerReason : '';
   primary.addEventListener('click', () => {
     if (actionBlocked) {
@@ -1205,6 +1209,10 @@ function renderProductionCommandBar(viewModel, stages) {
 }
 
 function renderNextAction(stages) {
+  if (!els.nextActionPanel) {
+    return;
+  }
+
   const stage = nextActionFromStages(stages);
   els.nextActionPanel.innerHTML = '';
 

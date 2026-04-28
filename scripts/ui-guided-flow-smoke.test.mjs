@@ -92,7 +92,7 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(uiJs, 'viewModel.primaryNextAction', 'command bar primary action from view model');
   assertContains(uiJs, 'viewModel.latestActionResult', 'command bar latest result from view model');
   assertContains(uiJs, 'viewModel.warnings.length', 'command bar warning count from view model');
-  assertContains(uiJs, 'aria-disabled', 'blocked command bar action accessibility state');
+  assertContains(uiJs, 'primary.disabled = actionBlocked', 'blocked command bar action disabled state');
   assertContains(uiJs, 'No active episode yet', 'command bar active episode fallback');
   assertContains(uiJs, 'Latest failure', 'command bar failure summary label');
   assertContains(uiJs, 'Stage details', 'command bar stage details button');
