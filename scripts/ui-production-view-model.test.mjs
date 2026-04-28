@@ -52,6 +52,12 @@ const readyBrief = {
   updatedAt: '2026-04-27T13:00:00.000Z',
 };
 
+const warningBrief = {
+  ...readyBrief,
+  id: 'brief-warning',
+  warnings: [{ code: 'LOW_CORROBORATION', message: 'Needs another independent source.' }],
+};
+
 const script = {
   id: 'script-1',
   researchPacketId: 'brief-1',
@@ -234,6 +240,22 @@ test('view model covers candidate selected with no research brief', () => {
   assert.equal(model.primaryNextAction.enabled, true);
 });
 
+test('view model blocks drafting while research warnings are unresolved', () => {
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [warningBrief],
+    selectedResearchPacketId: 'brief-warning',
+  }));
+
+  assert.equal(model.currentStage.id, 'brief');
+  assert.equal(model.currentStage.status, 'needs-review');
+  assert.equal(model.primaryNextAction.label, 'Resolve research warnings');
+  assert.equal(model.primaryNextAction.enabled, false);
+  assert.match(model.primaryNextAction.blockerReason, /research warning/);
+  assert.ok(model.warnings.some((warning) => warning.stage === 'brief'));
+});
+
 test('view model covers research brief ready with no script', () => {
   const model = deriveProductionViewModel(baseInput({
     storyCandidates: [candidate],
@@ -345,6 +367,38 @@ test('view model covers publish blocked with concrete blocker reason', () => {
   assert.equal(model.primaryNextAction.enabled, false);
   assert.match(model.primaryNextAction.blockerReason, /Feed metadata configured/);
   assert.ok(model.blockers.some((blocker) => blocker.stage === 'feed'));
+});
+
+test('view model deduplicates overlapping recent and production jobs', () => {
+  const duplicateJob = {
+    id: 'job-1',
+    type: 'production.audio',
+    status: 'succeeded',
+    createdAt: '2026-04-27T14:20:00.000Z',
+    updatedAt: '2026-04-27T14:45:00.000Z',
+    summary: { warnings: [{ message: 'Preview asset needs review.' }] },
+  };
+
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [readyBrief],
+    selectedResearchPacketId: 'brief-1',
+    scripts: [approvedScript],
+    selectedScriptId: 'script-1',
+    selectedScript: approvedScript,
+    selectedRevision: passedReviewRevision,
+    selectedRevisions: [passedReviewRevision],
+    recentJobs: [duplicateJob],
+    production: { episode, assets: [audioAsset, coverAsset], jobs: [duplicateJob] },
+    episodes: [episode],
+    selectedEpisodeId: 'episode-1',
+    selectedAssetIds: ['asset-audio-1', 'asset-cover-1'],
+    latestActionResult: { status: '', message: '', source: 'test' },
+  }));
+
+  assert.equal(model.latestActionResult.job.id, 'job-1');
+  assert.equal(model.warnings.filter((warning) => warning.message === 'Preview asset needs review.').length, 1);
 });
 
 test('view model separates active artifacts from historical artifacts', () => {

@@ -23,11 +23,36 @@ function timestamp(value) {
   return Number.isFinite(time) ? time : 0;
 }
 
+function latest(items) {
+  return asArray(items).reduce((selected, item) => {
+    if (!selected) {
+      return item;
+    }
+    const itemTime = timestamp(item.updatedAt || item.createdAt || item.generatedAt || item.discoveredAt || item.publishedAt);
+    const selectedTime = timestamp(selected.updatedAt || selected.createdAt || selected.generatedAt || selected.discoveredAt || selected.publishedAt);
+    return itemTime > selectedTime ? item : selected;
+  }, null);
+}
+
 function newest(items) {
   return [...asArray(items)].sort((left, right) => (
     timestamp(right.updatedAt || right.createdAt || right.generatedAt || right.discoveredAt || right.publishedAt)
     - timestamp(left.updatedAt || left.createdAt || left.generatedAt || left.discoveredAt || left.publishedAt)
   ));
+}
+
+function uniqueById(items) {
+  const seen = new Set();
+  const unique = [];
+  for (const item of asArray(items)) {
+    const key = item?.id || `${item?.type || 'item'}:${item?.createdAt || unique.length}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unique.push(item);
+  }
+  return unique;
 }
 
 function firstPresent(...values) {
@@ -202,8 +227,8 @@ function summarizeAsset(asset) {
 }
 
 function summarizeAudioCover(assets) {
-  const latestAudio = newest(asArray(assets).filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'))[0] || null;
-  const latestCover = newest(asArray(assets).filter((asset) => asset.type === 'cover-art'))[0] || null;
+  const latestAudio = latest(asArray(assets).filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'));
+  const latestCover = latest(asArray(assets).filter((asset) => asset.type === 'cover-art'));
 
   if (!latestAudio && !latestCover) {
     return null;
@@ -298,8 +323,8 @@ function outputPathForFeed(feed) {
 }
 
 function publishChecklist({ packet, script, revision, episode, assets, feed, jobs }) {
-  const audio = newest(asArray(assets).filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'))[0] || null;
-  const cover = newest(asArray(assets).filter((asset) => asset.type === 'cover-art'))[0] || null;
+  const audio = latest(asArray(assets).filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'));
+  const cover = latest(asArray(assets).filter((asset) => asset.type === 'cover-art'));
   const researchWarnings = unresolvedResearchWarnings(packet);
   const prodWarnings = productionWarnings(episode, assets, jobs);
   const integrity = integrityReviewState(revision);
@@ -422,8 +447,10 @@ function deriveStages(context) {
   const scriptApproved = Boolean(activeScript && activeRevision && activeScript.status === 'approved-for-audio' && activeScript.approvedRevisionId === activeRevision.id);
   const readyForProduction = Boolean(scriptApproved && !integrity.blocking);
   const selectedCandidateCount = selectedCandidates.length;
-  const audio = newest(assets.filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'))[0] || null;
-  const cover = newest(assets.filter((asset) => asset.type === 'cover-art'))[0] || null;
+  const unresolvedBriefWarnings = unresolvedResearchWarnings(activeBrief);
+  const briefNeedsReview = Boolean(activeBrief && unresolvedBriefWarnings.length > 0);
+  const audio = latest(assets.filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'));
+  const cover = latest(assets.filter((asset) => asset.type === 'cover-art'));
   const checklist = publishChecklist({
     packet: activeBrief,
     script: activeScript,
@@ -436,14 +463,14 @@ function deriveStages(context) {
   const publishBlocker = checklist.find((item) => !item.passed);
   const publishPrerequisiteBlocker = checklist.find((item) => !item.passed && item.key !== 'publishApproval');
   const profileSupportsDiscovery = source && ['brave', 'zai-web', 'rss', 'manual'].includes(source.type);
-  const briefBlocked = activeBrief?.status === 'blocked';
+  const briefBlocked = activeBrief?.status === 'blocked' || briefNeedsReview;
 
   const stages = [
     makeStage('show', show ? 'done' : 'blocked', summarizeShow(show)),
     makeStage('source', source ? 'done' : show ? 'ready' : 'blocked', summarizeSource(source)),
     makeStage('discover', candidates.length > 0 ? 'done' : source && profileSupportsDiscovery ? 'ready' : 'blocked', null),
     makeStage('story', selectedCandidateCount > 0 ? 'done' : candidates.length > 0 ? 'ready' : 'blocked', summarizeCandidates(selectedCandidates)),
-    makeStage('brief', activeBrief ? (briefBlocked ? 'blocked' : 'done') : selectedCandidateCount > 0 ? 'ready' : 'blocked', summarizeBrief(activeBrief)),
+    makeStage('brief', activeBrief ? (briefNeedsReview ? 'needs-review' : briefBlocked ? 'blocked' : 'done') : selectedCandidateCount > 0 ? 'ready' : 'blocked', summarizeBrief(activeBrief)),
     makeStage('script', activeScript ? 'done' : activeBrief && !briefBlocked ? 'ready' : 'blocked', summarizeScript(activeScript, activeRevision)),
     makeStage('review', readyForProduction ? 'done' : activeScript && activeRevision ? 'needs-review' : 'blocked', summarizeReview(activeRevision)),
     makeStage('production', audio && cover ? 'done' : readyForProduction ? 'ready' : 'blocked', summarizeAudioCover(assets)),
@@ -462,7 +489,7 @@ function deriveStages(context) {
   } else if (!activeBrief) {
     primaryNextAction = action('Build research brief', 'brief', true);
   } else if (briefBlocked) {
-    primaryNextAction = action('Resolve research warnings', 'brief', false, 'Resolve or override research warnings before drafting.');
+    primaryNextAction = action('Resolve research warnings', 'brief', false, briefNeedsReview ? `${unresolvedBriefWarnings.length} research warning${unresolvedBriefWarnings.length === 1 ? '' : 's'} need override reasons before drafting.` : 'Resolve or override research warnings before drafting.');
   } else if (!activeScript) {
     primaryNextAction = action('Generate script draft', 'script', true);
   } else if (!activeRevision) {
@@ -500,7 +527,7 @@ function deriveLatestActionResult(input, jobs) {
     };
   }
 
-  const latestJob = newest(jobs)[0] || null;
+  const latestJob = latest(jobs);
   if (latestJob) {
     return {
       status: latestJob.status || 'unknown',
@@ -579,7 +606,7 @@ export function deriveProductionViewModel(input = {}) {
   const production = asObject(input.production);
   const productionAssets = asArray(production.assets);
   const productionJobs = asArray(production.jobs);
-  const jobs = [...asArray(input.recentJobs), ...productionJobs];
+  const jobs = uniqueById([...asArray(input.recentJobs), ...productionJobs]);
   const episodes = production.episode ? [production.episode, ...asArray(input.episodes).filter((episode) => episode.id !== production.episode.id)] : asArray(input.episodes);
   const selectedShow = shows.find((show) => show.slug === input.selectedShowSlug) || null;
   const selectedSource = profiles.find((profile) => profile.id === input.selectedProfileId) || null;
@@ -626,11 +653,11 @@ export function deriveProductionViewModel(input = {}) {
     publishing: summarizeEpisode(activeEpisode),
   };
   const latestArtifacts = {
-    brief: activeArtifacts.brief || summarizeBrief(newest(packets)[0]),
-    script: activeArtifacts.script || summarizeScript(newest(scripts)[0]),
-    review: activeArtifacts.review || summarizeReview(newest(revisions)[0]),
+    brief: activeArtifacts.brief || summarizeBrief(latest(packets)),
+    script: activeArtifacts.script || summarizeScript(latest(scripts)),
+    review: activeArtifacts.review || summarizeReview(latest(revisions)),
     audioCover: activeArtifacts.audioCover || summarizeAudioCover(productionAssets),
-    publishing: activeArtifacts.publishing || summarizeEpisode(newest(episodes)[0]),
+    publishing: activeArtifacts.publishing || summarizeEpisode(latest(episodes)),
   };
   const historicalArtifacts = deriveHistoricalArtifacts({
     activeIds,
