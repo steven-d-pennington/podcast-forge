@@ -12,6 +12,12 @@ const STAGE_DEFINITIONS = [
   { id: 'publishing', label: 'Approve and publish' },
 ];
 
+const AUDIO_COVER_ASSET_TYPES = new Set(['audio-preview', 'audio-final', 'cover-art']);
+
+function isAudioCoverAsset(asset) {
+  return AUDIO_COVER_ASSET_TYPES.has(asset?.type);
+}
+
 function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -606,7 +612,7 @@ function deriveHistoricalArtifacts({ activeIds, packets, scripts, revisions, ass
     briefs: newest(packets).filter((packet) => packet.id !== activeIds.briefId).map(summarizeBrief),
     scripts: newest(scripts).filter((script) => script.id !== activeIds.scriptId).map((script) => summarizeScript(script)),
     reviews: newest(revisions).filter((revision) => revision.id !== activeIds.revisionId).map(summarizeReview),
-    audioCover: newest(assets).filter((asset) => !activeIds.assetIds.has(asset.id)).map(summarizeAsset),
+    audioCover: newest(assets).filter((asset) => !activeIds.assetIds.has(asset.id) && isAudioCoverAsset(asset)).map(summarizeAsset),
     publishing: newest(episodes).filter((episode) => episode.id !== activeIds.episodeId).map(summarizeEpisode),
   };
 }

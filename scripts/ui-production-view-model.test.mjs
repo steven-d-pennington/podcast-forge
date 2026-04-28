@@ -673,6 +673,13 @@ test('view model separates active artifacts from historical artifacts', () => {
     createdAt: '2026-04-26T12:00:00.000Z',
     updatedAt: '2026-04-26T12:00:00.000Z',
   };
+  const nonProductionAsset = {
+    ...audioAsset,
+    id: 'asset-script-old',
+    type: 'script',
+    createdAt: '2026-04-26T12:30:00.000Z',
+    updatedAt: '2026-04-26T12:30:00.000Z',
+  };
   const olderEpisode = {
     ...episode,
     id: 'episode-old',
@@ -694,7 +701,7 @@ test('view model separates active artifacts from historical artifacts', () => {
     selectedScript: approvedScript,
     selectedRevision: passedReviewRevision,
     selectedRevisions: [olderRevision, passedReviewRevision],
-    production: { episode, assets: [olderAudio, audioAsset, coverAsset], jobs: [] },
+    production: { episode, assets: [olderAudio, nonProductionAsset, audioAsset, coverAsset], jobs: [] },
     episodes: [olderEpisode, episode],
     selectedEpisodeId: 'episode-1',
   });
