@@ -885,7 +885,6 @@ function deriveWarningsAndBlockers({
   jobs,
   checklist,
   selectedCandidates,
-  inactiveSelectedArtifacts = [],
 }) {
   const warnings = [];
   const blockers = [];
@@ -921,15 +920,6 @@ function deriveWarningsAndBlockers({
       const target = checklistStage(item.key);
       blockers.push(warningItem(target, `${item.label}: ${item.reason}`, item, 'error'));
     }
-  }
-
-  for (const item of inactiveSelectedArtifacts) {
-    warnings.push(warningItem(
-      item.stage || 'production',
-      item.message || 'Loaded artifact is not part of current production.',
-      item.source || null,
-      'warning',
-    ));
   }
 
   return { warnings, blockers };

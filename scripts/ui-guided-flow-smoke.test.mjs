@@ -126,6 +126,7 @@ test('editorial stage definitions remain intact and navigable', () => {
   assertContains(uiJs, 'scrollToPanel(stage.targetId)', 'stage card panel navigation');
   assertContains(uiJs, 'function scrollToPanel(id)', 'panel scroll helper');
   assertContains(uiJs, "card.dataset.stage", 'stage cards should expose stage numbers');
+  assertContains(uiJs, "card.setAttribute('aria-labelledby', titleId)", 'stage cards should connect article labels to headings');
 });
 
 test('stage tracker progressively discloses only the current stage by default', () => {
@@ -135,7 +136,10 @@ test('stage tracker progressively discloses only the current stage by default', 
   assertContains(uiJs, 'stage.id === currentStageId || state.expandedPipelineStageIds.includes(stage.id)', 'current stage should be expanded by default');
   assertContains(uiJs, 'if (!expanded)', 'collapsed stage branch');
   assertContains(uiJs, "expandButton.textContent = 'Expand stage'", 'collapsed stages should expose an expand control');
+  assertContains(uiJs, "expandButton.setAttribute('aria-controls', bodyId)", 'collapsed stage disclosure should name the controlled region');
   assertContains(uiJs, "collapseButton.textContent = 'Collapse stage'", 'expanded non-current stages should expose a collapse control');
+  assertContains(uiJs, "collapseButton.setAttribute('aria-controls', bodyId)", 'expanded stage disclosure should name the controlled region');
+  assertContains(uiJs, "status.setAttribute('aria-label', `Status: ${statusLabel}`)", 'stage status pills should expose explicit status labels');
   assertContains(uiJs, "card.className = `pipeline-card ${statusClass(statusLabel)}${expanded ? ' expanded' : ' collapsed'}${stage.id === currentStageId ? ' current' : ''}`", 'stage cards should mark collapsed/current state');
   assertContains(uiJs, "button.textContent = stage.actionLabel", 'existing stage action remains available when expanded');
   assertContains(uiJs, 'body.append(artifacts, next, button, actionReason)', 'expanded stage body keeps action context');
@@ -143,6 +147,7 @@ test('stage tracker progressively discloses only the current stage by default', 
   assertContains(uiJs, "currentBadge.textContent = 'current'", 'current stage should be called out separately from status');
   assertContains(uiJs, "artifactLabel.textContent = 'Active/current artifact'", 'expanded stages should not call archived records latest active artifacts');
   assertContains(uiJs, 'function pruneExpandedPipelineStages(stages)', 'expanded stage state should be pruned during render');
+  assertContains(uiJs, 'function syncCurrentPipelineStage(currentStageId)', 'current stage changes should reset manual expansions');
   assertContains(uiJs, 'state.expandedPipelineStageIds = []', 'changing workflow context should reset expanded stage state');
 
   for (const status of ['not started', 'blocked', 'ready', 'complete', 'warning']) {
@@ -189,8 +194,11 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(stylesCss, '.command-bar-story-detail', 'cockpit header story detail styles');
   assertContains(uiJs, 'function checklistBlockers(checklist', 'checklist blocker helper');
   assertContains(uiJs, 'command-bar-blocker', 'command bar blocker summary');
-  assertContains(uiJs, 'artifactScopeWarnings', 'view model archive warnings should render in workflow context');
+  assertContains(uiJs, 'function renderAuditHistoryDisclosure(viewModel)', 'archive warnings should render behind an audit/history disclosure');
+  assertContains(uiJs, "summaryLabel.textContent = 'Audit/history'", 'audit/history disclosure should be explicitly labeled');
+  assertContains(uiJs, 'artifactScopeWarnings', 'view model archive warnings should stay accessible for audit');
   assertContains(uiJs, 'History/archive records remain available for audit, but production and publishing actions use active/current artifacts only.', 'workflow should explain active versus archive state');
+  assertContains(stylesCss, '.audit-history-disclosure', 'audit/history disclosure styles');
   assertContains(uiJs, 'const researchPacketId = selectedResearchPacket()?.id', 'script generation should use active/current research packet selection');
   assert.doesNotMatch(uiJs, /const researchPacketId = state\.selectedResearchPacketId/, 'script generation must not post archived saved packet ids');
   assert.doesNotMatch(uiJs, /latestArtifacts\?\.publishing\?\.title/, 'command bar must not present archived/latest episodes as active production context');
