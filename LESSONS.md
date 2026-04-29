@@ -49,7 +49,7 @@ This file grows automatically. Each session that encounters bugs, project quirks
 **Applies to:** `packages/api/src/import/legacy.ts`, any future filesystem import scripts.
 
 ### GLM 5.1 OpenAI-Compatible Params (2026-04-28)
-**What happened:** Switching a model profile to `openai-compatible/glm-5.1` can still produce empty content if Z.AI thinking mode is left enabled and the generic adapter drops provider-specific params.
-**Root cause:** GLM 5.1 may put output into `reasoning_content` by default; Podcast Forge expects `message.content`, and the OpenAI-compatible adapter previously only forwarded temperature/maxTokens/response_format.
-**Fix:** Store `config.params.thinking = { type: 'disabled' }` for local GLM 5.1 text/JSON roles and keep adapter tests proving safe params such as `thinking` are forwarded.
+**What happened:** Switching a model profile to `openai-compatible/glm-5.1` can still fail if Z.AI thinking mode is left enabled, if the generic adapter drops provider-specific params, or if Podcast Forge sends its rendered prompt as one `system` message.
+**Root cause:** GLM 5.1 may put output into `reasoning_content` by default; Podcast Forge expects `message.content`, and the OpenAI-compatible adapter previously only forwarded temperature/maxTokens/response_format. Z.AI also rejects single-message `system` prompts for GLM 5.1 with HTTP 400/code `1214` (`messages parameter is illegal`).
+**Fix:** Store `config.params.thinking = { type: 'disabled' }` for local GLM 5.1 text/JSON roles, forward safe params such as `thinking`, and send single rendered GLM system prompts as `user` messages while preserving normal multi-message requests.
 **Applies to:** `packages/api/src/llm/providers.ts`, `packages/api/src/llm/runtime.test.ts`, GLM/Z.AI-backed model profiles.

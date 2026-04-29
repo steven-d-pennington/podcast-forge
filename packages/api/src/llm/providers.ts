@@ -143,6 +143,18 @@ function additionalOpenAiCompatibleParams(params: Record<string, unknown>): Reco
   return forwarded;
 }
 
+function messagesForOpenAiCompatibleRequest(request: LlmProviderRequest): LlmProviderRequest['messages'] {
+  if (
+    request.attempt.model.startsWith('glm-')
+    && request.messages.length === 1
+    && request.messages[0].role === 'system'
+  ) {
+    return [{ role: 'user', content: request.messages[0].content }];
+  }
+
+  return request.messages;
+}
+
 export function createOpenAiCompatibleProvider(options: OpenAiCompatibleProviderOptions = {}): LlmProviderAdapter {
   const provider = options.provider ?? 'openai';
 
@@ -166,7 +178,7 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleProvider
         body: JSON.stringify({
           ...additionalOpenAiCompatibleParams(request.attempt.params),
           model: request.attempt.model,
-          messages: request.messages,
+          messages: messagesForOpenAiCompatibleRequest(request),
           temperature: request.attempt.params.temperature,
           max_tokens: request.attempt.params.maxTokens,
           response_format: request.responseFormat.type === 'json' ? { type: 'json_object' } : undefined,

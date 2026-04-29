@@ -195,6 +195,39 @@ describe('LLM runtime', () => {
     assert.deepEqual(requestBody?.response_format, { type: 'json_object' });
   });
 
+  it('sends GLM single rendered system prompts as user messages for Z.AI compatibility', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const provider = createOpenAiCompatibleProvider({
+      provider: 'openai-compatible',
+      apiKey: 'test-key',
+      baseUrl: 'https://example.invalid/v1',
+      fetchImpl: async (_url, init) => {
+        requestBody = JSON.parse(String(init?.body));
+        return new Response(JSON.stringify({
+          id: 'chatcmpl-test',
+          choices: [{ message: { content: '{"ok":true}' } }],
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      },
+    });
+
+    await provider.generateText({
+      attempt: {
+        profileId: 'profile-1',
+        role: 'candidate_scorer',
+        provider: 'openai-compatible',
+        model: 'glm-5.1',
+        params: { temperature: 0.2, maxTokens: 1200, thinking: { type: 'disabled' } },
+        promptTemplateKey: 'candidate_scorer.default',
+        budgetUsd: 0.25,
+      },
+      messages: [{ role: 'system', content: 'Rendered candidate scorer prompt.' }],
+      responseFormat: { type: 'json' },
+      requestMetadata: {},
+    });
+
+    assert.deepEqual(requestBody?.messages, [{ role: 'user', content: 'Rendered candidate scorer prompt.' }]);
+  });
+
   it('returns structured helper errors for malformed JSON and validation failures', () => {
     const malformed = parseJsonOutput('{not-json');
     assert.equal(malformed.ok, false);
