@@ -25,7 +25,7 @@ export function sourceControlHelp(type) {
   }
 
   if (type === 'openrouter-perplexity') {
-    return 'Freshness/domain filters are requested from OpenRouter Perplexity/Sonar and enforced again after curated results return.';
+    return 'Freshness and excluded domains are requested from OpenRouter Perplexity/Sonar. Include/exclude domain filters are also enforced after curated results return.';
   }
 
   if (type === 'rss') {
