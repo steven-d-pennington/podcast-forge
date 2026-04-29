@@ -441,7 +441,7 @@ Recommended order:
 5. #79 — PF3-05 Redesign Story Sources selector and source search controls ✅ merged (#88)
 6. #80 — PF3-06 Move action feedback and job result summaries into workflow context ✅ merged (#89)
 7. #67 — PF3-06B Make generated audio assets accessible from local UI ✅ merged (#90)
-8. #81 — PF3-07 Replace ambiguous workflow labels and improve accessibility semantics
+8. #81 — PF3-07 Replace ambiguous workflow labels and improve accessibility semantics ✅ merged (#91)
 9. #82 — PF3-08 Add UI architecture guardrails for view-model rendering and complexity
 
 #67 is no longer backlog for this pass; treat it as part of the PF3 sprint queue.
