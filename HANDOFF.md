@@ -447,3 +447,22 @@ Recommended order:
 PF3 issue queue is merged and the post-sprint local UI/UX dogfood audit has been run. Audit artifacts are under `/home/steven/clawd/data/podcast-forge-audit/post-sprint-2026-04-28-190523/`, with the report at `/home/steven/clawd/data/podcast-forge-audit/post-sprint-2026-04-28-190523/report.md`. Verification passed (`npm run check`, guided-flow smoke test, local API/static route smoke). Remaining notes are product-polish follow-ups rather than PF3 merge blockers.
 
 #67 is no longer backlog for this pass; treat it as part of the PF3 sprint queue.
+
+### PF4 dogfood follow-up queue (created 2026-04-28)
+
+Steven's live Produce Episode walkthrough exposed two follow-up areas that should be planned into the active sprint instead of left as vague polish:
+
+1. **#94 — PF4-01 Add OpenRouter Perplexity/Sonar curated source provider and clearer freshness metadata**
+   - Steven clarified the desired Perplexity path is through OpenRouter, not direct Perplexity.
+   - Goal: use OpenRouter's OpenAI-compatible Perplexity/Sonar models as a curated source-discovery provider that returns a small top-N candidate set with URLs, citations, date/freshness metadata, and provenance.
+   - Must keep tests mocked; no live OpenRouter/Perplexity calls in tests.
+   - Must distinguish requested freshness (`pd` = Past day) from verified publication date.
+
+2. **#95 — PF4-02 Make Production Command Bar compact and usable on mobile**
+   - Steven's mobile screenshot showed the sticky command panel consuming most of the phone viewport.
+   - Goal: preserve the sticky primary action while collapsing mobile status details into compact chips/details, moving secondary metadata out of sticky space, and keeping content visible.
+
+3. **#93 — PF4-03 Add candidate clear and ignore controls**
+   - Candidate management is needed so Steven/Sam can curate top picks without direct DB cleanup or raw candidate pile sorting.
+
+Recommended order: #94 first to fix source quality/top-pick discovery, #95 second to fix the mobile command surface, #93 third unless candidate-pile management blocks the next walkthrough.
