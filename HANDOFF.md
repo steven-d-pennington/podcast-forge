@@ -444,6 +444,6 @@ Recommended order:
 8. #81 — PF3-07 Replace ambiguous workflow labels and improve accessibility semantics ✅ merged (#91)
 9. #82 — PF3-08 Add UI architecture guardrails for view-model rendering and complexity ✅ merged (#92)
 
-PF3 issue queue is merged. Next required step before declaring the sprint done: run the post-sprint local UI/UX dogfood audit described in the durable orchestration loop, save the report under `~/clawd/data/podcast-forge-audit/post-sprint-<timestamp>/report.md`, and summarize remaining UX/product recommendations.
+PF3 issue queue is merged and the post-sprint local UI/UX dogfood audit has been run. Audit artifacts are under `/home/steven/clawd/data/podcast-forge-audit/post-sprint-2026-04-28-190523/`, with the report at `/home/steven/clawd/data/podcast-forge-audit/post-sprint-2026-04-28-190523/report.md`. Verification passed (`npm run check`, guided-flow smoke test, local API/static route smoke). Remaining notes are product-polish follow-ups rather than PF3 merge blockers.
 
 #67 is no longer backlog for this pass; treat it as part of the PF3 sprint queue.
