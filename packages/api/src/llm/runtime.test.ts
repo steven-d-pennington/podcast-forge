@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import type { ResolvedModelProfile } from '../models/resolver.js';
 import { parseJsonOutput } from './json.js';
 import { appendLlmInvocationToJobOutput, llmInvocationJobLog } from './job-metadata.js';
-import { createFakeLlmProvider } from './providers.js';
+import { createFakeLlmProvider, createOpenAiCompatibleProvider } from './providers.js';
 import { createLlmRuntime } from './runtime.js';
 import { LlmJsonOutputError, LlmRuntimeError } from './types.js';
 
@@ -151,6 +151,48 @@ describe('LLM runtime', () => {
     assert.equal(result.value.score, 0.82);
     assert.equal(result.metadata.responseFormat.type, 'json');
     assert.match(result.metadata.validatedOutputPreview ?? '', /clear fit/);
+  });
+
+  it('forwards safe OpenAI-compatible profile params such as GLM thinking mode', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const provider = createOpenAiCompatibleProvider({
+      provider: 'openai-compatible',
+      apiKey: 'test-key',
+      baseUrl: 'https://example.invalid/v1',
+      fetchImpl: async (_url, init) => {
+        requestBody = JSON.parse(String(init?.body));
+        return new Response(JSON.stringify({
+          id: 'chatcmpl-test',
+          choices: [{ message: { content: '{"ok":true}' } }],
+          usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      },
+    });
+
+    await provider.generateText({
+      attempt: {
+        profileId: 'profile-1',
+        role: 'candidate_scorer',
+        provider: 'openai-compatible',
+        model: 'glm-5.1',
+        params: {
+          temperature: 0.2,
+          maxTokens: 1200,
+          thinking: { type: 'disabled' },
+        },
+        promptTemplateKey: 'candidate_scorer.default',
+        budgetUsd: 0.25,
+      },
+      messages: [{ role: 'user', content: 'Score candidate.' }],
+      responseFormat: { type: 'json' },
+      requestMetadata: {},
+    });
+
+    assert.equal(requestBody?.model, 'glm-5.1');
+    assert.equal(requestBody?.temperature, 0.2);
+    assert.equal(requestBody?.max_tokens, 1200);
+    assert.deepEqual(requestBody?.thinking, { type: 'disabled' });
+    assert.deepEqual(requestBody?.response_format, { type: 'json_object' });
   });
 
   it('returns structured helper errors for malformed JSON and validation failures', () => {

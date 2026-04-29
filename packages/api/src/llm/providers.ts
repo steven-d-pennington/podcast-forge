@@ -120,6 +120,29 @@ function messageContent(content: string | Array<{ type?: string; text?: string }
   return '';
 }
 
+function additionalOpenAiCompatibleParams(params: Record<string, unknown>): Record<string, unknown> {
+  const forwarded: Record<string, unknown> = {};
+  const allowed = [
+    'thinking',
+    'top_p',
+    'do_sample',
+    'presence_penalty',
+    'frequency_penalty',
+    'stop',
+    'user',
+    'request_id',
+    'tool_stream',
+  ];
+
+  for (const key of allowed) {
+    if (params[key] !== undefined) {
+      forwarded[key] = params[key];
+    }
+  }
+
+  return forwarded;
+}
+
 export function createOpenAiCompatibleProvider(options: OpenAiCompatibleProviderOptions = {}): LlmProviderAdapter {
   const provider = options.provider ?? 'openai';
 
@@ -141,6 +164,7 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleProvider
           'content-type': 'application/json',
         },
         body: JSON.stringify({
+          ...additionalOpenAiCompatibleParams(request.attempt.params),
           model: request.attempt.model,
           messages: request.messages,
           temperature: request.attempt.params.temperature,
