@@ -48,3 +48,20 @@
 - Example templates.
 - Import old TSL data.
 - Basic analytics.
+
+## Static UI View-Model Guardrails
+
+The Produce workflow should render from `deriveProductionViewModel()` in
+`packages/api/public/ui-view-model.js`. Keep `packages/api/public/ui.js` as the
+renderer that consumes that contract for the production command bar, workflow
+context, and 8-stage tracker. Future UI work should extend the view-model first,
+then render from named fields; avoid reaching directly into raw API state from
+new Produce controls unless the state is first represented in the view-model.
+
+`scripts/ui-complexity-smoke.test.mjs` guards the normal initial Produce render
+without browser automation. It snapshots the command bar plus stage tracker
+contract and enforces thresholds for visible controls, DOM nodes, one expanded
+current stage, and collapsed non-current stages. When a feature intentionally
+adds controls, group or collapse them in the relevant stage first, then update
+the threshold in that test with the reason in the PR. Do not raise the threshold
+to hide unrelated button growth.
