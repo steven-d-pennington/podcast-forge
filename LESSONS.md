@@ -53,3 +53,9 @@ This file grows automatically. Each session that encounters bugs, project quirks
 **Root cause:** GLM 5.1 may put output into `reasoning_content` by default; Podcast Forge expects `message.content`, and the OpenAI-compatible adapter previously only forwarded temperature/maxTokens/response_format. Z.AI also rejects single-message `system` prompts for GLM 5.1 with HTTP 400/code `1214` (`messages parameter is illegal`).
 **Fix:** Store `config.params.thinking = { type: 'disabled' }` for local GLM 5.1 text/JSON roles, forward safe params such as `thinking`, and send single rendered GLM system prompts as `user` messages while preserving normal multi-message requests.
 **Applies to:** `packages/api/src/llm/providers.ts`, `packages/api/src/llm/runtime.test.ts`, GLM/Z.AI-backed model profiles.
+
+### Linked Worktree Git Metadata May Be Read-Only (2026-04-29)
+**What happened:** A feature worktree could edit files and run tests, but `git pull`, `git add`, and `git commit` failed when Git tried to write under the canonical repo's `.git/worktrees/...` metadata.
+**Root cause:** The sandbox writable root included the worktree path, but the linked git metadata lived under `/home/steven/clawd/projects/podcast-forge/.git/worktrees/...`, outside writable roots.
+**Fix:** Preserve the worktree diff and report the exact blocker; an orchestrator with write access to the canonical git directory must pull/stage/commit/push or recover the patch.
+**Applies to:** Branch worktrees under `/home/steven/clawd/worktrees/*` whose `.git` file points at canonical repo metadata outside the sandbox.

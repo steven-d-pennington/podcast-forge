@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { trustStatusVocabulary } from '../packages/api/public/ui-formatters.js';
 import { deriveProductionViewModel } from '../packages/api/public/ui-view-model.js';
 
 const repoRoot = new URL('../', import.meta.url);
@@ -10,11 +11,12 @@ async function readProjectFile(path) {
   return readFile(new URL(path, repoRoot), 'utf8');
 }
 
-const [indexHtml, uiJs, uiApiJs, uiStateJs, stylesCss, appTs] = await Promise.all([
+const [indexHtml, uiJs, uiApiJs, uiStateJs, uiViewModelJs, stylesCss, appTs] = await Promise.all([
   readProjectFile('packages/api/public/index.html'),
   readProjectFile('packages/api/public/ui.js'),
   readProjectFile('packages/api/public/ui-api.js'),
   readProjectFile('packages/api/public/ui-state.js'),
+  readProjectFile('packages/api/public/ui-view-model.js'),
   readProjectFile('packages/api/public/styles.css'),
   readProjectFile('packages/api/src/app.ts'),
 ]);
@@ -129,6 +131,62 @@ test('candidate list renders as a compact editorial review queue', () => {
   assertContains(stylesCss, '.candidate-rank.recommended', 'candidate queue top recommendation styling');
   assertContains(stylesCss, '.candidate-chip.provider-freshness', 'candidate queue freshness-request chip styling');
   assertContains(stylesCss, '.candidate-detail-block.ai-analysis', 'candidate AI analysis detail styling');
+});
+
+test('trust status vocabulary is explicit and reused across produce surfaces', () => {
+  assert.equal(trustStatusVocabulary('aiOutput').label, 'AI output');
+  assert.equal(trustStatusVocabulary('sourceEvidence').label, 'Source evidence');
+  assert.equal(trustStatusVocabulary('reviewDecision').label, 'Review decision');
+  assert.equal(trustStatusVocabulary('unresolvedWarning').label, 'Unresolved warning');
+  assert.equal(trustStatusVocabulary('blocker').label, 'Blocker');
+  assert.equal(trustStatusVocabulary('auditDetail').label, 'Audit detail');
+  assert.equal(trustStatusVocabulary('missing-kind').label, 'Status');
+
+  for (const expected of [
+    'function trustBadge(kind',
+    'function trustPanel(kind',
+    'function reviewTrustSummary(items)',
+    "appendTrustBadge(sourceHeading, 'sourceEvidence')",
+    "appendTrustBadge(aiHeading, 'aiOutput')",
+    "appendTrustBadge(summaryHeading, 'auditDetail')",
+    'Unresolved warning',
+    'Blocker',
+    'Source evidence:',
+    'Review decision:',
+    'AI integrity review issues',
+    'Review decision: integrity override',
+    'Audit detail: revision history',
+    'Source evidence: citation map and provenance warnings',
+    'Audit detail: asset metadata',
+    'Unresolved warnings and failures',
+    'Audit detail: metadata and debug details',
+    "mark.textContent = item.passed ? 'Ready' : 'Blocker'",
+  ]) {
+    assertContains(uiJs, expected, `trust vocabulary UI marker ${expected}`);
+  }
+
+  for (const expected of [
+    '.trust-badge.ai-output',
+    '.trust-badge.source-evidence',
+    '.trust-badge.review-decision',
+    '.trust-badge.unresolved-warning',
+    '.trust-badge.blocker',
+    '.trust-badge.audit-detail',
+    '.trust-panel.blocker',
+    '.trust-summary',
+  ]) {
+    assertContains(stylesCss, expected, `trust vocabulary style ${expected}`);
+  }
+
+  for (const expected of [
+    "trustKind: 'sourceEvidence'",
+    "trustKind: 'aiOutput'",
+    "trustKind: integrity.override ? 'reviewDecision' : 'aiOutput'",
+    "blockerTrustKind: integrity.blocking ? 'blocker' : null",
+    "warningTrustKind: warnings.some((warning) => !warning.override) ? 'unresolvedWarning' : null",
+  ]) {
+    assertContains(uiViewModelJs, expected, `trust vocabulary view-model marker ${expected}`);
+  }
 });
 
 test('editorial stage definitions remain intact and navigable', () => {
