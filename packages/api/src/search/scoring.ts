@@ -257,11 +257,15 @@ export function baselineCandidateScore(
       sourceQuality,
       urgency,
     },
-    rationale: `Baseline deterministic score used because ${options.reason}.`,
+    rationale: options.status === 'failed'
+      ? 'Baseline deterministic score used because AI scoring could not return a valid structured score.'
+      : `Baseline deterministic score used because ${options.reason}.`,
     warnings: [{
       code: 'BASELINE_SCORING_USED',
       severity: options.status === 'failed' ? 'warning' : 'info',
-      message: `Candidate was scored with the deterministic fallback: ${options.reason}.`,
+      message: options.status === 'failed'
+        ? 'Candidate was scored with the deterministic fallback because AI scoring failed. Check job logs for technical details.'
+        : `Candidate was scored with the deterministic fallback: ${options.reason}.`,
     }],
     flags: ['fallback'],
     scoringStatus: options.status,

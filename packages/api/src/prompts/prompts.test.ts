@@ -62,6 +62,12 @@ describe('prompt rendering', () => {
     assert.match(rendered.text, /Example Show/);
     assert.equal(rendered.responseFormat.type, 'json');
     assert.equal(rendered.responseFormat.schemaName, 'candidate_score_result');
+    assert.match(rendered.text, /\"significance\"/);
+    assert.match(rendered.text, /\"showFit\"/);
+    assert.match(rendered.text, /\"sourceQuality\"/);
+    assert.match(rendered.text, /warnings.*code.*severity.*message/s);
+    assert.doesNotMatch(rendered.text, /editorial_fit/);
+    assert.doesNotMatch(rendered.text, /source_quality/);
   });
 
   it('fails clearly when a required variable is missing', async () => {

@@ -501,6 +501,9 @@ describe('search routes candidate scoring', () => {
       assert.equal(body.job.output.scoring.failed, 1);
       assert.equal(body.candidates[0].metadata.scoringStatus, 'failed');
       assert.equal(body.candidates[0].scoreBreakdown.scorer.fallback, true);
+      assert.doesNotMatch(body.candidates[0].scoreBreakdown.rationale, /Injected scorer failure/);
+      assert.doesNotMatch(body.candidates[0].scoreBreakdown.warnings[0].message, /Injected scorer failure/);
+      assert.match(body.candidates[0].scoreBreakdown.scorer.fallbackReason, /Injected scorer failure/);
       assert.match(JSON.stringify(body.job.logs), /Injected scorer failure/);
     } finally {
       await app.close();
