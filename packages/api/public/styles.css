@@ -1926,7 +1926,69 @@ textarea {
   }
 
   .production-command-bar {
-    top: 0.5rem;
+    gap: 0.45rem;
+    grid-template-columns: 1fr auto;
+    padding: 0.55rem;
+    top: 0.35rem;
+  }
+
+  .command-bar-context {
+    gap: 0.1rem;
+  }
+
+  .command-bar-kicker,
+  .command-bar-context p,
+  .command-bar-result,
+  .command-bar-details,
+  .command-bar-blocker:not(.visible) {
+    display: none;
+  }
+
+  .command-bar-context h2 {
+    font-size: 0.95rem;
+    line-height: 1.15;
+  }
+
+  .command-bar-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .command-bar-metric {
+    align-items: baseline;
+    display: inline-flex;
+    gap: 0.25rem;
+    padding: 0.25rem 0.4rem;
+  }
+
+  .command-bar-metric span {
+    font-size: 0.62rem;
+  }
+
+  .command-bar-metric strong {
+    font-size: 0.72rem;
+    line-height: 1.15;
+  }
+
+  .command-bar-controls {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 8.5rem;
+  }
+
+  .production-command-bar .command-bar-primary {
+    min-height: 2.15rem;
+    min-width: 0;
+    padding: 0.45rem 0.55rem;
+  }
+
+  .command-bar-blocker.visible {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    padding: 0.4rem 0.5rem;
   }
 
   .pipeline-card {
