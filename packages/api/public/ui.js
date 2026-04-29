@@ -405,13 +405,13 @@ function candidateMatchesFilters(candidate) {
     return false;
   }
 
-  if (filters.status === 'active' && candidate.status === 'ignored') {
+  if (filters.status === 'active' && ['ignored', 'merged'].includes(candidate.status)) {
     return false;
   }
   if (filters.status === 'ignored' && candidate.status !== 'ignored') {
     return false;
   }
-  if (filters.status === 'shortlisted' && !['selected', 'shortlisted'].includes(candidate.status)) {
+  if (filters.status === 'shortlisted' && candidate.status !== 'shortlisted') {
     return false;
   }
 
@@ -4716,9 +4716,10 @@ function focusScriptEditor() {
 }
 
 function selectTopCandidate() {
-  const candidate = filteredStoryCandidates().find((item) => item.status !== 'ignored') || state.storyCandidates.find((item) => item.status !== 'ignored');
+  const candidate = filteredStoryCandidates().find((item) => !['ignored', 'merged'].includes(item.status));
 
   if (!candidate) {
+    setStatus('No visible source candidate matches the current filters. Clear or adjust filters to select a source candidate.', '', 'warning');
     return;
   }
 
@@ -6155,8 +6156,8 @@ els.candidateClusterForm.addEventListener('submit', async (event) => {
 els.clearCandidateSelection.addEventListener('click', clearCandidateSelection);
 els.clearCandidateQueue.addEventListener('click', clearCandidateQueue);
 for (const input of [els.candidatePublishedFilter, els.candidateStatusFilter, els.candidateQualityFilter, els.candidateSourceFilter, els.candidateDomainFilter]) {
-  input.addEventListener('input', updateCandidateFiltersFromInputs);
-  input.addEventListener('change', updateCandidateFiltersFromInputs);
+  const filterEvent = input instanceof HTMLSelectElement ? 'change' : 'input';
+  input.addEventListener(filterEvent, updateCandidateFiltersFromInputs);
 }
 els.clearCandidateFilters.addEventListener('click', () => {
   resetCandidateFilters();
