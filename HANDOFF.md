@@ -496,6 +496,6 @@ Recommended order/status:
 5. #106 — PFI-04 Redesign candidate stories as a ranked editorial review queue ✅ merged (#115)
 6. #107 — PFI-05 Make AI, human approval, source evidence, and blockers visually distinct ✅ merged (#116)
 7. #108 — PFI-06 Give script and audio review a focused workspace ✅ merged (#117)
-8. #109 — PFI-07 Impeccable polish pass for responsive layout, states, and anti-patterns 🚧 active agent on branch `issue-109-pfi-07-impeccable-polish`
+8. #109 — PFI-07 Impeccable polish pass for responsive layout, states, and anti-patterns ✅ merged (#118)
 
-Current active branch/process: PFI-07 / issue #109 is running in `/home/steven/clawd/worktrees/podcast-forge-issue-109` on branch `issue-109-pfi-07-impeccable-polish`; Hermes process `proc_89993e8712c6` (PID 3510340); log `/home/steven/clawd/logs/podcast-forge-issue-109-pfi-07-impeccable-polish.log`. The prior Codex process `proc_0422e00f2f39` (PID 3499329) was idle with only `Reading additional input from stdin...` in its log and was replaced. This is the final Impeccable polish issue; do not launch another UI agent while this process/branch is active.
+PFI Impeccable UI sprint status: complete. Final issue #109 merged via PR #118 (`3c366af`) after local verification (`npm run check`, `git diff --check`, `npx impeccable --json` returning `[]`, static route smoke) and clean local Gemini review fallback. Sprint state files were updated at `/home/steven/clawd/data/podcast-forge-impeccable-sprint-2026-04-29/sprint-state.json` and `~/clawd/data/podcast-forge-sprint-state.json`.
