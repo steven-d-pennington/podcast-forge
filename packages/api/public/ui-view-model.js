@@ -17,7 +17,7 @@ const STAGE_DEFINITIONS = [
   { id: 'source', label: 'Choose story source' },
   { id: 'discover', label: 'Find story candidates' },
   { id: 'story', label: 'Pick / cluster story' },
-  { id: 'brief', label: 'Build evidence brief' },
+  { id: 'brief', label: 'Build research brief' },
   { id: 'script', label: 'Generate script' },
   { id: 'review', label: 'Integrity review' },
   { id: 'production', label: 'Produce audio / cover' },

@@ -10,7 +10,7 @@
     <header class="topbar">
       <div>
         <h1>Podcast Forge</h1>
-        <p id="status">Loading workspace...</p>
+        <p id="status" role="status" aria-live="polite" aria-atomic="true">Loading workspace...</p>
         <details id="errorDetails" class="debug-details" hidden>
           <summary>Technical details</summary>
           <pre id="errorDetailsBody"></pre>
@@ -27,8 +27,8 @@
       </div>
     </header>
 
-    <main class="layout">
-      <aside class="sidebar">
+    <main class="layout" aria-label="Podcast production workspace">
+      <aside class="sidebar" aria-labelledby="workspaceSidebarTitle">
         <label class="field">
           <span>Show</span>
           <select id="showSelect"></select>
@@ -38,14 +38,14 @@
         </div>
         <section>
           <div class="section-title">
-            <h2>Story Sources</h2>
+            <h2 id="workspaceSidebarTitle">Story Sources</h2>
             <p class="help">Search recipes and RSS feeds that discover possible stories.</p>
           </div>
           <div id="profileList" class="list"></div>
         </section>
       </aside>
 
-      <section class="workspace">
+      <section class="workspace" aria-label="Production workflow and settings panels">
         <section id="productionCommandBar" class="production-command-bar" data-surface="workflow" aria-label="Production command bar"></section>
 
         <section id="workflowPanel" class="panel pipeline-panel" data-surface="workflow" aria-labelledby="pipelineTitle">
