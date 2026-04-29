@@ -94,6 +94,6 @@ describe('OpenRouter Perplexity source provider', () => {
     assert.deepEqual(candidates.map((candidate) => candidate.title), ['Anthropic ships Claude Opus 4.7']);
     assert.equal(candidates[0].publishedAt?.toISOString(), '2026-04-28T00:00:00.000Z');
     assert.deepEqual(candidates[0].metadata.freshness, { requested: 'day', confidence: 'claimed', verified: false });
-    assert.deepEqual(candidates[0].metadata.citations, ['1', 'https://www.anthropic.com/news/claude-opus-4-7']);
+    assert.deepEqual(candidates[0].metadata.citations, ['https://www.anthropic.com/news/claude-opus-4-7']);
   });
 });

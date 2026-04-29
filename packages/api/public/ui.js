@@ -361,7 +361,8 @@ function duplicateValues(values) {
 function candidateFreshnessText(candidate) {
   const metadata = asObject(candidate.metadata);
   const freshness = asObject(metadata.freshness);
-  const requested = freshnessLabel(freshness.requested || metadata.freshnessRequested || '');
+  const search = asObject(metadata.search);
+  const requested = freshnessLabel(freshness.requested || metadata.freshnessRequested || search.freshness || search.recency || search.search_recency_filter || '');
   if (candidate.publishedAt) {
     const confidence = freshness.verified === true ? 'verified' : freshness.confidence === 'claimed' ? 'provider-claimed' : 'unverified';
     return `published ${new Date(candidate.publishedAt).toLocaleString()} (${confidence}${requested ? `, requested ${requested}` : ''})`;

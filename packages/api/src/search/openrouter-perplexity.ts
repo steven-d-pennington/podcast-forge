@@ -63,8 +63,13 @@ function resolveModel(profile: SourceProfileRecord): string {
   return asString(profile.config.model) ?? asString(profile.config.openrouterModel) ?? DEFAULT_MODEL;
 }
 
-function resolveEndpoint(profile: SourceProfileRecord): string {
-  return asString(profile.config.baseUrl) ?? asString(profile.config.endpoint) ?? process.env.OPENROUTER_BASE_URL ?? DEFAULT_ENDPOINT;
+function resolveEndpoint(_profile: SourceProfileRecord): string {
+  const configured = asString(process.env.OPENROUTER_BASE_URL) ?? DEFAULT_ENDPOINT;
+  const url = new URL(configured);
+  if (url.protocol !== 'https:' || url.hostname !== 'openrouter.ai') {
+    throw new Error('OpenRouter Perplexity endpoint must use https://openrouter.ai');
+  }
+  return url.toString();
 }
 
 function resolveTopN(query: SourceQueryRecord, profile: SourceProfileRecord): number {
@@ -82,12 +87,18 @@ function recencyFor(query: SourceQueryRecord, profile: SourceProfileRecord): str
   }
 }
 
+function normalizeDeniedDomain(domain: string): string | undefined {
+  const trimmed = domain.trim();
+  if (!trimmed) return undefined;
+  const denied = trimmed.startsWith('-') ? trimmed.slice(1) : trimmed;
+  const normalized = denied.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]?.toLowerCase();
+  return normalized ? `-${normalized}` : undefined;
+}
+
 function denyDomainsFor(query: SourceQueryRecord, profile: SourceProfileRecord): string[] {
   const configured = asStringArray(option(query, profile, 'search_domain_filter'));
-  if (configured.length > 0) return configured;
-  return [...DEFAULT_DENY_DOMAINS, ...profile.excludeDomains, ...query.excludeDomains]
-    .map((domain) => domain.startsWith('-') ? domain : `-${domain}`)
-    .filter(Boolean);
+  const domains = configured.length > 0 ? configured : [...DEFAULT_DENY_DOMAINS, ...profile.excludeDomains, ...query.excludeDomains];
+  return [...new Set(domains.map(normalizeDeniedDomain).filter((domain): domain is string => Boolean(domain)))];
 }
 
 function parsePublishedAt(value: unknown): Date | null {
@@ -118,13 +129,22 @@ function isDeniedUrl(value: string, denied: string[]): boolean {
     .some((domain) => host === domain || host.endsWith(`.${domain}`));
 }
 
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function citationUrls(message: JsonObject): Array<{ url: string; title?: string }> {
   const annotations = Array.isArray(message.annotations) ? message.annotations.map(asObject) : [];
   return annotations.flatMap((annotation) => {
     if (annotation.type !== 'url_citation') return [];
     const citation = asObject(annotation.url_citation);
     const url = asString(citation.url);
-    return url ? [{ url, title: asString(citation.title) }] : [];
+    return url && isHttpUrl(url) ? [{ url, title: asString(citation.title) }] : [];
   });
 }
 
@@ -177,8 +197,9 @@ function parseCandidates(payload: JsonObject): JsonObject[] {
   let parsed: JsonObject = {};
   try {
     parsed = asObject(JSON.parse(content));
-  } catch {
-    parsed = {};
+  } catch (error) {
+    const preview = content.slice(0, 240);
+    throw new Error(`OpenRouter Perplexity returned invalid candidate JSON: ${error instanceof Error ? error.message : 'parse failed'}; preview=${preview}`);
   }
   const candidates = Array.isArray(parsed.candidates) ? parsed.candidates.map(asObject) : [];
   const annotations = citationUrls(message);
@@ -193,7 +214,7 @@ function mapCandidate(item: JsonObject, query: SourceQueryRecord, profile: Sourc
     ...asStringArray(item.citations),
     ...asStringArray(item.evidenceUrls),
     ...(Array.isArray(item.__annotations) ? item.__annotations.map(asObject).map((citation) => asString(citation.url)).filter((value): value is string => Boolean(value)) : []),
-  ];
+  ].filter(isHttpUrl);
   return {
     title: cleanText(title),
     url,
