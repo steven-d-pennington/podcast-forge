@@ -495,7 +495,7 @@ Recommended order/status:
 4. #105 — PFI-03 Distill Produce Episode into focused stage navigation ✅ merged (#113)
 5. #106 — PFI-04 Redesign candidate stories as a ranked editorial review queue ✅ merged (#115)
 6. #107 — PFI-05 Make AI, human approval, source evidence, and blockers visually distinct ✅ merged (#116)
-7. #108 — PFI-06 Give script and audio review a focused workspace 🚧 active agent on branch `issue-108-pfi-06-script-audio-review-workspace`
-8. #109 — PFI-07 Impeccable polish pass for responsive layout, states, and anti-patterns
+7. #108 — PFI-06 Give script and audio review a focused workspace ✅ merged (#117)
+8. #109 — PFI-07 Impeccable polish pass for responsive layout, states, and anti-patterns 🚧 active agent on branch `issue-109-pfi-07-impeccable-polish`
 
-Current active branch/process: PFI-06 / issue #108 is running in `/home/steven/clawd/worktrees/podcast-forge-issue-108` on branch `issue-108-pfi-06-script-audio-review-workspace`; Hermes process `proc_b566c5e4f80b`; log `/home/steven/clawd/logs/podcast-forge-issue-108-pfi-06-script-audio-review-workspace.log`. Do not launch another UI agent while this process/branch is active.
+Current active branch/process: PFI-07 / issue #109 is running in `/home/steven/clawd/worktrees/podcast-forge-issue-109` on branch `issue-109-pfi-07-impeccable-polish`; Hermes process `proc_0422e00f2f39` (PID 3499329); log `/home/steven/clawd/logs/podcast-forge-issue-109-pfi-07-impeccable-polish.log`. This is the final Impeccable polish issue; do not launch another UI agent while this process/branch is active.
