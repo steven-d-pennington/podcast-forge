@@ -2899,9 +2899,12 @@ function renderStoryCandidates() {
     const qualityChip = document.createElement('span');
     qualityChip.className = `candidate-chip ${quality.level}`;
     qualityChip.textContent = `quality: ${quality.label}`;
+    qualityChip.title = quality.detail;
+    qualityChip.setAttribute('aria-label', `Quality: ${quality.label}. ${quality.detail}`);
     facts.append(qualityChip);
 
     const sourceRisk = candidateSourceRiskStatus(candidate);
+    const statusWarnings = candidateStatusWarnings(candidate);
     const sourceRiskChip = document.createElement('span');
     sourceRiskChip.className = `candidate-chip ${sourceRisk.level}`;
     sourceRiskChip.textContent = sourceRisk.label;
@@ -2959,7 +2962,7 @@ function renderStoryCandidates() {
 
     const flags = document.createElement('div');
     flags.className = 'candidate-flags';
-    for (const warning of candidateStatusWarnings(candidate)) {
+    for (const warning of statusWarnings) {
       const chip = document.createElement('span');
       chip.className = `candidate-chip ${warning.level}`;
       chip.textContent = warning.text;
@@ -2979,11 +2982,6 @@ function renderStoryCandidates() {
     const sourceHeading = document.createElement('h4');
     sourceHeading.textContent = 'Source trail';
     const sourceList = document.createElement('ul');
-    for (const warning of candidateStatusWarnings(candidate)) {
-      const item = document.createElement('li');
-      item.textContent = `Warning: ${warning.text}`;
-      sourceList.append(item);
-    }
     for (const itemText of [
       `Origin: ${sourceProfile?.name || 'manual/imported'}`,
       `Search query: ${sourceQueryText(candidate)}`,

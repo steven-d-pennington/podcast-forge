@@ -108,6 +108,8 @@ test('candidate list renders as a compact editorial review queue', () => {
     'editorial-queue-row',
     'Top recommendation',
     'quality: ${quality.label}',
+    'qualityChip.title = quality.detail',
+    "qualityChip.setAttribute('aria-label'",
     'source confidence unknown',
     'provider freshness requested:',
     'selected for research brief',
@@ -118,6 +120,8 @@ test('candidate list renders as a compact editorial review queue', () => {
     assertContains(uiJs, expected, `candidate queue renderer ${expected}`);
   }
 
+  assertContains(uiJs, 'const statusWarnings = candidateStatusWarnings(candidate)', 'candidate warnings should be computed once per row');
+  assertContains(uiJs, 'for (const warning of statusWarnings)', 'candidate warning chips should reuse computed warnings');
   assertContains(uiJs, 'function rankedCandidateList(candidates)', 'candidate queue should rank without mutating source rows');
   assertContains(uiJs, 'function candidateFreshnessInfo(candidate)', 'candidate queue should separate date and freshness metadata');
   assertContains(uiJs, 'article date ${formatTime(candidate.publishedAt)}', 'candidate published date should be article-specific');
