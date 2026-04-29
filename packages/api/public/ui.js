@@ -370,6 +370,139 @@ function candidateFreshnessText(candidate) {
   return requested ? `published date unknown (requested ${requested})` : `discovered ${new Date(candidate.discoveredAt).toLocaleString()}`;
 }
 
+function candidateSourceFilterValue(candidate) {
+  const profile = sourceProfileForCandidate(candidate);
+  if (profile?.id) {
+    return `profile:${profile.id}`;
+  }
+  if (candidate.sourceName) {
+    return `source:${candidate.sourceName.toLowerCase()}`;
+  }
+  const domain = hostnameFor(candidateUrl(candidate));
+  return domain ? `domain:${domain}` : 'manual';
+}
+
+function candidateSourceFilterLabel(candidate) {
+  const profile = sourceProfileForCandidate(candidate);
+  if (profile) {
+    return `${profile.name || profile.slug || profile.type} (${sourceProviderLabel(profile.type)})`;
+  }
+  return candidate.sourceName || hostnameFor(candidateUrl(candidate)) || 'Manual/imported';
+}
+
+function candidateHasFallbackScore(candidate) {
+  const scoring = asObject(candidate.metadata?.scoring);
+  return scoring.status === 'failed' || scoring.status === 'fallback';
+}
+
+function candidateMatchesFilters(candidate) {
+  const filters = state.candidateFilters;
+  const hasPublishedDate = Boolean(candidate.publishedAt);
+  if (filters.published === 'has-date' && !hasPublishedDate) {
+    return false;
+  }
+  if (filters.published === 'missing-date' && hasPublishedDate) {
+    return false;
+  }
+
+  if (filters.status === 'active' && ['ignored', 'merged'].includes(candidate.status)) {
+    return false;
+  }
+  if (filters.status === 'ignored' && candidate.status !== 'ignored') {
+    return false;
+  }
+  if (filters.status === 'shortlisted' && candidate.status !== 'shortlisted') {
+    return false;
+  }
+
+  if (filters.quality === 'high' && !(typeof candidate.score === 'number' && candidate.score >= 70 && !candidateHasFallbackScore(candidate))) {
+    return false;
+  }
+  if (filters.quality === 'needs-review' && !((typeof candidate.score === 'number' && candidate.score < 70) || candidate.score === null || candidate.score === undefined || candidateHasFallbackScore(candidate))) {
+    return false;
+  }
+
+  if (filters.source !== 'all' && candidateSourceFilterValue(candidate) !== filters.source) {
+    return false;
+  }
+
+  const needle = filters.domain.trim().toLowerCase();
+  if (needle) {
+    const haystack = [
+      hostnameFor(candidateUrl(candidate)),
+      candidate.title,
+      candidate.sourceName,
+      candidate.summary,
+      sourceQueryText(candidate),
+      candidateSourceFilterLabel(candidate),
+    ].filter(Boolean).join(' ').toLowerCase();
+    if (!haystack.includes(needle)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function activeCandidateBaseList() {
+  return state.storyCandidates.filter((candidate) => state.candidateFilters.status === 'all' || state.candidateFilters.status === 'ignored' || candidate.status !== 'ignored');
+}
+
+function filteredStoryCandidates() {
+  return state.storyCandidates.filter(candidateMatchesFilters);
+}
+
+function candidateFiltersActive() {
+  const filters = state.candidateFilters;
+  return filters.published !== 'all' || filters.status !== 'active' || filters.quality !== 'all' || filters.source !== 'all' || Boolean(filters.domain.trim());
+}
+
+function resetCandidateFilters() {
+  state.candidateFilters = { published: 'all', status: 'active', quality: 'all', source: 'all', domain: '' };
+}
+
+function syncCandidateFilterInputs() {
+  if (!els.candidatePublishedFilter) {
+    return;
+  }
+  els.candidatePublishedFilter.value = state.candidateFilters.published;
+  els.candidateStatusFilter.value = state.candidateFilters.status;
+  els.candidateQualityFilter.value = state.candidateFilters.quality;
+  els.candidateDomainFilter.value = state.candidateFilters.domain;
+
+  const options = new Map();
+  for (const candidate of state.storyCandidates) {
+    const value = candidateSourceFilterValue(candidate);
+    if (value && !options.has(value)) {
+      options.set(value, candidateSourceFilterLabel(candidate));
+    }
+  }
+  const previous = state.candidateFilters.source;
+  els.candidateSourceFilter.innerHTML = '<option value="all">All sources</option>';
+  for (const [value, label] of [...options.entries()].sort((a, b) => a[1].localeCompare(b[1]))) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    els.candidateSourceFilter.append(option);
+  }
+  state.candidateFilters.source = previous === 'all' || options.has(previous) ? previous : 'all';
+  els.candidateSourceFilter.value = state.candidateFilters.source;
+}
+
+function updateCandidateFiltersFromInputs() {
+  state.candidateFilters = {
+    published: els.candidatePublishedFilter.value,
+    status: els.candidateStatusFilter.value,
+    quality: els.candidateQualityFilter.value,
+    source: els.candidateSourceFilter.value,
+    domain: els.candidateDomainFilter.value.trim(),
+  };
+  state.selectedCandidateIds = state.selectedCandidateIds.filter((id) => state.storyCandidates.some((candidate) => candidate.id === id && candidateMatchesFilters(candidate)));
+  state.episodePlan = null;
+  savePipelineState();
+  render();
+}
+
 function selectedCandidateAnalysis() {
   const candidates = selectedCandidates();
   const selectedIds = new Set(candidates.map((candidate) => candidate.id));
@@ -2522,12 +2655,21 @@ function renderCandidateSelectionPanel() {
 
 function renderStoryCandidates() {
   els.candidateList.innerHTML = '';
-  const visibleCandidates = state.storyCandidates.filter((candidate) => candidate.status !== 'ignored');
-  els.candidateMeta.textContent = `${visibleCandidates.length} active candidate stor${visibleCandidates.length === 1 ? 'y' : 'ies'}${state.storyCandidates.length !== visibleCandidates.length ? ` (${state.storyCandidates.length - visibleCandidates.length} ignored)` : ''}`;
-  els.clearCandidateQueue.disabled = visibleCandidates.length === 0;
+  syncCandidateFilterInputs();
+  const activeCandidates = state.storyCandidates.filter((candidate) => candidate.status !== 'ignored');
+  const filteredCandidates = filteredStoryCandidates();
+  const ignoredCount = state.storyCandidates.length - activeCandidates.length;
+  const visibleTotal = activeCandidateBaseList().length;
+  const filterSuffix = candidateFiltersActive() ? ` | Showing ${filteredCandidates.length} of ${visibleTotal} matching filters` : '';
+  els.candidateMeta.textContent = `${activeCandidates.length} active candidate stor${activeCandidates.length === 1 ? 'y' : 'ies'}${ignoredCount ? ` (${ignoredCount} ignored)` : ''}${filterSuffix}`;
+  els.candidateFilterSummary.textContent = candidateFiltersActive()
+    ? `Showing ${filteredCandidates.length} of ${visibleTotal} candidate stor${visibleTotal === 1 ? 'y' : 'ies'} matching filters.`
+    : `Showing ${filteredCandidates.length} active candidate stor${filteredCandidates.length === 1 ? 'y' : 'ies'}.`;
+  els.clearCandidateFilters.disabled = !candidateFiltersActive();
+  els.clearCandidateQueue.disabled = activeCandidates.length === 0;
   renderCandidateSelectionPanel();
 
-  if (visibleCandidates.length === 0) {
+  if (state.storyCandidates.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
     empty.textContent = 'No candidate stories yet. Add search queries, import RSS items, run a scheduled pipeline, or submit a manual story URL.';
@@ -2535,7 +2677,15 @@ function renderStoryCandidates() {
     return;
   }
 
-  for (const [index, candidate] of visibleCandidates.entries()) {
+  if (filteredCandidates.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No candidates match the current filters. Clear filters or broaden the search text.';
+    els.candidateList.append(empty);
+    return;
+  }
+
+  for (const [index, candidate] of filteredCandidates.entries()) {
     const row = document.createElement('article');
     const selected = state.selectedCandidateIds.includes(candidate.id);
     row.className = `record-row candidate-row${selected ? ' selected' : ''}`;
@@ -2573,6 +2723,11 @@ function renderStoryCandidates() {
     origin.className = 'candidate-chip';
     origin.textContent = `origin: ${sourceProfile?.name || 'manual/imported'} | ${sourceQueryText(candidate)}`;
     facts.append(origin);
+
+    const dateChip = document.createElement('span');
+    dateChip.className = `candidate-chip ${candidate.publishedAt ? 'success' : 'warning'}`;
+    dateChip.textContent = candidate.publishedAt ? 'published date: present' : 'published date: missing';
+    facts.append(dateChip);
 
     const rationale = scoreBreakdown(candidate).rationale;
     if (typeof rationale === 'string' && rationale.trim()) {
@@ -4561,9 +4716,10 @@ function focusScriptEditor() {
 }
 
 function selectTopCandidate() {
-  const candidate = state.storyCandidates[0];
+  const candidate = filteredStoryCandidates().find((item) => !['ignored', 'merged'].includes(item.status));
 
   if (!candidate) {
+    setStatus('No visible source candidate matches the current filters. Clear or adjust filters to select a source candidate.', '', 'warning');
     return;
   }
 
@@ -5999,6 +6155,16 @@ els.candidateClusterForm.addEventListener('submit', async (event) => {
 });
 els.clearCandidateSelection.addEventListener('click', clearCandidateSelection);
 els.clearCandidateQueue.addEventListener('click', clearCandidateQueue);
+for (const input of [els.candidatePublishedFilter, els.candidateStatusFilter, els.candidateQualityFilter, els.candidateSourceFilter, els.candidateDomainFilter]) {
+  const filterEvent = input instanceof HTMLSelectElement ? 'change' : 'input';
+  input.addEventListener(filterEvent, updateCandidateFiltersFromInputs);
+}
+els.clearCandidateFilters.addEventListener('click', () => {
+  resetCandidateFilters();
+  state.episodePlan = null;
+  render();
+  setStatus('Candidate filters cleared.');
+});
 els.requestEpisodePlan.addEventListener('click', requestEpisodePlanForSelected);
 for (const input of [els.clusterAngle, els.clusterNotes, els.clusterFormat, els.clusterRuntime]) {
   input.addEventListener('input', syncClusterFormFromInputs);

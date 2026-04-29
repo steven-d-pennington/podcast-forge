@@ -62,6 +62,47 @@ test('guided workflow shell stays primary on /ui', () => {
   );
 });
 
+
+test('candidate list exposes non-mutating filters for date and quality triage', () => {
+  for (const id of [
+    'candidateFilterSummary',
+    'candidatePublishedFilter',
+    'candidateStatusFilter',
+    'candidateQualityFilter',
+    'candidateSourceFilter',
+    'candidateDomainFilter',
+    'clearCandidateFilters',
+  ]) {
+    assertContains(indexHtml, `id="${id}"`, `candidate filter control ${id}`);
+    assertContains(uiStateJs, `document.querySelector('#${id}')`, `candidate filter state binding ${id}`);
+  }
+
+  for (const label of [
+    'Missing published date',
+    'Has published date',
+    'High confidence (70+)',
+    'Needs review / fallback',
+    'Source/provider',
+    'Domain or title contains',
+  ]) {
+    assertContains(indexHtml, label, `candidate filter label ${label}`);
+  }
+
+  assertContains(uiStateJs, "candidateFilters: {", 'candidate filter state');
+  assertContains(uiJs, 'function candidateMatchesFilters(candidate)', 'candidate filter predicate');
+  assertContains(uiJs, "filters.published === 'missing-date'", 'missing published date filter');
+  assertContains(uiJs, "filters.published === 'has-date'", 'has published date filter');
+  assertContains(uiJs, "candidate.score >= 70", 'high confidence filter threshold');
+  assertContains(uiJs, 'candidateHasFallbackScore(candidate)', 'fallback score filter handling');
+  assertContains(uiJs, 'Showing ${filteredCandidates.length} of ${visibleTotal}', 'filtered count copy');
+  assertContains(uiJs, 'published date: missing', 'candidate missing date chip');
+  assertContains(uiJs, 'published date: present', 'candidate present date chip');
+  assertContains(uiJs, 'state.selectedCandidateIds = state.selectedCandidateIds.filter', 'filters should prune hidden selected candidates without mutating rows');
+  assertContains(uiJs, 'integrityReviewPassed', 'candidate filters should not bypass downstream approval gates');
+  assertContains(stylesCss, '.candidate-filter-panel', 'candidate filter panel styles');
+  assertContains(stylesCss, '.candidate-filter-grid', 'candidate filter grid styles');
+});
+
 test('editorial stage definitions remain intact and navigable', () => {
   assertContains(uiJs, 'function buildPipelineStages()', 'pipeline stage builder');
   assertOrdered(
