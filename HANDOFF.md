@@ -498,4 +498,4 @@ Recommended order/status:
 7. #108 — PFI-06 Give script and audio review a focused workspace
 8. #109 — PFI-07 Impeccable polish pass for responsive layout, states, and anti-patterns
 
-Current active branch/process: PFI-05 / issue #107 is running in `/home/steven/clawd/worktrees/podcast-forge-issue-107` on branch `issue-107-pfi-05-trust-status-vocabulary`; Hermes process `proc_c6590831876a`; log `/home/steven/clawd/logs/podcast-forge-issue-107-pfi-05-trust-status-vocabulary.log`. Do not launch another UI agent while this process/branch is active.
+Current active branch/process: PFI-05 / issue #107 is running in `/home/steven/clawd/worktrees/podcast-forge-issue-107` on branch `issue-107-pfi-05-trust-status-vocabulary`; Hermes process `proc_f08eb05c42ea` (restarted after the prior Codex process idled with no log progress); log `/home/steven/clawd/logs/podcast-forge-issue-107-pfi-05-trust-status-vocabulary.log`. Do not launch another UI agent while this process/branch is active.
