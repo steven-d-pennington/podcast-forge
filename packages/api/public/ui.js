@@ -1467,7 +1467,9 @@ function renderProductionCommandBar(viewModel, stages) {
   const feedback = document.createElement('div');
   feedback.className = `command-bar-result ${statusClass(result.status || 'idle')}`;
   feedback.id = resultId;
+  feedback.setAttribute('role', 'status');
   feedback.setAttribute('aria-live', 'polite');
+  feedback.setAttribute('aria-atomic', 'true');
   const feedbackLabel = document.createElement('span');
   feedbackLabel.textContent = result.status === 'error' || result.status === 'failed' ? 'Latest failure' : 'Latest result';
   const feedbackMessage = document.createElement('strong');
@@ -1497,7 +1499,7 @@ function renderProductionCommandBar(viewModel, stages) {
   details.type = 'button';
   details.className = 'secondary command-bar-details';
   details.dataset.commandControl = 'details';
-  details.textContent = 'Stage details';
+  details.textContent = 'Review current stage';
   details.addEventListener('click', () => openCommandBarPanel(detailsTarget));
   controls.append(primary, details);
 
@@ -1551,7 +1553,9 @@ function renderWorkflowFeedbackPanel(feedback, { compact = false } = {}) {
   const panel = document.createElement('section');
   panel.className = `workflow-feedback-panel ${statusClass(feedback?.status || 'idle')}${compact ? ' compact' : ''}`;
   panel.setAttribute('aria-label', compact ? 'Current stage action result' : 'Workflow action result');
+  panel.setAttribute('role', 'status');
   panel.setAttribute('aria-live', 'polite');
+  panel.setAttribute('aria-atomic', 'true');
 
   const heading = document.createElement('div');
   heading.className = 'workflow-feedback-heading';
@@ -1680,12 +1684,17 @@ function stageCard(stage, currentStageId = '') {
   button.textContent = stage.actionLabel;
   button.disabled = stage.disabled;
   button.title = stage.disabled ? (stage.actionReason || stage.next) : '';
+  const actionReasonId = `pipeline-action-reason-${stage.id}`;
+  if (stage.disabled) {
+    button.setAttribute('aria-describedby', actionReasonId);
+  }
   if (stage.action) {
     button.addEventListener('click', stage.action);
   }
 
   const actionReason = document.createElement('p');
   actionReason.className = `pipeline-action-reason${stage.disabled ? ' blocked' : ''}`;
+  actionReason.id = actionReasonId;
   actionReason.textContent = stage.actionReason || (stage.disabled ? stage.next : `Action available: ${stage.next}`);
 
   body.append(artifacts, next, button, actionReason);
@@ -1694,7 +1703,7 @@ function stageCard(stage, currentStageId = '') {
     const panelButton = document.createElement('button');
     panelButton.type = 'button';
     panelButton.className = 'secondary';
-    panelButton.textContent = 'Open Stage Panel';
+    panelButton.textContent = stage.panelActionLabel || `Review ${stage.title}`;
     panelButton.addEventListener('click', () => scrollToPanel(stage.targetId));
     body.append(panelButton);
   }
@@ -1704,7 +1713,18 @@ function stageCard(stage, currentStageId = '') {
     jobButton.type = 'button';
     jobButton.className = 'secondary';
     jobButton.textContent = 'View Latest Run';
-    jobButton.disabled = !latestRunForTypes(stage.jobTypes);
+    const hasLatestRun = Boolean(latestRunForTypes(stage.jobTypes));
+    jobButton.disabled = !hasLatestRun;
+    if (!hasLatestRun) {
+      const jobReasonId = `pipeline-run-reason-${stage.id}`;
+      const jobReason = document.createElement('p');
+      jobReason.className = 'pipeline-action-reason blocked';
+      jobReason.id = jobReasonId;
+      jobReason.textContent = 'No task run has been recorded for this stage yet.';
+      jobButton.title = jobReason.textContent;
+      jobButton.setAttribute('aria-describedby', jobReasonId);
+      body.append(jobReason);
+    }
     jobButton.addEventListener('click', () => viewLatestJob(stage.jobTypes));
     body.append(jobButton);
   }
@@ -1929,7 +1949,8 @@ function buildPipelineStages() {
         ? (profile ? 'Show and story source are selected; discovery can use this configuration.' : 'Blocked: choose or create a story source/search recipe for this show before finding candidates.')
         : 'Start here: choose an existing show or create a new show with feed and source settings.',
       blockers: show && !profile ? ['Choose or create a story source/search recipe for this show.'] : [],
-      actionLabel: show ? 'Open Settings' : 'New Show',
+      actionLabel: show ? 'Edit Show Settings' : 'Create New Show',
+      panelActionLabel: show ? 'Edit show settings' : 'Create show setup',
       action: () => {
         if (show) {
           scrollToPanel('settingsPanel');
@@ -1975,6 +1996,7 @@ function buildPipelineStages() {
           ? ['Choose a Brave, Z.AI, RSS, or manual story source for browser-triggered discovery.']
           : [],
       actionLabel: profileActionLabel,
+      panelActionLabel: profile?.type === 'manual' ? 'Add manual story URL' : 'Edit story source settings',
       action: !profile ? () => scrollToPanel('settingsPanel') : profileSupportsDiscovery ? runSelectedProfileDiscovery : profile.type === 'manual' ? focusManualStoryForm : () => scrollToPanel('settingsPanel'),
       disabled: discoverRunning || Boolean(profileDiscoveryBlocker),
       active: state.storyCandidates.length > 0,
@@ -1995,10 +2017,11 @@ function buildPipelineStages() {
       actionReason: state.storyCandidates.length === 0
         ? 'Blocked: run/import candidates or submit a manual URL before choosing the story.'
         : candidates.length > 0
-          ? (candidateAnalysis.canLaunch ? 'Selection is ready for an evidence brief.' : firstBlockerText(candidateBlockers, 'Review selected story blockers before building a brief.'))
+          ? (candidateAnalysis.canLaunch ? 'Selection is ready for a research brief.' : firstBlockerText(candidateBlockers, 'Review selected story blockers before building a research brief.'))
           : 'Ready: select a candidate story to define the episode focus.',
       blockers: state.storyCandidates.length === 0 ? ['Run/import candidates or submit a manual story URL.'] : candidates.length > 0 && !candidateAnalysis.canLaunch ? candidateBlockers : [],
       actionLabel: candidates.length > 0 ? 'Clear Selection' : 'Select Top Candidate',
+      panelActionLabel: 'Review story candidates',
       action: candidates.length > 0 ? clearCandidateSelection : selectTopCandidate,
       disabled: state.storyCandidates.length === 0,
       active: candidates.length > 0,
@@ -2007,7 +2030,7 @@ function buildPipelineStages() {
     {
       id: 'brief',
       number: 4,
-      title: 'Build evidence brief',
+      title: 'Build research brief',
       status: researchRunning
         ? 'running'
         : packetBlocked || (!packet && state.researchPackets.length === 0 && !candidateAnalysis.canLaunch)
@@ -2028,10 +2051,11 @@ function buildPipelineStages() {
           : state.researchPackets.length > 0
             ? 'Ready: select the latest research brief or build a new brief from the selected candidates.'
             : candidateAnalysis.canLaunch
-              ? 'Ready: build an evidence brief from the selected candidate stories.'
-              : firstBlockerText(candidateBlockers, 'Blocked: select candidate stories before building an evidence brief.'),
+              ? 'Ready: build a research brief from the selected candidate stories.'
+              : firstBlockerText(candidateBlockers, 'Blocked: select candidate stories before building a research brief.'),
       blockers: !packet && state.researchPackets.length === 0 && !candidateAnalysis.canLaunch ? candidateBlockers : [],
       actionLabel: packet ? 'Use Selected Brief' : state.researchPackets.length > 0 ? 'Select Latest Brief' : 'Build Research Brief',
+      panelActionLabel: 'Build research brief',
       action: packet ? () => selectResearchPacket(packet) : state.researchPackets.length > 0 ? () => selectResearchPacket(state.researchPackets[0]) : buildResearchBriefFromSelected,
       disabled: researchRunning || (!packet && state.researchPackets.length === 0 && !candidateAnalysis.canLaunch),
       active: Boolean(packet),
@@ -2055,11 +2079,12 @@ function buildPipelineStages() {
             ? 'Ready: generate a script from the selected research brief.'
             : packetBlocked
               ? 'Blocked: resolve or override research warnings before drafting.'
-              : 'Blocked: build or select an evidence brief before generating a script.',
+              : 'Blocked: build or select a research brief before generating a script.',
       blockers: !script && (!packet || packetBlocked)
-        ? [packetBlocked ? 'Resolve or override research warnings before drafting.' : 'Build or select an evidence brief.']
+        ? [packetBlocked ? 'Resolve or override research warnings before drafting.' : 'Build or select a research brief.']
         : [],
-      actionLabel: script ? 'Review Draft' : 'Generate Script Draft',
+      actionLabel: script ? 'Review Script Draft' : 'Generate Script Draft',
+      panelActionLabel: 'Generate script',
       action: script ? focusScriptEditor : generateScriptFromSelectedResearch,
       disabled: scriptRunning || (!script && (!packet || packetBlocked)),
       active: Boolean(script),
@@ -2092,8 +2117,9 @@ function buildPipelineStages() {
           ? [integrity.status === 'fail' ? 'Resolve the failed integrity review or record an explicit override reason.' : 'Run the integrity reviewer before production.']
           : !scriptApproved ? ['Approve the reviewed script revision for audio.'] : [],
       actionLabel: !script || !revision
-        ? 'Open Scripts'
-        : integrity.blocking ? 'Run Integrity Review' : scriptApproved ? 'Open Review Gates' : 'Approve Script for Audio',
+        ? 'Select Script Draft'
+        : integrity.blocking ? 'Run Integrity Review' : scriptApproved ? 'Review Approval Gates' : 'Approve Script for Audio',
+      panelActionLabel: !script || !revision ? 'Select script draft' : 'Review integrity gate',
       action: !script || !revision
         ? () => scrollToPanel('scriptPanel')
         : integrity.blocking ? runSelectedIntegrityReview : scriptApproved ? () => scrollToPanel('reviewPanel') : approveSelectedScript,
@@ -2118,7 +2144,8 @@ function buildPipelineStages() {
             ? `Ready: create missing ${audioAsset ? 'cover art' : coverAsset ? 'audio' : 'audio and cover art'} assets.`
             : firstBlockerText(productionBlockers, 'Blocked: complete script approval and integrity review before production.'),
       blockers: !scriptReadyForProduction && !(audioAsset && coverAsset) ? productionBlockers : [],
-      actionLabel: audioAsset && coverAsset ? 'Refresh Assets' : 'Create Missing Assets',
+      actionLabel: audioAsset && coverAsset ? 'Refresh Audio and Cover Assets' : 'Create Missing Audio and Cover',
+      panelActionLabel: 'Create audio and cover assets',
       action: audioAsset && coverAsset ? refreshProductionUntilSettled : createMissingProductionAssets,
       disabled: productionActionRunning || (!scriptReadyForProduction && !(audioAsset && coverAsset)),
       active: Boolean(audioAsset || coverAsset),
@@ -2152,7 +2179,8 @@ function buildPipelineStages() {
           : episode?.status === 'audio-ready'
             ? publishPreApprovalBlockers
             : ['Produce missing audio/cover assets and approve the episode for publishing.'],
-      actionLabel: episode?.status === 'published' ? 'Already Published' : episode?.status === 'approved-for-publish' ? 'Publish to RSS' : 'Approve for Publishing',
+      actionLabel: episode?.status === 'published' ? 'Review Published Episode' : episode?.status === 'approved-for-publish' ? 'Publish to RSS' : 'Approve Episode for Publishing',
+      panelActionLabel: 'Review publish checklist',
       action: episode?.status === 'approved-for-publish' ? publishSelectedEpisode : approveEpisodeForPublishing,
       disabled: publishRunning || approvalsRunning || !(episode?.status === 'approved-for-publish' ? publishChecklistReady : (episode?.status === 'audio-ready' && publishPreApprovalReady)),
       active: episode?.status === 'published',
@@ -2894,7 +2922,7 @@ function renderSettingsSources() {
   }
 
   if (state.profiles.length === 0) {
-    els.settingsSources.append(settingsEmpty('No story sources/search recipes yet. Use New Show to seed one, or create a source profile through the API.'));
+    els.settingsSources.append(settingsEmpty('No story sources/search recipes yet. Use Create New Show to seed one, or create a story source through the API.'));
     return;
   }
 
@@ -3435,7 +3463,7 @@ function renderProduction() {
     if (archivedAssets.length > 0) {
       const empty = document.createElement('div');
       empty.className = 'empty';
-      empty.textContent = 'No active/current production jobs. Generate or select an active script before creating new audio or cover assets.';
+      empty.textContent = 'No active/current production task runs. Generate or select an active script before creating new audio or cover assets.';
       els.productionJobs.append(empty);
       renderProductionArchiveAssets(archivedAssets);
     }
@@ -3472,7 +3500,7 @@ function renderProduction() {
     const row = document.createElement('div');
     row.className = `production-row${job.status === 'failed' ? ' failed' : ''}`;
     const title = document.createElement('strong');
-    title.textContent = `${job.type} | ${job.status}`;
+    title.textContent = `${taskLabel(job.type)} | ${job.status}`;
     const meta = document.createElement('span');
     meta.textContent = job.error ? 'Task failed. Open details for logs and provider metadata.' : `Progress ${job.progress}%`;
     const progress = document.createElement('div');
@@ -5767,7 +5795,7 @@ async function startAudioPreview() {
   }
 
   els.generateAudioPreview.disabled = true;
-  setStatus('Starting preview audio job...');
+  setStatus('Starting preview audio task...');
 
   try {
     await api(`/scripts/${script.id}/production/audio-preview`, {
@@ -5776,7 +5804,7 @@ async function startAudioPreview() {
     });
     await refreshProductionUntilSettled();
     await loadJobs();
-    setStatus('Preview audio job updated.');
+    setStatus('Preview audio task updated.');
   } catch (error) {
     await loadProduction();
     render();
@@ -5799,7 +5827,7 @@ async function startCoverArt() {
   }
 
   els.generateCoverArt.disabled = true;
-  setStatus('Starting cover art job...');
+  setStatus('Starting cover art task...');
 
   try {
     await api(`/scripts/${script.id}/production/cover-art`, {
@@ -5808,7 +5836,7 @@ async function startCoverArt() {
     });
     await refreshProductionUntilSettled();
     await loadJobs();
-    setStatus('Cover art job updated.');
+    setStatus('Cover art task updated.');
   } catch (error) {
     await loadProduction();
     render();

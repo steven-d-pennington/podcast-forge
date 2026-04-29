@@ -48,7 +48,7 @@ export function sourceActionLabel(type) {
     rss: 'Import RSS Items',
     manual: 'Add Manual URL',
     'local-json': 'Review Local JSON Settings',
-  }[type] || 'Open Source Settings';
+  }[type] || 'Edit Story Source Settings';
 }
 
 function enabledQueries(queries) {
@@ -234,7 +234,7 @@ export function sourceActionDescription(profile, queries = []) {
   }
 
   if (profile.type === 'manual') {
-    return 'Open manual URL intake to create a candidate story with explicit source provenance.';
+    return 'Add a manual URL to create a candidate story with explicit source provenance.';
   }
 
   return 'Review local JSON settings in the admin source editor before importing candidate stories.';

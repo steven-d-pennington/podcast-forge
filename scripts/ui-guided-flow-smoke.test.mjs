@@ -70,7 +70,7 @@ test('editorial stage definitions remain intact and navigable', () => {
       /title:\s*'Choose show'/,
       /title:\s*'Find story candidates'/,
       /title:\s*'Pick\s*\/\s*cluster story'/,
-      /title:\s*'Build evidence brief'/,
+      /title:\s*'Build research brief'/,
       /title:\s*'Generate script'/,
       /title:\s*'Integrity review'/,
       /title:\s*'Produce audio\s*\/\s*cover'/,
@@ -129,7 +129,7 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(uiJs, 'No active episode yet', 'command bar active episode fallback');
   assertContains(uiJs, "dataset.commandControl", 'command bar focus restoration control marker');
   assertContains(uiJs, 'Latest failure', 'command bar failure summary label');
-  assertContains(uiJs, 'Stage details', 'command bar stage details button');
+  assertContains(uiJs, 'Review current stage', 'command bar stage details button');
   assertContains(uiJs, 'function renderWorkflowFeedbackPanel(feedback', 'workflow feedback panel renderer');
   assertContains(uiJs, 'function attachWorkflowFeedback(stages, viewModel, currentStageId)', 'stage feedback attachment helper');
   assertContains(uiJs, "label.textContent = compact ? 'Current stage result' : 'Action result'", 'current stage result label');
@@ -169,6 +169,50 @@ test('production command bar and concrete blocker copy remain present', () => {
   ]) {
     assertContains(uiJs, reason, `blocker reason ${reason}`);
   }
+});
+
+test('produce workflow labels and live regions stay concrete and accessible', () => {
+  assertContains(indexHtml, 'id="status" role="status" aria-live="polite" aria-atomic="true"', 'global status live region');
+  assertContains(indexHtml, '<main class="layout" aria-label="Podcast production workspace">', 'main workspace landmark');
+  assertContains(indexHtml, '<aside class="sidebar" aria-labelledby="workspaceSidebarTitle">', 'sidebar landmark label');
+  assertContains(indexHtml, '<h2 id="workspaceSidebarTitle">Story Sources</h2>', 'sidebar heading');
+
+  for (const label of [
+    'Review story candidates',
+    'Build research brief',
+    'Generate script',
+    'Review integrity gate',
+    'Create audio and cover assets',
+    'Review publish checklist',
+  ]) {
+    assertContains(uiJs, label, `concrete stage panel label ${label}`);
+  }
+
+  for (const label of [
+    'Edit Show Settings',
+    'Create New Show',
+    'Review Script Draft',
+    'Select Script Draft',
+    'Review Approval Gates',
+    'Refresh Audio and Cover Assets',
+    'Create Missing Audio and Cover',
+    'Approve Episode for Publishing',
+  ]) {
+    assertContains(uiJs, label, `concrete workflow action label ${label}`);
+  }
+
+  assertContains(uiJs, "feedback.setAttribute('role', 'status')", 'command bar result live status role');
+  assertContains(uiJs, "panel.setAttribute('role', 'status')", 'workflow feedback live status role');
+  assertContains(uiJs, 'if (stage.disabled)', 'stage action reason is scoped to disabled actions');
+  assertContains(uiJs, "button.setAttribute('aria-describedby', actionReasonId)", 'stage action blocked reason link');
+  assertContains(uiJs, "const jobReasonId = `pipeline-run-reason-${stage.id}`", 'disabled run control dedicated reason id');
+  assertContains(uiJs, 'jobButton.title = jobReason.textContent', 'disabled run control reason');
+
+  assert.doesNotMatch(uiJs, /Open Stage Panel/, 'normal Produce mode should not expose ambiguous stage panel labels');
+  assert.doesNotMatch(uiJs, /Stage details/, 'normal Produce mode should not expose ambiguous command bar labels');
+  assert.doesNotMatch(uiJs, /Build evidence brief/, 'normal Produce mode should use research brief terminology');
+  assert.doesNotMatch(uiJs, /source profile through the API/i, 'normal settings copy should use story source terminology');
+  assert.doesNotMatch(uiJs, /preview audio job|cover art job|production jobs/i, 'normal Produce status copy should use task/run terminology');
 });
 
 test('production assets expose local Play Open Download controls', () => {
