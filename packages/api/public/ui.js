@@ -293,6 +293,52 @@ function candidateScoreText(candidate, index) {
   return `${rank}, score ${candidate.score}`;
 }
 
+function candidateQualityStatus(candidate) {
+  if (candidateHasFallbackScore(candidate)) {
+    return { level: 'warning', label: typeof candidate.score === 'number' ? `fallback score ${candidate.score}` : 'fallback scoring', detail: 'Review scoring before selecting.' };
+  }
+
+  if (candidate.score === null || candidate.score === undefined) {
+    return { level: 'warning', label: 'unscored', detail: 'No quality score recorded.' };
+  }
+
+  if (candidate.score >= 70) {
+    return { level: 'success', label: `high confidence score ${candidate.score}`, detail: 'Scoring recommends review.' };
+  }
+
+  if (candidate.score >= 50) {
+    return { level: '', label: `score ${candidate.score}`, detail: 'Usable, but compare against stronger candidates.' };
+  }
+
+  return { level: 'warning', label: `low score ${candidate.score}`, detail: 'Needs editorial caution.' };
+}
+
+function candidateSourceRiskStatus(candidate) {
+  const sourceQuality = componentScore(candidate, 'sourceQuality');
+
+  if (!candidateUrl(candidate)) {
+    return { level: 'error', label: 'source risk: missing URL' };
+  }
+
+  if (['ignored', 'merged'].includes(candidate.status)) {
+    return { level: 'error', label: `source risk: ${candidate.status} status` };
+  }
+
+  if (typeof sourceQuality === 'number') {
+    if (sourceQuality >= 70) {
+      return { level: 'success', label: `source confidence ${sourceQuality}` };
+    }
+
+    if (sourceQuality < 50) {
+      return { level: 'warning', label: `source risk ${sourceQuality}` };
+    }
+
+    return { level: '', label: `source confidence ${sourceQuality}` };
+  }
+
+  return { level: 'warning', label: 'source confidence unknown' };
+}
+
 function candidateStatusWarnings(candidate) {
   const warnings = [];
   const breakdown = scoreBreakdown(candidate);
@@ -358,16 +404,35 @@ function duplicateValues(values) {
   return [...duplicated];
 }
 
-function candidateFreshnessText(candidate) {
+function candidateFreshnessInfo(candidate) {
   const metadata = asObject(candidate.metadata);
   const freshness = asObject(metadata.freshness);
   const search = asObject(metadata.search);
   const requested = freshnessLabel(freshness.requested || metadata.freshnessRequested || search.freshness || search.recency || search.search_recency_filter || '');
+  const verified = freshness.verified === true;
+  const providerClaimed = freshness.confidence === 'claimed';
+
   if (candidate.publishedAt) {
-    const confidence = freshness.verified === true ? 'verified' : freshness.confidence === 'claimed' ? 'provider-claimed' : 'unverified';
-    return `published ${new Date(candidate.publishedAt).toLocaleString()} (${confidence}${requested ? `, requested ${requested}` : ''})`;
+    const confidence = verified ? 'verified' : providerClaimed ? 'provider-claimed' : 'unverified';
+    return {
+      articleLevel: verified ? 'success' : 'warning',
+      articleLabel: `published date: present | article date ${formatTime(candidate.publishedAt)}`,
+      articleDetail: confidence,
+      requested,
+    };
   }
-  return requested ? `published date unknown (requested ${requested})` : `discovered ${new Date(candidate.discoveredAt).toLocaleString()}`;
+
+  return {
+    articleLevel: 'warning',
+    articleLabel: 'published date: missing',
+    articleDetail: candidate.discoveredAt ? `discovered ${formatTime(candidate.discoveredAt)}` : 'not verified',
+    requested,
+  };
+}
+
+function candidateFreshnessText(candidate) {
+  const info = candidateFreshnessInfo(candidate);
+  return info.requested ? `${info.articleLabel} | provider requested ${info.requested}` : info.articleLabel;
 }
 
 function candidateSourceFilterValue(candidate) {
@@ -448,8 +513,24 @@ function activeCandidateBaseList() {
   return state.storyCandidates.filter((candidate) => state.candidateFilters.status === 'all' || state.candidateFilters.status === 'ignored' || candidate.status !== 'ignored');
 }
 
+function rankedCandidateList(candidates) {
+  const rankTime = (candidate) => {
+    const value = Date.parse(candidate.discoveredAt || candidate.createdAt || '');
+    return Number.isFinite(value) ? value : 0;
+  };
+
+  return [...candidates].sort((left, right) => {
+    const leftScore = typeof left.score === 'number' ? left.score : -1;
+    const rightScore = typeof right.score === 'number' ? right.score : -1;
+    if (rightScore !== leftScore) {
+      return rightScore - leftScore;
+    }
+    return rankTime(right) - rankTime(left);
+  });
+}
+
 function filteredStoryCandidates() {
-  return state.storyCandidates.filter(candidateMatchesFilters);
+  return rankedCandidateList(state.storyCandidates.filter(candidateMatchesFilters));
 }
 
 function candidateFiltersActive() {
@@ -2765,81 +2846,92 @@ function renderStoryCandidates() {
   for (const [index, candidate] of filteredCandidates.entries()) {
     const row = document.createElement('article');
     const selected = state.selectedCandidateIds.includes(candidate.id);
-    row.className = `record-row candidate-row${selected ? ' selected' : ''}`;
+    row.className = `record-row candidate-row editorial-queue-row${selected ? ' selected' : ''}`;
 
     const checkbox = document.createElement('input');
     checkbox.className = 'candidate-select';
     checkbox.type = 'checkbox';
     checkbox.checked = selected;
-    checkbox.setAttribute('aria-label', `Select ${candidate.title}`);
+    checkbox.setAttribute('aria-label', selected ? `Unselect ${candidate.title}` : `Select ${candidate.title}`);
     checkbox.addEventListener('change', () => {
       toggleCandidateSelection(candidate.id);
     });
 
+    const rank = document.createElement('div');
+    rank.className = `candidate-rank${index === 0 ? ' recommended' : ''}`;
+    const rankNumber = document.createElement('strong');
+    rankNumber.textContent = `#${index + 1}`;
+    const rankLabel = document.createElement('span');
+    rankLabel.textContent = index === 0 ? 'Top recommendation' : 'Ranked candidate';
+    rank.append(rankNumber, rankLabel);
+
     const body = document.createElement('div');
     body.className = 'candidate-body';
+
+    const header = document.createElement('div');
+    header.className = 'candidate-review-header';
+
+    const titleGroup = document.createElement('div');
+    titleGroup.className = 'candidate-title-group';
+
     const title = document.createElement('strong');
+    title.className = 'candidate-title';
     title.textContent = candidate.title;
 
-    const meta = document.createElement('span');
     const url = candidateUrl(candidate);
     const domain = hostnameFor(url);
     const sourceProfile = sourceProfileForCandidate(candidate);
-    const published = candidateFreshnessText(candidate);
-    meta.textContent = [
-      candidate.sourceName || domain || 'unknown source',
+    const providerLabel = sourceProfile ? sourceProviderLabel(sourceProfile.type) : 'Manual/imported';
+
+    const sourceLine = document.createElement('span');
+    sourceLine.className = 'candidate-source-line';
+    sourceLine.textContent = [
+      candidate.sourceName || sourceProfile?.name || domain || 'unknown source',
+      providerLabel,
       domain || 'no source URL',
-      candidateScoreText(candidate, index),
-      published,
-      candidate.status,
     ].join(' | ');
+    titleGroup.append(title, sourceLine);
 
     const facts = document.createElement('div');
     facts.className = 'candidate-facts';
-    const origin = document.createElement('span');
-    origin.className = 'candidate-chip';
-    origin.textContent = `origin: ${sourceProfile?.name || 'manual/imported'} | ${sourceQueryText(candidate)}`;
-    facts.append(origin);
 
+    const quality = candidateQualityStatus(candidate);
+    const qualityChip = document.createElement('span');
+    qualityChip.className = `candidate-chip ${quality.level}`;
+    qualityChip.textContent = `quality: ${quality.label}`;
+    facts.append(qualityChip);
+
+    const sourceRisk = candidateSourceRiskStatus(candidate);
+    const sourceRiskChip = document.createElement('span');
+    sourceRiskChip.className = `candidate-chip ${sourceRisk.level}`;
+    sourceRiskChip.textContent = sourceRisk.label;
+    facts.append(sourceRiskChip);
+
+    const published = candidateFreshnessInfo(candidate);
     const dateChip = document.createElement('span');
-    dateChip.className = `candidate-chip ${candidate.publishedAt ? 'success' : 'warning'}`;
-    dateChip.textContent = candidate.publishedAt ? 'published date: present' : 'published date: missing';
+    dateChip.className = `candidate-chip article-date ${published.articleLevel}`;
+    dateChip.textContent = `${published.articleLabel} (${published.articleDetail})`;
     facts.append(dateChip);
 
-    const rationale = scoreBreakdown(candidate).rationale;
-    if (typeof rationale === 'string' && rationale.trim()) {
-      const chip = document.createElement('span');
-      chip.className = 'candidate-chip';
-      chip.textContent = rationale;
-      facts.append(chip);
+    if (published.requested) {
+      const requestedChip = document.createElement('span');
+      requestedChip.className = 'candidate-chip provider-freshness';
+      requestedChip.textContent = `provider freshness requested: ${published.requested}`;
+      facts.append(requestedChip);
     }
 
-    if (scoreBreakdown(candidate).angle) {
-      const chip = document.createElement('span');
-      chip.className = 'candidate-chip';
-      chip.textContent = `suggested angle: ${scoreBreakdown(candidate).angle}`;
-      facts.append(chip);
-    }
-
-    const flags = document.createElement('div');
-    flags.className = 'candidate-flags';
-    for (const warning of candidateStatusWarnings(candidate)) {
-      const chip = document.createElement('span');
-      chip.className = `candidate-chip ${warning.level}`;
-      chip.textContent = warning.text;
-      flags.append(chip);
-    }
-
-    const summary = document.createElement('p');
-    summary.textContent = candidate.summary || candidate.url || 'No summary recorded.';
+    const statusChip = document.createElement('span');
+    statusChip.className = selected ? 'candidate-chip success' : 'candidate-chip';
+    statusChip.textContent = selected ? 'selected for research brief' : `status: ${candidate.status || 'new'}`;
+    facts.append(statusChip);
 
     const actions = document.createElement('div');
-    actions.className = 'actions inline row-actions';
+    actions.className = 'actions inline row-actions candidate-actions';
 
     const select = document.createElement('button');
     select.type = 'button';
-    select.className = 'secondary';
-    select.textContent = selected ? 'Selected for Brief' : 'Select for Brief';
+    select.className = selected ? 'secondary selected-action' : 'secondary';
+    select.textContent = selected ? 'Unselect from Brief' : 'Select for Brief';
     select.addEventListener('click', () => {
       toggleCandidateSelection(candidate.id);
     });
@@ -2862,12 +2954,84 @@ function renderStoryCandidates() {
     });
 
     actions.append(select, createBrief, ignore);
-    body.append(title, meta, facts);
+
+    header.append(titleGroup, actions);
+
+    const flags = document.createElement('div');
+    flags.className = 'candidate-flags';
+    for (const warning of candidateStatusWarnings(candidate)) {
+      const chip = document.createElement('span');
+      chip.className = `candidate-chip ${warning.level}`;
+      chip.textContent = warning.text;
+      flags.append(chip);
+    }
+
+    const details = document.createElement('details');
+    details.className = 'candidate-details';
+    const detailsSummary = document.createElement('summary');
+    detailsSummary.textContent = 'Details and AI analysis';
+
+    const detailGrid = document.createElement('div');
+    detailGrid.className = 'candidate-detail-grid';
+
+    const sourceDetails = document.createElement('div');
+    sourceDetails.className = 'candidate-detail-block';
+    const sourceHeading = document.createElement('h4');
+    sourceHeading.textContent = 'Source trail';
+    const sourceList = document.createElement('ul');
+    for (const warning of candidateStatusWarnings(candidate)) {
+      const item = document.createElement('li');
+      item.textContent = `Warning: ${warning.text}`;
+      sourceList.append(item);
+    }
+    for (const itemText of [
+      `Origin: ${sourceProfile?.name || 'manual/imported'}`,
+      `Search query: ${sourceQueryText(candidate)}`,
+      `URL: ${url || 'missing'}`,
+      `Discovered: ${candidate.discoveredAt ? formatTime(candidate.discoveredAt) : 'not recorded'}`,
+      candidateFreshnessText(candidate),
+    ]) {
+      const item = document.createElement('li');
+      item.textContent = itemText;
+      sourceList.append(item);
+    }
+    sourceDetails.append(sourceHeading, sourceList);
+
+    const aiDetails = document.createElement('div');
+    aiDetails.className = 'candidate-detail-block ai-analysis';
+    const aiHeading = document.createElement('h4');
+    aiHeading.textContent = 'AI analysis';
+    const breakdown = scoreBreakdown(candidate);
+    const rationale = typeof breakdown.rationale === 'string' && breakdown.rationale.trim()
+      ? breakdown.rationale.trim()
+      : 'No AI rationale recorded.';
+    const rationaleText = document.createElement('p');
+    rationaleText.textContent = rationale;
+    aiDetails.append(aiHeading, rationaleText);
+
+    if (breakdown.angle) {
+      const angleText = document.createElement('p');
+      angleText.textContent = `Suggested angle: ${breakdown.angle}`;
+      aiDetails.append(angleText);
+    }
+
+    const summary = document.createElement('p');
+    summary.textContent = candidate.summary || candidate.url || 'No summary recorded.';
+    const summaryBlock = document.createElement('div');
+    summaryBlock.className = 'candidate-detail-block';
+    const summaryHeading = document.createElement('h4');
+    summaryHeading.textContent = 'Candidate summary';
+    summaryBlock.append(summaryHeading, summary);
+
+    detailGrid.append(sourceDetails, aiDetails, summaryBlock);
+    details.append(detailsSummary, detailGrid);
+
+    body.append(header, facts);
     if (flags.children.length > 0) {
       body.append(flags);
     }
-    body.append(summary, actions);
-    row.append(checkbox, body);
+    body.append(details);
+    row.append(checkbox, rank, body);
     els.candidateList.append(row);
   }
 }
