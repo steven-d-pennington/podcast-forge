@@ -734,6 +734,8 @@ test('integrity, source coverage, and confirmation safety affordances remain pre
   assertContains(uiJs, 'openConfirmationDialog', 'explicit confirmation dialog helper');
   assertContains(stylesCss, '.confirmation-overlay', 'confirmation overlay styles');
   assertContains(stylesCss, '.confirmation-dialog', 'confirmation dialog styles');
+  assertContains(uiJs, "publish.disabled = !episode || episode.status !== 'approved-for-publish' || !ready || isActionRunning('publish')", 'publish action remains approval-gated');
+  assertContains(uiJs, "approve.disabled = !episode || episode.status !== 'audio-ready' || !canApprove || isActionRunning('approval')", 'publish approval remains checklist-gated');
   assert.doesNotMatch(uiJs, /window\.prompt\b/, 'ui.js must not use window.prompt for critical actions');
 });
 
@@ -767,4 +769,53 @@ test('mobile workflow layout affordances are guarded', () => {
   assertMatches(stylesCss, /@media\s*\(max-width:\s*820px\)[\s\S]*\.production-command-bar,[\s\S]*\.workflow-context,[\s\S]*\.pipeline-grid,[\s\S]*grid-template-columns:\s*1fr/, 'workflow areas stack on mobile');
   assertMatches(stylesCss, /@media\s*\(max-width:\s*820px\)[\s\S]*\.surface-nav,[\s\S]*\.surface-tab,[\s\S]*width:\s*100%/, 'surface tabs become full-width on mobile');
   assertMatches(stylesCss, /@media\s*\(max-width:\s*820px\)[\s\S]*\.confirmation-actions,[\s\S]*\.confirmation-overlay[\s\S]*\.confirmation-dialog/, 'confirmation UI has mobile rules');
+  assertContains(stylesCss, 'overflow-x: clip', 'page should not create horizontal scroll');
+  assertContains(stylesCss, 'max-width: calc(100vw - 1.5rem)', 'mobile command bar stays within viewport');
+  assertContains(stylesCss, 'grid-template-columns: minmax(0, 1fr) minmax(7.75rem, 38vw)', 'mobile command bar preserves content plus action columns');
+  assertContains(stylesCss, '.production-row,\n  .scheduler-row', 'mobile action rows should stack');
+});
+
+test('shared control state styles cover hover focus disabled loading and error states', () => {
+  for (const expected of [
+    'button:hover:not(:disabled)',
+    'button.secondary:hover:not(:disabled)',
+    'button.danger:hover:not(:disabled)',
+    'button.secondary.danger:hover:not(:disabled)',
+    'button[aria-busy="true"]',
+    'button.is-loading',
+    'button:focus-visible',
+    'summary:focus-visible',
+    'input:focus-visible',
+    'input[aria-invalid="true"]',
+    'button:disabled',
+    'cursor: not-allowed',
+  ]) {
+    assertContains(stylesCss, expected, `shared control state style ${expected}`);
+  }
+
+  for (const expected of [
+    '.workflow-feedback-panel.error',
+    '.workflow-feedback-panel.failed',
+    '.command-bar-result.error',
+    '.status-pill.failed',
+    '.candidate-chip.error',
+    '.warning-item.error',
+    '.job-message.error',
+    '.trust-badge.blocker',
+    '.trust-panel.blocker',
+  ]) {
+    assertContains(stylesCss, expected, `error/blocker state style ${expected}`);
+  }
+
+  for (const expected of [
+    '.status-pill',
+    '.trust-badge',
+    '.candidate-chip',
+    '.checklist-mark',
+    '.scope-pill',
+  ]) {
+    const index = stylesCss.indexOf(expected);
+    assert.ok(index >= 0, `${expected} should exist`);
+    assert.ok(stylesCss.slice(index, index + 280).includes('max-width: 100%'), `${expected} should constrain narrow widths`);
+  }
 });
