@@ -98,6 +98,7 @@ test('candidate list exposes non-mutating filters for date and quality triage', 
   assertContains(uiJs, 'published date: missing', 'candidate missing date chip');
   assertContains(uiJs, 'published date: present', 'candidate present date chip');
   assertContains(uiJs, 'state.selectedCandidateIds = state.selectedCandidateIds.filter', 'filters should prune hidden selected candidates without mutating rows');
+  assertContains(uiJs, 'integrityReviewPassed', 'candidate filters should not bypass downstream approval gates');
   assertContains(stylesCss, '.candidate-filter-panel', 'candidate filter panel styles');
   assertContains(stylesCss, '.candidate-filter-grid', 'candidate filter grid styles');
 });
