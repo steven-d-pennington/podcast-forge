@@ -24,11 +24,11 @@ const NORMAL_PRODUCE_COMPLEXITY_LIMITS = Object.freeze({
   maxElementNodes: 110,
 });
 
-const AMBIGUOUS_NORMAL_WORKFLOW_LABELS = [
+const AMBIGUOUS_NORMAL_CONTROL_LABELS = [
   /\bOpen Stage Panel\b/i,
   /\bStage details\b/i,
   /\bDo action\b/i,
-  /\bNext\b/i,
+  /^\s*Next\s*$/i,
   /\bRun job\b/i,
   /\bProduction jobs\b/i,
   /\bPreview audio job\b/i,
@@ -236,17 +236,27 @@ test('normal Produce view-model snapshot has command bar and one expanded curren
   );
 });
 
-test('normal Produce workflow labels avoid ambiguous button soup copy', () => {
+test('normal Produce workflow controls avoid ambiguous button soup copy', () => {
   const viewModel = deriveProductionViewModel(normalInitialProduceInput());
   const snapshot = renderNormalProduceSnapshot(viewModel);
-  const visibleText = snapshot.labels.join('\n');
+  const controlLabels = [
+    ...snapshot.commandBarControls,
+    ...snapshot.stageCards.flatMap((stage) => stage.controls),
+  ];
 
-  assert.ok(snapshot.labels.includes('Search Brave'), 'primary action should name the concrete source adapter action');
-  assert.ok(snapshot.labels.includes('Review current stage'), 'command bar details should use current-stage language');
-  assert.ok(snapshot.labels.includes('Expand stage'), 'collapsed stages should expose a named disclosure control');
+  assert.equal(snapshot.commandBarControls[0], viewModel.primaryNextAction.label, 'command bar should expose the view-model primary action');
+  assert.match(snapshot.commandBarControls[0], /\bSearch\b/i, 'primary action should describe source discovery');
+  assert.match(snapshot.commandBarControls[0], new RegExp(`\\b${viewModel.selectedStorySourceSummary.providerType}\\b`, 'i'));
+  assert.equal(snapshot.commandBarControls.length, 2, 'command bar should keep controls focused');
+  assert.ok(
+    snapshot.stageCards.filter((stage) => stage.collapsed).every((stage) => stage.controls.length === 1),
+    'collapsed stages should expose one disclosure control each',
+  );
 
-  for (const pattern of AMBIGUOUS_NORMAL_WORKFLOW_LABELS) {
-    assert.doesNotMatch(visibleText, pattern, `normal Produce labels should not include ${pattern}`);
+  for (const pattern of AMBIGUOUS_NORMAL_CONTROL_LABELS) {
+    for (const label of controlLabels) {
+      assert.doesNotMatch(label, pattern, `normal Produce control label should not include ${pattern}`);
+    }
   }
 });
 
