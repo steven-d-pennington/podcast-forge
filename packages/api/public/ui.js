@@ -2522,10 +2522,12 @@ function renderCandidateSelectionPanel() {
 
 function renderStoryCandidates() {
   els.candidateList.innerHTML = '';
-  els.candidateMeta.textContent = `${state.storyCandidates.length} recent candidate stor${state.storyCandidates.length === 1 ? 'y' : 'ies'}`;
+  const visibleCandidates = state.storyCandidates.filter((candidate) => candidate.status !== 'ignored');
+  els.candidateMeta.textContent = `${visibleCandidates.length} active candidate stor${visibleCandidates.length === 1 ? 'y' : 'ies'}${state.storyCandidates.length !== visibleCandidates.length ? ` (${state.storyCandidates.length - visibleCandidates.length} ignored)` : ''}`;
+  els.clearCandidateQueue.disabled = visibleCandidates.length === 0;
   renderCandidateSelectionPanel();
 
-  if (state.storyCandidates.length === 0) {
+  if (visibleCandidates.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
     empty.textContent = 'No candidate stories yet. Add search queries, import RSS items, run a scheduled pipeline, or submit a manual story URL.';
@@ -2533,7 +2535,7 @@ function renderStoryCandidates() {
     return;
   }
 
-  for (const [index, candidate] of state.storyCandidates.entries()) {
+  for (const [index, candidate] of visibleCandidates.entries()) {
     const row = document.createElement('article');
     const selected = state.selectedCandidateIds.includes(candidate.id);
     row.className = `record-row candidate-row${selected ? ' selected' : ''}`;
@@ -2619,7 +2621,15 @@ function renderStoryCandidates() {
       await createResearchBrief(candidate.id, createBrief);
     });
 
-    actions.append(select, createBrief);
+    const ignore = document.createElement('button');
+    ignore.type = 'button';
+    ignore.className = 'secondary danger';
+    ignore.textContent = 'Ignore';
+    ignore.addEventListener('click', async () => {
+      await ignoreStoryCandidate(candidate.id, ignore);
+    });
+
+    actions.append(select, createBrief, ignore);
     body.append(title, meta, facts);
     if (flags.children.length > 0) {
       body.append(flags);
@@ -4564,6 +4574,59 @@ function selectTopCandidate() {
   setStatus('Top candidate story selected for the research brief.');
 }
 
+async function ignoreStoryCandidate(candidateId, button) {
+  if (!candidateId) {
+    return;
+  }
+  const candidate = state.storyCandidates.find((item) => item.id === candidateId);
+  if (!candidate) {
+    return;
+  }
+
+  button.disabled = true;
+  try {
+    await api(`/story-candidates/${candidateId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'ignored', reason: 'Ignored from candidate review queue' }),
+    });
+    state.selectedCandidateIds = state.selectedCandidateIds.filter((id) => id !== candidateId);
+    await loadStoryCandidates();
+    render();
+    setStatus(`Ignored candidate: ${candidate.title}`);
+  } catch (error) {
+    button.disabled = false;
+    reportError(error);
+  }
+}
+
+async function clearCandidateQueue() {
+  if (!state.selectedShowSlug || state.storyCandidates.length === 0) {
+    return;
+  }
+  const activeCount = state.storyCandidates.filter((candidate) => candidate.status !== 'ignored').length;
+  if (activeCount === 0) {
+    return;
+  }
+  if (!window.confirm(`Ignore all ${activeCount} active candidate stories for this show? Existing research briefs are preserved.`)) {
+    return;
+  }
+
+  els.clearCandidateQueue.disabled = true;
+  try {
+    const body = await api('/story-candidates/clear', {
+      method: 'POST',
+      body: JSON.stringify({ showSlug: state.selectedShowSlug, reason: 'Cleared from candidate review queue' }),
+    });
+    state.selectedCandidateIds = [];
+    await loadStoryCandidates();
+    render();
+    setStatus(`Cleared ${body.updated || 0} candidate stor${body.updated === 1 ? 'y' : 'ies'} from the review queue.`);
+  } catch (error) {
+    els.clearCandidateQueue.disabled = false;
+    reportError(error);
+  }
+}
+
 function clearCandidateSelection() {
   state.selectedCandidateIds = [];
   state.episodePlan = null;
@@ -5935,6 +5998,7 @@ els.candidateClusterForm.addEventListener('submit', async (event) => {
   await buildResearchBriefFromSelected();
 });
 els.clearCandidateSelection.addEventListener('click', clearCandidateSelection);
+els.clearCandidateQueue.addEventListener('click', clearCandidateQueue);
 els.requestEpisodePlan.addEventListener('click', requestEpisodePlanForSelected);
 for (const input of [els.clusterAngle, els.clusterNotes, els.clusterFormat, els.clusterRuntime]) {
   input.addEventListener('input', syncClusterFormFromInputs);

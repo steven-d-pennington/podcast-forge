@@ -42,6 +42,20 @@ export interface SearchRoutesOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
+const candidateStatusSchema = z.enum(['new', 'shortlisted', 'ignored', 'merged']);
+
+const candidateStatusUpdateSchema = z.object({
+  status: candidateStatusSchema,
+  reason: z.string().trim().max(500).optional(),
+});
+
+const clearCandidatesSchema = z.object({
+  showId: z.string().uuid().optional(),
+  showSlug: z.string().min(1).optional(),
+  sourceProfileId: z.string().uuid().optional(),
+  reason: z.string().trim().max(500).optional(),
+});
+
 const manualCandidateSchema = z.object({
   showId: z.string().uuid().optional(),
   showSlug: z.string().trim().min(1).optional(),
@@ -360,21 +374,68 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
     }
   });
 
-  app.get<{ Querystring: { showId?: string; showSlug?: string; limit?: string; sort?: string } }>('/story-candidates', async (request, reply) => {
+  app.get<{ Querystring: { showId?: string; showSlug?: string; limit?: string; sort?: string; includeIgnored?: string } }>('/story-candidates', async (request, reply) => {
     try {
       const store = requireSearchStore(options.getStore());
       const showId = await resolveShowId(store, request.query.showId, request.query.showSlug);
       const parsedLimit = request.query.limit ? Number(request.query.limit) : undefined;
       const limit = parsedLimit && Number.isInteger(parsedLimit) && parsedLimit > 0 ? parsedLimit : undefined;
       const sort = request.query.sort ?? 'score';
+      const includeIgnored = request.query.includeIgnored === 'true';
 
       if (sort !== 'score' && sort !== 'discovered') {
         throw new ApiError(400, 'INVALID_CANDIDATE_SORT', 'Sort must be "score" or "discovered".');
       }
 
-      const candidates = await store.listStoryCandidates({ showId, limit, sort });
+      const candidates = await store.listStoryCandidates({ showId, limit, sort, includeIgnored });
 
       return { ok: true, storyCandidates: candidates };
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+
+  app.patch<{ Params: { id: string } }>('/story-candidates/:id', async (request, reply) => {
+    try {
+      const store = requireSearchStore(options.getStore());
+      const body = candidateStatusUpdateSchema.parse(request.body);
+      const updated = await store.updateStoryCandidateStatus(request.params.id, {
+        status: body.status,
+        metadata: body.reason ? {
+          statusReason: body.reason,
+          statusUpdatedAt: new Date().toISOString(),
+        } : {
+          statusUpdatedAt: new Date().toISOString(),
+        },
+      });
+
+      if (!updated) {
+        throw new ApiError(404, 'CANDIDATE_NOT_FOUND', `Story candidate not found: ${request.params.id}`);
+      }
+
+      return { ok: true, candidate: updated };
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post('/story-candidates/clear', async (request, reply) => {
+    try {
+      const store = requireSearchStore(options.getStore());
+      const body = clearCandidatesSchema.parse(request.body);
+      const showId = await resolveShowId(store, body.showId, body.showSlug);
+      const result = await store.clearStoryCandidates({
+        showId,
+        sourceProfileId: body.sourceProfileId,
+        status: 'ignored',
+        metadata: {
+          clearReason: body.reason || 'Cleared from candidate review queue',
+          clearedAt: new Date().toISOString(),
+        },
+      });
+
+      return reply.code(200).send({ ok: true, updated: result.updated });
     } catch (error) {
       return sendError(reply, error);
     }

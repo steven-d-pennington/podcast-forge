@@ -117,6 +117,7 @@ export const els = {
   selectionCount: document.querySelector('#selectionCount'),
   selectedCandidateSummary: document.querySelector('#selectedCandidateSummary'),
   clearCandidateSelection: document.querySelector('#clearCandidateSelection'),
+  clearCandidateQueue: document.querySelector('#clearCandidateQueue'),
   selectionWarnings: document.querySelector('#selectionWarnings'),
   clusterAngle: document.querySelector('#clusterAngle'),
   clusterNotes: document.querySelector('#clusterNotes'),
