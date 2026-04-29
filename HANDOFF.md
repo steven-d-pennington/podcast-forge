@@ -493,9 +493,9 @@ Recommended order/status:
 2. #103 — PFI-01 Add Impeccable product/design context for Podcast Forge ✅ merged (#111)
 3. #104 — PFI-02 Produce Episode cockpit header with next action and blockers ✅ merged (#112)
 4. #105 — PFI-03 Distill Produce Episode into focused stage navigation ✅ merged (#113)
-5. #106 — PFI-04 Redesign candidate stories as a ranked editorial review queue ✅ implemented in PR #115; awaiting independent review
-6. #107 — PFI-05 Make AI, human approval, source evidence, and blockers visually distinct
+5. #106 — PFI-04 Redesign candidate stories as a ranked editorial review queue ✅ merged (#115)
+6. #107 — PFI-05 Make AI, human approval, source evidence, and blockers visually distinct 🚧 active agent on branch `issue-107-pfi-05-trust-status-vocabulary`
 7. #108 — PFI-06 Give script and audio review a focused workspace
 8. #109 — PFI-07 Impeccable polish pass for responsive layout, states, and anti-patterns
 
-Current active branch/PR: PFI-04 / issue #106 is open as PR #115 from branch `issue-106-pfi-04-candidate-review-queue`. Do not launch another UI agent while this PR is active.
+Current active branch/process: PFI-05 / issue #107 is running in `/home/steven/clawd/worktrees/podcast-forge-issue-107` on branch `issue-107-pfi-05-trust-status-vocabulary`; Hermes process `proc_c6590831876a`; log `/home/steven/clawd/logs/podcast-forge-issue-107-pfi-05-trust-status-vocabulary.log`. Do not launch another UI agent while this process/branch is active.
