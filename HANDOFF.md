@@ -498,4 +498,4 @@ Recommended order/status:
 7. #108 — PFI-06 Give script and audio review a focused workspace
 8. #109 — PFI-07 Impeccable polish pass for responsive layout, states, and anti-patterns
 
-Current active agent: PFI-04 / issue #106 in worktree `/home/steven/clawd/worktrees/podcast-forge-issue-106`, task file `/home/steven/clawd/data/podcast-forge-impeccable-sprint-2026-04-29/PFI-04-codex-task.txt`. Do not launch another UI agent while this branch or PR is active.
+Current active agent: PFI-04 / issue #106 in worktree `/home/steven/clawd/worktrees/podcast-forge-issue-106`, branch `issue-106-pfi-04-candidate-review-queue`, process `proc_47aa59d8c2c0`, log `/home/steven/clawd/logs/podcast-forge-issue-106-pfi-04-candidate-review-queue.log`, task file `/home/steven/clawd/data/podcast-forge-impeccable-sprint-2026-04-29/PFI-04-codex-task.txt`. Do not launch another UI agent while this branch or PR is active.
