@@ -4,6 +4,7 @@ import { filterCandidatesForSourceControls, type SourceControlSummary } from './
 import { fetchRssCandidates, type RssFetch } from './rss.js';
 import { scoreCandidateBatch, scoringLimitFromProfile, type CandidateScorer, type CandidateScoringBatchResult } from './scoring.js';
 import { searchZaiWeb, type ZaiWebFetch } from './zai-web.js';
+import { searchOpenRouterPerplexity, type OpenRouterPerplexityFetch } from './openrouter-perplexity.js';
 import type { JobRecord, SearchJobStore, StoryCandidateRecord } from './store.js';
 import type { ResolvedModelProfile } from '../models/resolver.js';
 import type { SourceProfileRecord, SourceQueryRecord, SourceStore } from '../sources/store.js';
@@ -22,6 +23,7 @@ interface RunSourceSearchOptions {
   store: SourceStore & SearchJobStore;
   fetchImpl?: BraveFetch;
   zaiFetchImpl?: ZaiWebFetch;
+  openRouterPerplexityFetchImpl?: OpenRouterPerplexityFetch;
   sleep?: (ms: number) => Promise<void>;
   modelProfile?: ResolvedModelProfile;
   candidateScorer?: CandidateScorer;
@@ -61,7 +63,9 @@ function queryIdFromCandidate(candidate: SourceCandidate): string | null {
 }
 
 function providerLabel(profile: SourceProfileRecord): string {
-  return profile.type === 'zai-web' ? 'Z.AI web' : 'Brave news';
+  if (profile.type === 'zai-web') return 'Z.AI web';
+  if (profile.type === 'openrouter-perplexity') return 'OpenRouter Perplexity';
+  return 'Brave news';
 }
 
 async function searchProviderCandidates(options: RunSourceSearchOptions, query: SourceQueryRecord) {
@@ -71,6 +75,15 @@ async function searchProviderCandidates(options: RunSourceSearchOptions, query: 
       profile: options.profile,
       queries: [query],
       fetchImpl: options.zaiFetchImpl,
+    });
+  }
+
+  if (options.profile.type === 'openrouter-perplexity') {
+    return searchOpenRouterPerplexity({
+      apiKey: options.apiKey,
+      profile: options.profile,
+      queries: [query],
+      fetchImpl: options.openRouterPerplexityFetchImpl,
     });
   }
 

@@ -1,4 +1,4 @@
-export type SourceType = 'brave' | 'zai-web' | 'rss' | 'manual' | 'local-json';
+export type SourceType = 'brave' | 'zai-web' | 'openrouter-perplexity' | 'rss' | 'manual' | 'local-json';
 export type ShowSetupStatus = 'draft' | 'active';
 
 export interface ShowCastMember {

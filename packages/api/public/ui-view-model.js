@@ -787,7 +787,7 @@ function deriveStages(context) {
   const publishBlocker = checklist.find((item) => !item.passed);
   const publishPrerequisiteBlocker = checklist.find((item) => !item.passed && item.key !== 'publishApproval');
   const publishApprovalReady = activeEpisode?.status === 'audio-ready';
-  const profileSupportsDiscovery = source && ['brave', 'zai-web', 'rss', 'manual'].includes(source.type);
+  const profileSupportsDiscovery = source && ['brave', 'zai-web', 'openrouter-perplexity', 'rss', 'manual'].includes(source.type);
   const sourceBlocker = source ? sourceDiscoveryBlocker(source, sourceQueries) : '';
   const briefBlocked = Boolean(activeBrief && (!briefReady || briefNeedsReview));
 

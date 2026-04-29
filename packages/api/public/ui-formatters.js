@@ -12,7 +12,7 @@ export function listToLines(value) {
 }
 
 export function sourceControlsSupported(type) {
-  return type === 'brave' || type === 'zai-web' || type === 'rss';
+  return type === 'brave' || type === 'zai-web' || type === 'openrouter-perplexity' || type === 'rss';
 }
 
 export function sourceControlHelp(type) {
@@ -22,6 +22,10 @@ export function sourceControlHelp(type) {
 
   if (type === 'zai-web') {
     return 'Freshness and the first include-domain filter are sent to Z.AI Web Search. Domain filters are also enforced after results return.';
+  }
+
+  if (type === 'openrouter-perplexity') {
+    return 'Freshness/domain filters are requested from OpenRouter Perplexity/Sonar and enforced again after curated results return.';
   }
 
   if (type === 'rss') {
@@ -35,6 +39,7 @@ export function sourceProviderLabel(type) {
   return {
     brave: 'Brave',
     'zai-web': 'Z.AI Web Search',
+    'openrouter-perplexity': 'OpenRouter Perplexity/Sonar',
     rss: 'RSS',
     manual: 'Manual URL',
     'local-json': 'Local JSON',
@@ -45,6 +50,7 @@ export function sourceActionLabel(type) {
   return {
     brave: 'Search Brave',
     'zai-web': 'Search Z.AI Web',
+    'openrouter-perplexity': 'Curate with Perplexity/Sonar',
     rss: 'Import RSS Items',
     manual: 'Add Manual URL',
     'local-json': 'Review Local JSON Settings',
@@ -61,6 +67,23 @@ function plural(value, singular, pluralLabel = `${singular}s`) {
 
 function configuredText(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : '';
+}
+
+export function freshnessLabel(value) {
+  return {
+    pd: 'Past day',
+    pw: 'Past week',
+    pm: 'Past month',
+    py: 'Past year',
+    day: 'Past day',
+    week: 'Past week',
+    month: 'Past month',
+    year: 'Past year',
+    oneDay: 'Past day',
+    oneWeek: 'Past week',
+    oneMonth: 'Past month',
+    oneYear: 'Past year',
+  }[configuredText(value)] || configuredText(value);
 }
 
 function configuredList(value) {
@@ -136,7 +159,7 @@ export function sourceConstraintsSummary(profile, queries = []) {
   ]);
 
   if (freshnessValues.size > 0) {
-    items.push(`freshness ${[...freshnessValues].join(', ')}`);
+    items.push(`freshness ${[...freshnessValues].map(freshnessLabel).join(', ')}`);
   }
 
   if (includeDomains.size > 0) {
@@ -172,6 +195,10 @@ export function sourceCredentialSummary(profile) {
     return { status: 'unknown', label: 'Z.AI Web Search credential state not reported by this API response.', required: true };
   }
 
+  if (profile.type === 'openrouter-perplexity') {
+    return { status: 'unknown', label: 'OpenRouter credential state not reported by this API response.', required: true };
+  }
+
   if (profile.type === 'rss') {
     return { status: 'available', label: 'No credential required; feed URL configuration controls availability.', required: false };
   }
@@ -201,7 +228,7 @@ export function sourceDiscoveryBlocker(profile, queries = []) {
     return credential.label;
   }
 
-  if (profile.type === 'brave' || profile.type === 'zai-web') {
+  if (profile.type === 'brave' || profile.type === 'zai-web' || profile.type === 'openrouter-perplexity') {
     return enabledQueries(queries).length > 0 ? '' : 'Add at least one enabled search query before discovery.';
   }
 
@@ -227,6 +254,10 @@ export function sourceActionDescription(profile, queries = []) {
 
   if (profile.type === 'zai-web') {
     return `Search Z.AI Web Search with ${sourceInputSummary(profile, queries)} and apply ${sourceConstraintsSummary(profile, queries)}.`;
+  }
+
+  if (profile.type === 'openrouter-perplexity') {
+    return `Curate Perplexity/Sonar candidates through OpenRouter with ${sourceInputSummary(profile, queries)} and apply ${sourceConstraintsSummary(profile, queries)}.`;
   }
 
   if (profile.type === 'rss') {

@@ -9,6 +9,7 @@ import {
   asObject,
   castToLines,
   formatRole,
+  freshnessLabel,
   linesToCast,
   linesToList,
   listToLines,
@@ -355,6 +356,17 @@ function duplicateValues(values) {
   }
 
   return [...duplicated];
+}
+
+function candidateFreshnessText(candidate) {
+  const metadata = asObject(candidate.metadata);
+  const freshness = asObject(metadata.freshness);
+  const requested = freshnessLabel(freshness.requested || metadata.freshnessRequested || '');
+  if (candidate.publishedAt) {
+    const confidence = freshness.verified === true ? 'verified' : freshness.confidence === 'claimed' ? 'provider-claimed' : 'unverified';
+    return `published ${new Date(candidate.publishedAt).toLocaleString()} (${confidence}${requested ? `, requested ${requested}` : ''})`;
+  }
+  return requested ? `published date unknown (requested ${requested})` : `discovered ${new Date(candidate.discoveredAt).toLocaleString()}`;
 }
 
 function selectedCandidateAnalysis() {
@@ -1913,7 +1925,7 @@ function buildPipelineStages() {
   const productionActionRunning = productionRunning || isActionRunning('production');
   const packetWarningCount = packet?.warnings?.length || 0;
   const packetBlocked = packet?.status === 'blocked';
-  const profileSupportsDiscovery = profile && ['brave', 'zai-web', 'rss'].includes(profile.type);
+  const profileSupportsDiscovery = profile && ['brave', 'zai-web', 'openrouter-perplexity', 'rss'].includes(profile.type);
   const profileDiscoveryBlocker = profile ? sourceDiscoveryBlocker(profile, state.queries) : '';
   const profileActionLabel = profile ? sourceActionLabel(profile.type) : 'Choose Story Source';
   const profileActionDescription = profile ? sourceActionDescription(profile, state.queries) : 'Choose a Story Source/Search Recipe before finding candidate stories.';
@@ -2543,9 +2555,7 @@ function renderStoryCandidates() {
     const url = candidateUrl(candidate);
     const domain = hostnameFor(url);
     const sourceProfile = sourceProfileForCandidate(candidate);
-    const published = candidate.publishedAt
-      ? `published ${new Date(candidate.publishedAt).toLocaleString()}`
-      : `discovered ${new Date(candidate.discoveredAt).toLocaleString()}`;
+    const published = candidateFreshnessText(candidate);
     meta.textContent = [
       candidate.sourceName || domain || 'unknown source',
       domain || 'no source URL',
@@ -4574,7 +4584,7 @@ function syncClusterFormFromInputs() {
 async function runSelectedProfileDiscovery() {
   const profile = selectedProfile();
 
-  if (!profile || !['brave', 'zai-web', 'rss'].includes(profile.type)) {
+  if (!profile || !['brave', 'zai-web', 'openrouter-perplexity', 'rss'].includes(profile.type)) {
     focusManualStoryForm();
     return;
   }

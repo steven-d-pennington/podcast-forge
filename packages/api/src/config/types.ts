@@ -22,7 +22,7 @@ export interface CastMemberConfig {
 
 export interface SourceConfig {
   id: string;
-  type: 'brave' | 'zai-web' | 'rss' | 'manual' | 'local-json';
+  type: 'brave' | 'zai-web' | 'openrouter-perplexity' | 'rss' | 'manual' | 'local-json';
   enabled: boolean;
   weight?: number;
   freshness?: string;
