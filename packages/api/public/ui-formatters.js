@@ -1,5 +1,46 @@
 import { MODEL_ROLE_LABELS } from './ui-constants.js';
 
+const TRUST_STATUS_VOCABULARY = Object.freeze({
+  aiOutput: {
+    label: 'AI output',
+    className: 'ai-output',
+    description: 'AI-generated analysis, draft text, or generated media that still needs editorial review.',
+  },
+  sourceEvidence: {
+    label: 'Source evidence',
+    className: 'source-evidence',
+    description: 'Fetched, cited, or source-backed material used to support the episode.',
+  },
+  reviewDecision: {
+    label: 'Review decision',
+    className: 'review-decision',
+    description: 'A human approval, rejection, or override recorded in the audit trail.',
+  },
+  unresolvedWarning: {
+    label: 'Unresolved warning',
+    className: 'unresolved-warning',
+    description: 'A warning that needs review or an explicit override before relying on the output.',
+  },
+  blocker: {
+    label: 'Blocker',
+    className: 'blocker',
+    description: 'A required gate or missing dependency that prevents the next safe action.',
+  },
+  auditDetail: {
+    label: 'Audit detail',
+    className: 'audit-detail',
+    description: 'Technical IDs, logs, JSON, provider metadata, and other audit/debug context.',
+  },
+});
+
+export function trustStatusVocabulary(kind) {
+  return TRUST_STATUS_VOCABULARY[kind] || {
+    label: 'Status',
+    className: 'status',
+    description: 'Workflow status detail.',
+  };
+}
+
 export function linesToList(value) {
   return value
     .split(/[\n,]/)

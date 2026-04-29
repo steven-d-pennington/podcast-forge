@@ -32,6 +32,7 @@ import {
   sourceDiscoveryBlocker,
   sourceInputSummary,
   sourceProviderLabel,
+  trustStatusVocabulary,
   validHttpUrl,
 } from './ui-formatters.js';
 
@@ -880,6 +881,44 @@ function appendScopePill(container, scope) {
   container.append(pill);
 }
 
+function trustBadge(kind, label = '') {
+  const vocabulary = trustStatusVocabulary(kind);
+  const badge = document.createElement('span');
+  badge.className = `trust-badge ${vocabulary.className}`;
+  badge.textContent = label || vocabulary.label;
+  badge.title = vocabulary.description;
+  badge.setAttribute('aria-label', `${vocabulary.label}: ${vocabulary.description}`);
+  return badge;
+}
+
+function appendTrustBadge(container, kind, label = '') {
+  container.append(trustBadge(kind, label));
+}
+
+function trustPanel(kind, title, message) {
+  const panel = document.createElement('section');
+  const vocabulary = trustStatusVocabulary(kind);
+  panel.className = `trust-panel ${vocabulary.className}`;
+  const heading = document.createElement('div');
+  heading.className = 'trust-panel-heading';
+  const label = document.createElement('strong');
+  label.textContent = title;
+  heading.append(trustBadge(kind), label);
+  const body = document.createElement('p');
+  body.textContent = message;
+  panel.append(heading, body);
+  return panel;
+}
+
+function reviewTrustSummary(items) {
+  const summary = document.createElement('div');
+  summary.className = 'trust-summary';
+  for (const item of items.filter(Boolean)) {
+    summary.append(trustPanel(item.kind, item.title, item.message));
+  }
+  return summary;
+}
+
 function researchReadinessStatus(packet) {
   const readiness = asObject(packet?.content?.readiness);
   return typeof readiness.status === 'string' ? readiness.status : packet?.status || 'missing';
@@ -1001,6 +1040,7 @@ function renderCoverageSummary(summary) {
   header.className = 'coverage-panel-heading';
   const title = document.createElement('h4');
   title.textContent = 'Claim/source coverage';
+  appendTrustBadge(title, 'sourceEvidence');
   const pill = document.createElement('span');
   pill.className = `status-pill ${summary?.status === 'blocking' ? 'blocked' : summary?.status === 'covered' ? 'done' : summary?.status === 'needs_attention' ? 'needs-review' : 'neutral'}`;
   pill.textContent = coverageStatusLabel(summary?.status);
@@ -2965,7 +3005,7 @@ function renderStoryCandidates() {
     for (const warning of statusWarnings) {
       const chip = document.createElement('span');
       chip.className = `candidate-chip ${warning.level}`;
-      chip.textContent = warning.text;
+      chip.textContent = `${warning.level === 'error' ? 'Blocker' : 'Unresolved warning'}: ${warning.text}`;
       flags.append(chip);
     }
 
@@ -2973,6 +3013,9 @@ function renderStoryCandidates() {
     details.className = 'candidate-details';
     const detailsSummary = document.createElement('summary');
     detailsSummary.textContent = 'Details and AI analysis';
+    appendTrustBadge(detailsSummary, 'sourceEvidence');
+    appendTrustBadge(detailsSummary, 'aiOutput');
+    appendTrustBadge(detailsSummary, 'auditDetail');
 
     const detailGrid = document.createElement('div');
     detailGrid.className = 'candidate-detail-grid';
@@ -2981,6 +3024,7 @@ function renderStoryCandidates() {
     sourceDetails.className = 'candidate-detail-block';
     const sourceHeading = document.createElement('h4');
     sourceHeading.textContent = 'Source trail';
+    appendTrustBadge(sourceHeading, 'sourceEvidence');
     const sourceList = document.createElement('ul');
     for (const itemText of [
       `Origin: ${sourceProfile?.name || 'manual/imported'}`,
@@ -2999,6 +3043,7 @@ function renderStoryCandidates() {
     aiDetails.className = 'candidate-detail-block ai-analysis';
     const aiHeading = document.createElement('h4');
     aiHeading.textContent = 'AI analysis';
+    appendTrustBadge(aiHeading, 'aiOutput');
     const breakdown = scoreBreakdown(candidate);
     const rationale = typeof breakdown.rationale === 'string' && breakdown.rationale.trim()
       ? breakdown.rationale.trim()
@@ -3019,6 +3064,7 @@ function renderStoryCandidates() {
     summaryBlock.className = 'candidate-detail-block';
     const summaryHeading = document.createElement('h4');
     summaryHeading.textContent = 'Candidate summary';
+    appendTrustBadge(summaryHeading, 'auditDetail');
     summaryBlock.append(summaryHeading, summary);
 
     detailGrid.append(sourceDetails, aiDetails, summaryBlock);
@@ -3058,7 +3104,7 @@ function renderResearchBriefs() {
 
     const warningCount = packet.warnings?.length || 0;
     const meta = document.createElement('span');
-    meta.textContent = `${packet.status} | ${packet.citations?.length || 0} citation${packet.citations?.length === 1 ? '' : 's'} | ${warningCount} warning${warningCount === 1 ? '' : 's'}`;
+    meta.textContent = `${packet.status} | Source evidence: ${packet.citations?.length || 0} citation${packet.citations?.length === 1 ? '' : 's'} | Unresolved warnings: ${unresolvedResearchWarnings(packet).length}`;
 
     const summary = document.createElement('p');
     summary.textContent = scope.className === 'archive'
@@ -3085,7 +3131,7 @@ function renderResearchBriefs() {
     if (warningCount > 0) {
       const details = document.createElement('details');
       details.className = 'debug-details row-debug';
-      details.innerHTML = '<summary>Warning details</summary><pre></pre>';
+      details.innerHTML = '<summary>Audit detail: warning records</summary><pre></pre>';
       details.querySelector('pre').textContent = JSON.stringify(packet.warnings, null, 2);
       row.append(title, meta, summary, actions, details);
     } else {
@@ -3915,7 +3961,8 @@ function renderProduction() {
     const row = document.createElement('div');
     row.className = `production-row${job.status === 'failed' ? ' failed' : ''}`;
     const title = document.createElement('strong');
-    title.textContent = `${taskLabel(job.type)} | ${job.status}`;
+    title.textContent = `${taskLabel(job.type)} | Status: ${job.status}`;
+    appendTrustBadge(title, job.status === 'failed' ? 'blocker' : 'aiOutput');
     const meta = document.createElement('span');
     meta.textContent = job.error ? 'Task failed. Open details for logs and provider metadata.' : `Progress ${job.progress}%`;
     const progress = document.createElement('div');
@@ -3928,7 +3975,7 @@ function renderProduction() {
     if (job.error || job.logs?.length) {
       const details = document.createElement('details');
       details.className = 'debug-details row-debug';
-      details.innerHTML = '<summary>Technical details</summary><pre></pre>';
+      details.innerHTML = '<summary>Audit detail: technical details</summary><pre></pre>';
       details.querySelector('pre').textContent = JSON.stringify(sanitizedDebug({ error: job.error, logs: job.logs, output: job.output }), null, 2);
       row.append(details);
     }
@@ -3950,6 +3997,7 @@ function renderProduction() {
       row.className = 'production-row active-artifact';
       const title = document.createElement('strong');
       title.textContent = `Active/current ${asset.label || asset.type}`;
+      appendTrustBadge(title, 'aiOutput');
       const meta = document.createElement('span');
       meta.textContent = asset.objectKey || asset.publicUrl || asset.mimeType || 'Asset recorded; local path hidden';
       row.append(title, meta);
@@ -4045,7 +4093,10 @@ function renderJobDetail() {
   const artifacts = document.createElement('div');
   artifacts.className = 'job-artifacts';
   const artifactItems = job.summary?.artifacts || [];
-  artifacts.innerHTML = '<h4>Linked records</h4>';
+  const artifactsHeading = document.createElement('h4');
+  artifactsHeading.textContent = 'Audit detail: linked records';
+  appendTrustBadge(artifactsHeading, 'auditDetail');
+  artifacts.append(artifactsHeading);
   if (artifactItems.length === 0) {
     const empty = document.createElement('p');
     empty.textContent = 'No artifact IDs recorded yet.';
@@ -4067,7 +4118,7 @@ function renderJobDetail() {
   const retry = renderJobRetry(job);
   const debug = document.createElement('details');
   debug.className = 'debug-details';
-  debug.innerHTML = '<summary>Metadata and debug details</summary><pre></pre>';
+  debug.innerHTML = '<summary>Audit detail: metadata and debug details</summary><pre></pre>';
   debug.querySelector('pre').textContent = JSON.stringify(sanitizedDebug({
     id: job.id,
     showId: job.showId,
@@ -4085,6 +4136,9 @@ function renderJobMessages(title, items, emptyText) {
   section.className = 'job-messages';
   const heading = document.createElement('h4');
   heading.textContent = title;
+  if (/warning/i.test(title)) {
+    appendTrustBadge(heading, 'unresolvedWarning');
+  }
   section.append(heading);
 
   if (items.length === 0) {
@@ -4108,7 +4162,10 @@ function renderJobFailure(job) {
   const failure = job.summary?.failure;
   const section = document.createElement('section');
   section.className = 'job-messages';
-  section.innerHTML = '<h4>Failure</h4>';
+  const heading = document.createElement('h4');
+  heading.textContent = 'Blocker: failure';
+  appendTrustBadge(heading, 'blocker');
+  section.append(heading);
   const message = document.createElement('p');
   message.textContent = failure?.message || job.error || 'No failure recorded.';
   section.append(message);
@@ -4118,7 +4175,10 @@ function renderJobFailure(job) {
 function renderJobLogs(logs) {
   const section = document.createElement('section');
   section.className = 'job-messages';
-  section.innerHTML = '<h4>Logs and events</h4>';
+  const heading = document.createElement('h4');
+  heading.textContent = 'Audit detail: logs and events';
+  appendTrustBadge(heading, 'auditDetail');
+  section.append(heading);
 
   if (logs.length === 0) {
     const empty = document.createElement('p');
@@ -4251,6 +4311,7 @@ function reviewSectionHeading(title, status, detail) {
   const pill = document.createElement('span');
   pill.className = `status-pill ${statusClass(status)}`;
   pill.textContent = status;
+  pill.setAttribute('aria-label', `Status: ${status}`);
   heading.append(copy, pill);
   return heading;
 }
@@ -4321,6 +4382,23 @@ function renderResearchReview() {
 
   els.reviewResearch.append(
     reviewSectionHeading('Research Brief', status, packet.title),
+    reviewTrustSummary([
+      {
+        kind: 'sourceEvidence',
+        title: 'Source evidence',
+        message: `${sourceUrls.length} cited source URL${sourceUrls.length === 1 ? '' : 's'} and ${packet.content?.usableSourceCount ?? 'unknown'} usable source${packet.content?.usableSourceCount === 1 ? '' : 's'} recorded for this brief.`,
+      },
+      {
+        kind: 'reviewDecision',
+        title: 'Review decision',
+        message: approved ? `Human research approval recorded ${formatTime(packet.approvedAt)}.` : 'Human research approval has not been recorded yet.',
+      },
+      unresolved.length > 0 ? {
+        kind: 'unresolvedWarning',
+        title: 'Unresolved warnings',
+        message: `${unresolved.length} research warning${unresolved.length === 1 ? '' : 's'} still need review or an override reason.`,
+      } : null,
+    ]),
     reviewFacts([
       ['Readiness', readiness],
       ['Review decision', approved ? `approved ${formatTime(packet.approvedAt)}` : 'not approved'],
@@ -4338,7 +4416,10 @@ function renderResearchReview() {
 
   const warnings = document.createElement('section');
   warnings.className = 'review-subsection';
-  warnings.innerHTML = '<h4>Warnings</h4>';
+  const warningsHeading = document.createElement('h4');
+  warningsHeading.textContent = 'Unresolved warnings and overrides';
+  appendTrustBadge(warningsHeading, unresolved.length > 0 ? 'unresolvedWarning' : 'reviewDecision');
+  warnings.append(warningsHeading);
   if (asArray(packet.warnings).length === 0) {
     const empty = document.createElement('p');
     empty.className = 'empty-inline';
@@ -4349,7 +4430,7 @@ function renderResearchReview() {
       const row = document.createElement('div');
       row.className = `warning-item ${warning.severity === 'error' ? 'error' : ''}`;
       const message = document.createElement('span');
-      message.textContent = `${warning.code || 'warning'}: ${warning.message || 'No message recorded.'}${warning.override ? ` | overridden by ${warning.override.actor}` : ''}`;
+      message.textContent = `${warning.override ? 'Review decision override' : 'Unresolved warning'} | ${warning.code || 'warning'}: ${warning.message || 'No message recorded.'}${warning.override ? ` | overridden by ${warning.override.actor}` : ''}`;
       row.append(message);
       if (!warning.override) {
         const button = document.createElement('button');
@@ -4417,6 +4498,33 @@ function renderScriptReview() {
 
   els.reviewScript.append(
     reviewSectionHeading('Script Draft', approved && !integrity.blocking ? 'done' : warningItems.length > 0 || integrity.blocking ? 'needs review' : 'ready', `${script.title} | revision ${revision.version}`),
+    reviewTrustSummary([
+      {
+        kind: 'aiOutput',
+        title: 'AI output',
+        message: `Script draft revision ${revision.version} is generated or edited output that must pass integrity review before production.`,
+      },
+      {
+        kind: 'sourceEvidence',
+        title: 'Source evidence',
+        message: provenanceState.stale ? 'Citation/provenance coverage is stale after a human edit.' : 'Citation/provenance coverage is current or not flagged by metadata.',
+      },
+      {
+        kind: 'reviewDecision',
+        title: 'Review decision',
+        message: approved ? `Human script approval recorded ${formatTime(script.approvedAt)}.` : 'Human script approval for audio has not been recorded yet.',
+      },
+      integrity.blocking ? {
+        kind: 'blocker',
+        title: 'Blocker',
+        message: integrity.status === 'missing' ? 'Integrity review has not been run for this revision.' : 'Integrity review is blocking production until resolved or overridden.',
+      } : null,
+      warningItems.length > 0 ? {
+        kind: 'unresolvedWarning',
+        title: 'Unresolved warnings',
+        message: `${warningItems.length} citation/provenance warning item${warningItems.length === 1 ? '' : 's'} need review.`,
+      } : null,
+    ]),
     reviewFacts([
       ['Review decision', approved ? `approved ${formatTime(script.approvedAt)}` : 'not approved'],
       ['Integrity review', integrity.status === 'missing' ? 'not run' : `${integrityReviewLabel(integrity.status)}${integrityReview?.reviewedAt ? ` ${formatTime(integrityReview.reviewedAt)}` : ''}`],
@@ -4428,12 +4536,15 @@ function renderScriptReview() {
     ]),
     renderCoverageSummary(state.selectedCoverageSummary),
     ...(provenanceState.stale ? [actionBlockerNote(provenanceState.message, false)] : []),
-    reviewList('Integrity review issues', integrityIssues, integrity.status === 'missing' ? 'Run the integrity reviewer before production.' : 'No unresolved integrity issues recorded.', integrityIssueText),
-    integrity.override ? reviewList('Integrity override', [integrity.override], 'No override recorded.', (item) => `${item.actor || 'editor'} | ${item.reason} | ${formatTime(item.overriddenAt)}`) : settingsEmpty('No integrity override recorded.'),
-    reviewList('Revision history', state.selectedRevisions, 'Only the selected revision is loaded.', (item) => `v${item.version} by ${item.author} | ${formatTime(item.createdAt)}${item.changeSummary ? ` | ${item.changeSummary}` : ''}`),
-    reviewList('Citation map and provenance warnings', warningItems, 'No missing-provenance warnings recorded.', (item) => item.message || item.code || JSON.stringify(sanitizedDebug(item))),
+    reviewList('AI integrity review issues', integrityIssues, integrity.status === 'missing' ? 'Run the integrity reviewer before production.' : 'No unresolved integrity issues recorded.', integrityIssueText),
+    integrity.override ? reviewList('Review decision: integrity override', [integrity.override], 'No override recorded.', (item) => `${item.actor || 'editor'} | ${item.reason} | ${formatTime(item.overriddenAt)}`) : settingsEmpty('No integrity override recorded.'),
+    reviewList('Audit detail: revision history', state.selectedRevisions, 'Only the selected revision is loaded.', (item) => `v${item.version} by ${item.author} | ${formatTime(item.createdAt)}${item.changeSummary ? ` | ${item.changeSummary}` : ''}`),
+    reviewList('Source evidence: citation map and provenance warnings', warningItems, 'No missing-provenance warnings recorded.', (item) => item.message || item.code || JSON.stringify(sanitizedDebug(item))),
   );
 
+  const bodyLabel = document.createElement('div');
+  bodyLabel.className = 'script-review-label';
+  bodyLabel.append(trustBadge('aiOutput'), trustBadge('sourceEvidence', 'Citation map required'), trustBadge('reviewDecision', approved ? 'Review decision recorded' : 'Review pending'));
   const body = document.createElement('pre');
   body.className = 'script-review-body';
   body.textContent = revision.body || 'No script body recorded.';
@@ -4467,7 +4578,7 @@ function renderScriptReview() {
           ? (provenanceState.stale ? 'Blocked: human edit invalidated citation/provenance coverage; run the integrity reviewer before production.' : 'Blocked: run the integrity reviewer before production.')
           : 'Blocked: resolve the failed integrity review or record an explicit override reason.')
         : approved ? 'Script and integrity gates are complete for production.' : 'Ready: approve the reviewed script revision for audio.';
-  els.reviewScript.append(body, actions, actionBlockerNote(scriptGateReason, integrity.blocking || (!approved && approve.disabled)));
+  els.reviewScript.append(bodyLabel, body, actions, actionBlockerNote(scriptGateReason, integrity.blocking || (!approved && approve.disabled)));
 }
 
 function renderProductionReview() {
@@ -4480,6 +4591,28 @@ function renderProductionReview() {
 
   els.reviewProduction.append(
     reviewSectionHeading('Audio and Cover Assets', episode?.status === 'approved-for-publish' || episode?.status === 'published' ? 'done' : audioAsset && coverAsset ? 'ready' : 'blocked', episode ? episode.title : 'No episode record yet.'),
+    reviewTrustSummary([
+      {
+        kind: 'aiOutput',
+        title: 'AI output',
+        message: `${assets.length} active audio/cover asset${assets.length === 1 ? '' : 's'} recorded for editorial review.`,
+      },
+      {
+        kind: 'reviewDecision',
+        title: 'Review decision',
+        message: episode?.status === 'approved-for-publish' || episode?.status === 'published' ? 'Human approval for publishing is recorded.' : 'Human asset/publish approval has not been recorded yet.',
+      },
+      warnings.length > 0 ? {
+        kind: 'unresolvedWarning',
+        title: 'Unresolved warnings',
+        message: `${warnings.length} production warning${warnings.length === 1 ? '' : 's'} or failure record${warnings.length === 1 ? '' : 's'} need review.`,
+      } : null,
+      !audioAsset || !coverAsset ? {
+        kind: 'blocker',
+        title: 'Blocker',
+        message: 'Audio and cover assets are both required before publish approval.',
+      } : null,
+    ]),
     reviewFacts([
       ['Episode status', episode?.status || 'missing'],
       ['Audio', audioAsset ? audioAsset.mimeType || 'recorded' : 'missing'],
@@ -4518,13 +4651,13 @@ function renderProductionReview() {
   els.reviewProduction.append(media);
 
   els.reviewProduction.append(
-    reviewList('Asset metadata', assets, 'No production assets recorded.', (asset) => {
+    reviewList('Audit detail: asset metadata', assets, 'No production assets recorded.', (asset) => {
       const provider = asset.metadata?.provider || asset.metadata?.adapter || asset.metadata?.adapterKind || 'unknown provider';
       const size = asset.byteSize === null || asset.byteSize === undefined ? 'size unknown' : `${asset.byteSize} bytes`;
       const duration = asset.durationSeconds ? ` | ${asset.durationSeconds}s` : '';
       return `${asset.type} | ${asset.mimeType || 'unknown MIME'} | ${size}${duration} | ${provider}`;
     }),
-    reviewList('Production warnings and failures', warnings, 'No production warnings recorded.', (item) => item.message || item.code || JSON.stringify(sanitizedDebug(item))),
+    reviewList('Unresolved warnings and failures', warnings, 'No production warnings recorded.', (item) => item.message || item.code || JSON.stringify(sanitizedDebug(item))),
   );
 
   const actions = document.createElement('div');
@@ -4556,6 +4689,18 @@ function renderPublishChecklist() {
   const canApprove = checklist.filter((item) => item.key !== 'publishApproval').every((item) => item.passed);
   els.publishChecklist.innerHTML = '';
   els.publishChecklist.append(reviewSectionHeading('Publishing Checklist', ready ? 'ready' : 'blocked', episode ? `${episode.title} | ${episode.status}` : 'No episode selected.'));
+  els.publishChecklist.append(reviewTrustSummary([
+    {
+      kind: 'reviewDecision',
+      title: 'Review decision',
+      message: episode?.status === 'approved-for-publish' || episode?.status === 'published' ? 'Human publish approval has been saved.' : 'Publishing remains approval-gated until a review decision is saved.',
+    },
+    {
+      kind: ready ? 'auditDetail' : 'blocker',
+      title: ready ? 'Audit detail' : 'Blockers',
+      message: ready ? 'Checklist details remain visible for audit before publishing.' : `${checklistBlockers(checklist).length} checklist blocker${checklistBlockers(checklist).length === 1 ? '' : 's'} must be resolved before RSS publishing.`,
+    },
+  ]));
 
   const list = document.createElement('div');
   list.className = 'checklist';
@@ -4564,7 +4709,7 @@ function renderPublishChecklist() {
     row.className = `checklist-item ${item.passed ? 'passed' : 'blocked'}`;
     const mark = document.createElement('span');
     mark.className = 'checklist-mark';
-    mark.textContent = item.passed ? 'OK' : 'Block';
+    mark.textContent = item.passed ? 'Ready' : 'Blocker';
     const text = document.createElement('div');
     const label = document.createElement('strong');
     label.textContent = item.label;

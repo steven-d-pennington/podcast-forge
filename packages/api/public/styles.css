@@ -911,6 +911,120 @@ button:disabled {
   color: #245b37;
 }
 
+.trust-badge {
+  border: 1px solid #c9ced6;
+  border-radius: 999px;
+  color: #3f4b5a;
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-left: 0.4rem;
+  padding: 0.12rem 0.4rem;
+  text-transform: uppercase;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.trust-badge:first-child {
+  margin-left: 0;
+}
+
+.trust-badge.ai-output {
+  background: #eef6ff;
+  border-color: #9ec4ed;
+  color: #1f4d7a;
+}
+
+.trust-badge.source-evidence {
+  background: #eef6f2;
+  border-color: #9ac8aa;
+  color: #245b37;
+}
+
+.trust-badge.review-decision {
+  background: #f1f5f9;
+  border-color: #aab8ca;
+  color: #27303b;
+}
+
+.trust-badge.unresolved-warning {
+  background: #fff9d9;
+  border-color: #d8cf73;
+  color: #675b00;
+}
+
+.trust-badge.blocker {
+  background: #fff1df;
+  border-color: #e2c391;
+  color: #70440f;
+}
+
+.trust-badge.audit-detail {
+  background: #f8fafc;
+  border-color: #d8dde5;
+  color: #586575;
+}
+
+.trust-summary {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.trust-panel {
+  background: #ffffff;
+  border: 1px solid #d8dde5;
+  border-radius: 6px;
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.6rem;
+}
+
+.trust-panel.ai-output {
+  border-color: #9ec4ed;
+}
+
+.trust-panel.source-evidence {
+  border-color: #9ac8aa;
+}
+
+.trust-panel.review-decision,
+.trust-panel.audit-detail {
+  border-color: #c9ced6;
+}
+
+.trust-panel.unresolved-warning {
+  border-color: #d8cf73;
+}
+
+.trust-panel.blocker {
+  border-color: #e2c391;
+}
+
+.trust-panel-heading {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.trust-panel-heading strong,
+.trust-panel p {
+  margin: 0;
+}
+
+.trust-panel-heading strong {
+  color: #27303b;
+  font-size: 0.9rem;
+}
+
+.trust-panel p {
+  color: #3f4b5a;
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
 .pipeline-artifacts,
 .pipeline-next {
   display: grid;
@@ -1479,6 +1593,12 @@ textarea {
   overflow: auto;
   padding: 0.75rem;
   white-space: pre-wrap;
+}
+
+.script-review-label {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
 }
 
 .asset-preview-grid {
@@ -2200,6 +2320,7 @@ textarea {
   .layout,
   .grid,
   .grid.two,
+  .trust-summary,
   .production-command-bar,
   .workflow-context,
   .story-source-metrics,
