@@ -4275,28 +4275,12 @@ function renderScriptCoachingActions() {
   help.textContent = 'Creates a new draft revision. It does not approve the script or carry review decisions forward.';
   heading.append(title, help);
 
-  const actions = document.createElement('div');
-  actions.className = 'script-coaching-grid';
-  const running = isActionRunning('script');
-
-  for (const action of state.scriptCoachingActions) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'secondary coaching-action';
-    button.disabled = running;
-    button.innerHTML = '<strong></strong><span></span>';
-    button.querySelector('strong').textContent = action.label;
-    button.querySelector('span').textContent = action.description;
-    button.addEventListener('click', () => runScriptCoachingAction(action.action));
-    actions.append(button);
-  }
-
   if (state.scriptCoachingActions.length === 0) {
-    els.scriptCoachingActions.append(heading, settingsEmpty('No coaching actions are available from the API.'));
+    els.scriptCoachingActions.append(heading, settingsEmpty('No coaching actions are available from the API. Refresh the workspace or check the script coaching actions endpoint before expecting AI rewrite help.'));
     return;
   }
 
-  els.scriptCoachingActions.append(heading, actions);
+  els.scriptCoachingActions.append(heading, scriptCoachingActionGrid());
 }
 
 function reviewSectionHeading(title, status, detail) {
@@ -4325,6 +4309,52 @@ function reviewFacts(items) {
     facts.append(item);
   }
   return facts;
+}
+
+function focusedWorkspaceSummary(items) {
+  const grid = document.createElement('div');
+  grid.className = 'focused-workspace-summary';
+
+  for (const item of items.filter(Boolean)) {
+    const card = document.createElement('section');
+    card.className = `focused-status-card ${item.status || 'neutral'}`;
+    const heading = document.createElement('h4');
+    heading.textContent = item.title;
+    if (item.trustKind) {
+      appendTrustBadge(heading, item.trustKind);
+    }
+    const message = document.createElement('p');
+    message.textContent = item.message;
+    card.append(heading, message);
+    if (item.detail) {
+      const detail = document.createElement('span');
+      detail.textContent = item.detail;
+      card.append(detail);
+    }
+    grid.append(card);
+  }
+
+  return grid;
+}
+
+function scriptCoachingActionGrid() {
+  const actions = document.createElement('div');
+  actions.className = 'script-coaching-grid';
+  const running = isActionRunning('script');
+
+  for (const action of state.scriptCoachingActions) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'secondary coaching-action';
+    button.disabled = running;
+    button.innerHTML = '<strong></strong><span></span>';
+    button.querySelector('strong').textContent = action.label;
+    button.querySelector('span').textContent = action.description;
+    button.addEventListener('click', () => runScriptCoachingAction(action.action));
+    actions.append(button);
+  }
+
+  return actions;
 }
 
 function reviewList(title, items, emptyText, mapper = (item) => item) {
@@ -4467,12 +4497,17 @@ function renderResearchReview() {
 function renderScriptReview() {
   const script = activeSelectedScript();
   const revision = activeSelectedRevision();
+  const viewModel = currentProductionViewModel();
+  const workspace = viewModel.scriptReviewWorkspace;
   els.reviewScript.innerHTML = '';
 
   if (!script || !revision) {
+    const emptyText = isActionRunning('script')
+      ? 'Script generation or AI coaching is running. Wait for the task to finish, then refresh if the new revision does not appear.'
+      : workspace?.emptyState || 'Generate or select a script draft before review.';
     els.reviewScript.append(
       reviewSectionHeading('Script Draft', 'blocked', 'No script revision is selected.'),
-      settingsEmpty('Generate or select a script draft before review.'),
+      settingsEmpty(`${emptyText} Recovery: ${workspace?.recoveryAction || 'Choose a ready research brief and generate a script draft.'}`),
     );
     return;
   }
@@ -4495,9 +4530,46 @@ function renderScriptReview() {
   const integrityIssues = integrityIssueItems(integrityReview);
   const integrityCounts = asObject(integrityReview?.issueCounts);
   const approved = script.status === 'approved-for-audio' && script.approvedRevisionId === revision.id;
+  const approvalWorkspace = workspace?.approval || {};
+  const sourceCitation = workspace?.sourceCitation || {};
+  const coaching = workspace?.coaching || {};
 
   els.reviewScript.append(
     reviewSectionHeading('Script Draft', approved && !integrity.blocking ? 'done' : warningItems.length > 0 || integrity.blocking ? 'needs review' : 'ready', `${script.title} | revision ${revision.version}`),
+    focusedWorkspaceSummary([
+      {
+        title: 'Current revision',
+        trustKind: 'aiOutput',
+        status: 'neutral',
+        message: `Revision ${revision.version} is the active/current script review target.`,
+        detail: `${revision.title || script.title} | ${formatTime(revision.createdAt || script.updatedAt)}`,
+      },
+      {
+        title: 'Approval status',
+        trustKind: 'reviewDecision',
+        status: approved ? 'ready' : approvalWorkspace.stale ? 'blocked' : 'needs-review',
+        message: approvalWorkspace.label || (approved ? 'Current revision approved for audio.' : 'Current revision is not approved for audio.'),
+      },
+      {
+        title: 'Integrity status',
+        trustKind: integrity.blocking ? 'blocker' : 'aiOutput',
+        status: integrity.blocking ? 'blocked' : 'ready',
+        message: workspace?.integrity?.label || integrityReviewLabel(integrity.status),
+      },
+      {
+        title: 'Source/citation status',
+        trustKind: sourceCitation.stale || sourceCitation.warningCount > 0 ? 'unresolvedWarning' : 'sourceEvidence',
+        status: sourceCitation.stale ? 'blocked' : sourceCitation.warningCount > 0 ? 'needs-review' : 'ready',
+        message: sourceCitation.label || 'Source and citation coverage is current or not flagged by metadata.',
+        detail: `${sourceCitation.warningCount ?? warningItems.length} warning item${(sourceCitation.warningCount ?? warningItems.length) === 1 ? '' : 's'} | coverage ${sourceCitation.coverageStatus || state.selectedCoverageSummary?.status || 'unknown'}`,
+      },
+      {
+        title: 'AI coaching actions',
+        trustKind: 'aiOutput',
+        status: state.scriptCoachingActions.length > 0 ? 'ready' : 'needs-review',
+        message: coaching.label || 'No AI coaching actions are available from the API.',
+      },
+    ]),
     reviewTrustSummary([
       {
         kind: 'aiOutput',
@@ -4542,6 +4614,21 @@ function renderScriptReview() {
     reviewList('Source evidence: citation map and provenance warnings', warningItems, 'No missing-provenance warnings recorded.', (item) => item.message || item.code || JSON.stringify(sanitizedDebug(item))),
   );
 
+  const coachingSection = document.createElement('section');
+  coachingSection.className = 'review-subsection script-review-coaching';
+  const coachingHeading = document.createElement('h4');
+  coachingHeading.textContent = 'Available AI coaching actions';
+  appendTrustBadge(coachingHeading, 'aiOutput');
+  const coachingHelp = document.createElement('p');
+  coachingHelp.textContent = 'Each coaching action creates a new draft revision. Prior approval and integrity results stay with the old revision until this one is reviewed.';
+  coachingSection.append(coachingHeading, coachingHelp);
+  if (state.scriptCoachingActions.length === 0) {
+    coachingSection.append(settingsEmpty('No AI coaching actions are available. Recovery: refresh the workspace or check the script coaching actions endpoint before relying on AI rewrite help.'));
+  } else {
+    coachingSection.append(scriptCoachingActionGrid());
+  }
+  els.reviewScript.append(coachingSection);
+
   const bodyLabel = document.createElement('div');
   bodyLabel.className = 'script-review-label';
   bodyLabel.append(trustBadge('aiOutput'), trustBadge('sourceEvidence', 'Citation map required'), trustBadge('reviewDecision', approved ? 'Review decision recorded' : 'Review pending'));
@@ -4581,16 +4668,95 @@ function renderScriptReview() {
   els.reviewScript.append(bodyLabel, body, actions, actionBlockerNote(scriptGateReason, integrity.blocking || (!approved && approve.disabled)));
 }
 
+function productionAssetReviewCard(asset, kind, active = true) {
+  const card = document.createElement('div');
+  card.className = `asset-preview ${active ? 'active-artifact' : 'archive-artifact'}`;
+  const title = document.createElement('strong');
+  title.textContent = `${active ? 'Active/current' : 'History/archive'} ${kind}`;
+  appendTrustBadge(title, active ? 'aiOutput' : 'auditDetail');
+  const meta = document.createElement('p');
+  meta.textContent = asset
+    ? `${asset.type || kind} | ${asset.mimeType || 'unknown MIME'} | ${asset.status || 'recorded'}`
+    : active
+      ? `No active/current ${kind.toLowerCase()} is recorded for this production path.`
+      : `No history/archive ${kind.toLowerCase()} is recorded.`;
+  card.append(title, meta);
+
+  if (!asset) {
+    const recovery = document.createElement('p');
+    recovery.className = 'empty-inline';
+    recovery.textContent = active
+      ? `Recovery: create ${kind === 'Preview MP3' ? 'preview audio' : 'cover art'} after the current script revision is approved and the integrity gate is clear.`
+      : 'History/archive assets appear here only when older or out-of-scope assets exist.';
+    card.append(recovery);
+    return card;
+  }
+
+  const accessUrl = assetAccessUrl(asset);
+  if (accessUrl) {
+    if (kind === 'Preview MP3') {
+      const note = document.createElement('p');
+      note.className = 'help';
+      note.textContent = 'Use Play, Open, or Download to review the preview MP3.';
+      card.append(note);
+      appendAssetAccessControls(card, asset, { audio: true });
+    } else {
+      const note = document.createElement('p');
+      note.className = 'help';
+      note.textContent = 'Use Open or Download to inspect the cover art file.';
+      card.append(note);
+      appendAssetAccessControls(card, asset, { image: true });
+    }
+  } else {
+    const empty = document.createElement('p');
+    empty.className = 'asset-access-warning';
+    empty.textContent = `${kind} is recorded without a usable local or public URL. Recovery: regenerate the asset or inspect the task run for storage metadata.`;
+    card.append(empty);
+  }
+
+  return card;
+}
+
 function renderProductionReview() {
   const episode = selectedEpisode();
   const assets = selectedAssets();
   const audioAsset = assets.find((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview');
   const coverAsset = assets.find((asset) => asset.type === 'cover-art');
   const warnings = productionWarningItems();
+  const viewModel = currentProductionViewModel();
+  const workspace = viewModel.audioCoverReviewWorkspace || {};
+  const archivedAssetIds = new Set(asArray(viewModel.historicalArtifacts?.audioCover).map((asset) => asset.id));
+  const archivedAssets = state.production.assets.filter((asset) => archivedAssetIds.has(asset.id));
   els.reviewProduction.innerHTML = '';
 
   els.reviewProduction.append(
     reviewSectionHeading('Audio and Cover Assets', episode?.status === 'approved-for-publish' || episode?.status === 'published' ? 'done' : audioAsset && coverAsset ? 'ready' : 'blocked', episode ? episode.title : 'No episode record yet.'),
+    focusedWorkspaceSummary([
+      {
+        title: 'Active/current assets',
+        trustKind: 'aiOutput',
+        status: audioAsset && coverAsset ? 'ready' : audioAsset || coverAsset ? 'needs-review' : 'blocked',
+        message: audioAsset && coverAsset
+          ? 'Preview MP3 and cover art are active/current for this production path.'
+          : workspace.emptyState || 'No active/current audio or cover assets are selected for this production path.',
+        detail: `Audio: ${audioAsset ? 'ready' : 'missing'} | Cover art: ${coverAsset ? 'ready' : 'missing'}`,
+      },
+      {
+        title: 'History/archive assets',
+        trustKind: 'auditDetail',
+        status: archivedAssets.length > 0 ? 'neutral' : 'ready',
+        message: workspace.archiveNote || 'No history/archive audio or cover assets are attached to this path.',
+        detail: `${archivedAssets.length} archived asset${archivedAssets.length === 1 ? '' : 's'}`,
+      },
+      {
+        title: 'Recovery steps',
+        trustKind: audioAsset && coverAsset ? 'reviewDecision' : 'blocker',
+        status: audioAsset && coverAsset ? 'ready' : 'blocked',
+        message: audioAsset && coverAsset
+          ? 'Review the active assets, then approve assets for publishing when the checklist is clear.'
+          : workspace.recoveryAction || 'Approve the current script revision with a non-blocking integrity review, then create missing audio and cover assets.',
+      },
+    ]),
     reviewTrustSummary([
       {
         kind: 'aiOutput',
@@ -4621,34 +4787,41 @@ function renderProductionReview() {
     ]),
   );
 
-  const media = document.createElement('div');
-  media.className = 'asset-preview-grid';
-  const audioBox = document.createElement('div');
-  audioBox.className = 'asset-preview';
-  const audioTitle = document.createElement('strong');
-  audioTitle.textContent = 'Audio preview';
-  audioBox.append(audioTitle);
-  if (audioAsset && assetAccessUrl(audioAsset)) {
-    appendAssetAccessControls(audioBox, audioAsset, { audio: true });
+  const activeSection = document.createElement('section');
+  activeSection.className = 'review-subsection asset-review-workspace';
+  const activeHeading = document.createElement('h4');
+  activeHeading.textContent = 'Active/current assets';
+  appendTrustBadge(activeHeading, 'aiOutput');
+  const activeHelp = document.createElement('p');
+  activeHelp.textContent = 'Only these active/current assets are used for publish approval and publishing checks.';
+  const activeMedia = document.createElement('div');
+  activeMedia.className = 'asset-preview-grid focused-assets';
+  activeMedia.append(
+    productionAssetReviewCard(audioAsset, 'Preview MP3', true),
+    productionAssetReviewCard(coverAsset, 'Cover art', true),
+  );
+  activeSection.append(activeHeading, activeHelp, activeMedia);
+  els.reviewProduction.append(activeSection);
+
+  const archiveSection = document.createElement('section');
+  archiveSection.className = 'review-subsection asset-review-workspace archive-assets';
+  const archiveHeading = document.createElement('h4');
+  archiveHeading.textContent = 'History/archive assets';
+  appendTrustBadge(archiveHeading, 'auditDetail');
+  const archiveHelp = document.createElement('p');
+  archiveHelp.textContent = 'History/archive assets are kept for audit only; they do not satisfy current publish readiness.';
+  archiveSection.append(archiveHeading, archiveHelp);
+  if (archivedAssets.length === 0) {
+    archiveSection.append(settingsEmpty('No history/archive audio or cover assets for this production path.'));
   } else {
-    const empty = document.createElement('p');
-    empty.textContent = audioAsset ? 'Audio asset recorded without a usable local or public preview URL.' : 'No audio asset recorded.';
-    audioBox.append(empty);
+    const archiveGrid = document.createElement('div');
+    archiveGrid.className = 'asset-preview-grid focused-assets';
+    for (const asset of archivedAssets) {
+      archiveGrid.append(productionAssetReviewCard(asset, asset.type === 'cover-art' ? 'Cover art' : 'Preview MP3', false));
+    }
+    archiveSection.append(archiveGrid);
   }
-  const coverBox = document.createElement('div');
-  coverBox.className = 'asset-preview';
-  const coverTitle = document.createElement('strong');
-  coverTitle.textContent = 'Cover art';
-  coverBox.append(coverTitle);
-  if (coverAsset && assetAccessUrl(coverAsset)) {
-    appendAssetAccessControls(coverBox, coverAsset, { image: true });
-  } else {
-    const empty = document.createElement('p');
-    empty.textContent = coverAsset ? 'Cover art asset recorded without a usable local or public preview URL.' : 'No cover art asset recorded.';
-    coverBox.append(empty);
-  }
-  media.append(audioBox, coverBox);
-  els.reviewProduction.append(media);
+  els.reviewProduction.append(archiveSection);
 
   els.reviewProduction.append(
     reviewList('Audit detail: asset metadata', assets, 'No production assets recorded.', (asset) => {

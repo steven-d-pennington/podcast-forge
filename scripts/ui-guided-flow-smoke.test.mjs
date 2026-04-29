@@ -374,6 +374,56 @@ test('production assets expose local Play Open Download controls', () => {
   assertContains(stylesCss, '.asset-access-warning', 'asset warning styles');
 });
 
+test('script and audio review use focused workspaces with active and archive separation', () => {
+  for (const expected of [
+    'function focusedWorkspaceSummary(items)',
+    'scriptReviewWorkspace',
+    'Current revision',
+    'Approval status',
+    'Integrity status',
+    'Source/citation status',
+    'Available AI coaching actions',
+    'Each coaching action creates a new draft revision. Prior approval and integrity results stay with the old revision until this one is reviewed.',
+    'No AI coaching actions are available. Recovery: refresh the workspace or check the script coaching actions endpoint before relying on AI rewrite help.',
+    'Script generation or AI coaching is running. Wait for the task to finish, then refresh if the new revision does not appear.',
+  ]) {
+    assertContains(uiJs, expected, `focused script workspace marker ${expected}`);
+  }
+
+  for (const expected of [
+    'audioCoverReviewWorkspace',
+    'function productionAssetReviewCard(asset, kind, active = true)',
+    'Active/current assets',
+    'History/archive assets',
+    'Only these active/current assets are used for publish approval and publishing checks.',
+    'History/archive assets are kept for audit only; they do not satisfy current publish readiness.',
+    'Use Play, Open, or Download to review the preview MP3.',
+    'Recovery: regenerate the asset or inspect the task run for storage metadata.',
+  ]) {
+    assertContains(uiJs, expected, `focused audio workspace marker ${expected}`);
+  }
+
+  for (const expected of [
+    'function summarizeScriptReviewWorkspace',
+    'Prior approval belongs to revision ${script.approvedRevisionId}; this revision needs a fresh review decision.',
+    'each creates a new unapproved revision',
+    'function summarizeAudioCoverReviewWorkspace',
+    'History/archive assets remain available for audit only and are not used by publish approval.',
+  ]) {
+    assertContains(uiViewModelJs, expected, `focused workspace view-model marker ${expected}`);
+  }
+
+  for (const expected of [
+    '.focused-workspace-summary',
+    '.focused-status-card',
+    '.script-review-coaching',
+    '.asset-review-workspace',
+    '.asset-preview-grid.focused-assets',
+  ]) {
+    assertContains(stylesCss, expected, `focused workspace style ${expected}`);
+  }
+});
+
 test('workflow action feedback view-model covers success warnings and blockers', () => {
   const show = {
     id: 'show-1',

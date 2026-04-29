@@ -271,6 +271,86 @@ function summarizeReview(revision) {
   });
 }
 
+function revisionProvenanceState(revision) {
+  const status = asObject(revision?.metadata?.provenanceStatus);
+  const stale = status.status === 'stale' || status.verified === false;
+  return {
+    stale,
+    status: stale ? 'stale' : status.status || 'current',
+    message: typeof status.message === 'string' && status.message.trim()
+      ? status.message.trim()
+      : 'This revision needs current citation mapping and provenance review before production.',
+  };
+}
+
+function summarizeScriptReviewWorkspace(script, revision, coverageSummary, coachingActions) {
+  if (!script || !revision) {
+    return {
+      status: 'empty',
+      emptyState: 'Generate or select a script draft before reviewing revision approval, integrity, citations, or AI coaching actions.',
+      recoveryAction: 'Select a ready research brief, generate a script draft, then run integrity review before production.',
+    };
+  }
+
+  const integrity = integrityReviewState(revision);
+  const provenance = revisionProvenanceState(revision);
+  const validation = asObject(revision.metadata?.validation);
+  const provenanceValidation = asObject(validation.provenance);
+  const warningCount = [
+    ...asArray(revision.metadata?.warnings),
+    ...asArray(revision.metadata?.provenance?.warnings),
+    ...asArray(provenanceValidation.warnings),
+  ].length + (provenance.stale ? 1 : 0);
+  const approvedCurrentRevision = script.status === 'approved-for-audio' && script.approvedRevisionId === revision.id;
+  const approvalStale = Boolean(script.approvedRevisionId && script.approvedRevisionId !== revision.id);
+  const coverageStatus = coverageSummary?.status || (provenance.stale || warningCount > 0 ? 'needs_attention' : 'unknown');
+
+  return {
+    status: approvedCurrentRevision && !integrity.blocking ? 'ready' : 'needs-review',
+    currentRevision: summarizeScript(script, revision),
+    approval: {
+      approved: approvedCurrentRevision,
+      stale: approvalStale,
+      label: approvedCurrentRevision
+        ? 'Current revision approved for audio'
+        : approvalStale
+          ? `Prior approval belongs to revision ${script.approvedRevisionId}; this revision needs a fresh review decision.`
+          : 'Current revision is not approved for audio',
+    },
+    integrity: {
+      status: integrity.status,
+      blocking: integrity.blocking,
+      label: integrity.status === 'missing'
+        ? 'Integrity review not run for this revision'
+        : integrity.blocking
+          ? 'Integrity review is blocking production'
+          : integrity.status === 'overridden' ? 'Integrity override recorded' : `Integrity review ${integrity.status}`,
+    },
+    sourceCitation: {
+      status: provenance.stale ? 'stale' : coverageStatus,
+      stale: provenance.stale,
+      warningCount,
+      coverageStatus,
+      label: provenance.stale
+        ? provenance.message
+        : warningCount > 0
+          ? `${warningCount} source/citation warning${warningCount === 1 ? '' : 's'} need review.`
+          : coverageSummary?.headline || 'Source and citation coverage is current or not flagged by metadata.',
+    },
+    coaching: {
+      availableActionCount: asArray(coachingActions).length,
+      actions: asArray(coachingActions).map((item) => ({
+        action: item.action,
+        label: item.label,
+        description: item.description,
+      })),
+      label: asArray(coachingActions).length > 0
+        ? `${asArray(coachingActions).length} AI coaching action${asArray(coachingActions).length === 1 ? '' : 's'} available; each creates a new unapproved revision.`
+        : 'No AI coaching actions are available from the API.',
+    },
+  };
+}
+
 function summarizeAsset(asset) {
   if (!asset) {
     return null;
@@ -328,6 +408,27 @@ function summarizeEpisode(episode) {
     createdAt: episode.createdAt,
     updatedAt: episode.updatedAt,
   });
+}
+
+function summarizeAudioCoverReviewWorkspace(activeAssets, historicalAudioCover) {
+  const audio = latest(asArray(activeAssets).filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'));
+  const cover = latest(asArray(activeAssets).filter((asset) => asset.type === 'cover-art'));
+  const archived = asArray(historicalAudioCover);
+  return {
+    status: audio && cover ? 'ready' : audio || cover ? 'partial' : 'empty',
+    active: {
+      audio: summarizeAsset(audio),
+      cover: summarizeAsset(cover),
+    },
+    archived,
+    emptyState: audio || cover
+      ? 'One active/current production asset is missing. Create the missing preview MP3 or cover art before publish approval.'
+      : 'No active/current audio or cover assets are selected for this production path.',
+    recoveryAction: 'Approve the current script revision with a non-blocking integrity review, then create missing audio and cover assets.',
+    archiveNote: archived.length > 0
+      ? 'History/archive assets remain available for audit only and are not used by publish approval.'
+      : 'No history/archive audio or cover assets are attached to this path.',
+  };
 }
 
 function summarizeJob(job) {
@@ -1216,6 +1317,13 @@ export function deriveProductionViewModel(input = {}) {
     primaryNextAction,
     latestActionResult: workflowActionFeedback,
   });
+  const scriptReviewWorkspace = summarizeScriptReviewWorkspace(
+    activeScript,
+    activeRevision,
+    input.selectedCoverageSummary,
+    input.scriptCoachingActions,
+  );
+  const audioCoverReviewWorkspace = summarizeAudioCoverReviewWorkspace(activeAssets, historicalArtifacts.audioCover);
 
   return {
     selectedShowSummary: summarizeShow(selectedShow),
@@ -1231,6 +1339,8 @@ export function deriveProductionViewModel(input = {}) {
     activeArtifacts,
     latestArtifacts,
     historicalArtifacts,
+    scriptReviewWorkspace,
+    audioCoverReviewWorkspace,
     artifactScopeWarnings: inactiveSelectedArtifacts,
     primaryNextAction,
     secondaryActions,

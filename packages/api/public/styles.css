@@ -1536,6 +1536,48 @@ textarea {
   gap: 0.5rem;
 }
 
+.focused-workspace-summary {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.focused-status-card {
+  background: white;
+  border: 1px solid #d8dde5;
+  border-left-width: 4px;
+  border-radius: 6px;
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.65rem;
+}
+
+.focused-status-card h4,
+.focused-status-card p {
+  margin: 0;
+}
+
+.focused-status-card p,
+.focused-status-card span,
+.asset-review-workspace p {
+  color: #586575;
+  font-size: 0.88rem;
+}
+
+.focused-status-card.ready {
+  border-left-color: #477d55;
+}
+
+.focused-status-card.needs-review,
+.focused-status-card.neutral {
+  border-left-color: #9a7917;
+}
+
+.focused-status-card.blocked {
+  border-left-color: #b34d2f;
+}
+
 .coverage-panel {
   background: white;
   border: 1px solid #d8dde5;
@@ -1599,6 +1641,19 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+}
+
+.script-review-coaching .script-coaching-grid {
+  margin-top: 0.15rem;
+}
+
+.asset-review-workspace {
+  border-top: 1px solid #d8dde5;
+  padding-top: 0.75rem;
+}
+
+.asset-preview-grid.focused-assets {
+  align-items: start;
 }
 
 .asset-preview-grid {
@@ -2332,6 +2387,7 @@ textarea {
   .script-generate,
   .script-workspace,
   .script-coaching-grid,
+  .focused-workspace-summary,
   .review-grid,
   .asset-preview-grid,
   .job-layout,
