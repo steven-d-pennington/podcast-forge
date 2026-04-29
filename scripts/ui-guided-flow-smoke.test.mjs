@@ -48,7 +48,7 @@ test('guided workflow shell stays primary on /ui', () => {
   assertContains(indexHtml, 'id="pipelineStages"', 'pipeline stage container');
   assertContains(indexHtml, 'id="workflowContext"', 'workflow context');
   assertContains(indexHtml, 'id="productionCommandBar"', 'production command bar');
-  assertContains(indexHtml, 'Production command bar', 'production command bar label');
+  assertContains(indexHtml, 'Produce Episode cockpit header', 'production cockpit header label');
   assertMatches(indexHtml, /8-stage journey/i, 'workflow should describe the 8-stage journey');
 
   assert.ok(
@@ -156,18 +156,26 @@ test('stage tracker progressively discloses only the current stage by default', 
 });
 
 test('production command bar and concrete blocker copy remain present', () => {
+  assertContains(indexHtml, 'Produce Episode cockpit header', 'cockpit header label');
+  assertContains(indexHtml, 'production-cockpit-header', 'cockpit header class');
   assertContains(uiJs, 'function renderProductionCommandBar(viewModel, stages)', 'production command bar renderer');
+  assertContains(uiJs, 'viewModel.cockpitHeader', 'command bar should render cockpit header view model');
   assertContains(uiJs, 'viewModel.primaryNextAction', 'command bar primary action from view model');
   assertContains(uiJs, 'viewModel.latestActionResult', 'command bar latest result from view model');
   assertContains(uiJs, 'viewModel.workflowActionFeedback', 'command bar workflow feedback from view model');
   assertContains(uiJs, "viewModel.workflowActionFeedback.status !== 'idle'", 'idle workflow feedback should not render as a persistent panel');
   assertContains(uiJs, 'viewModel.warnings.length', 'command bar warning count from view model');
   assertContains(uiJs, 'action: legacyStage?.disabled ? null : legacyStage?.action || null', 'command bar primary action should invoke available stage actions');
-  assertContains(uiJs, 'commandBarStatusLabel(viewModel.currentStage.status)', 'command bar stage status should stay aligned to the view model');
+  assertContains(uiJs, "appendCommandBarMetric(metrics, 'Active stage'", 'cockpit header should show active stage');
+  assertContains(uiJs, "appendCommandBarMetric(metrics, 'Blockers'", 'cockpit header should show blocker count');
+  assertContains(uiJs, "appendCommandBarMetric(metrics, 'Warnings'", 'cockpit header should show warning count');
   assertContains(uiJs, 'openCommandBarPanel', 'command bar details should open hidden panels before scrolling');
   assertContains(uiJs, 'primary.disabled = actionBlocked', 'blocked command bar action disabled state');
+  assertContains(uiJs, "primary.setAttribute('aria-disabled', actionBlocked ? 'true' : 'false')", 'blocked command bar action disabled semantics');
+  assertContains(uiJs, 'action.disabledReason', 'blocked command bar action should explain disabled reason');
   assertContains(uiJs, "viewModel.activeArtifacts?.publishing?.title", 'command bar published episode fallback');
-  assertContains(uiJs, 'No active episode yet', 'command bar active episode fallback');
+  assertContains(uiJs, 'No active episode or story yet', 'command bar active episode/story fallback');
+  assertContains(uiJs, 'command-bar-story', 'cockpit header should show current episode or story');
   assertContains(uiJs, "dataset.commandControl", 'command bar focus restoration control marker');
   assertContains(uiJs, 'Latest failure', 'command bar failure summary label');
   assertContains(uiJs, 'Review current stage', 'command bar stage details button');
@@ -178,6 +186,7 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(stylesCss, '.workflow-feedback-panel.warning', 'workflow feedback warning style');
   assertContains(stylesCss, '.workflow-feedback-panel.blocked', 'workflow feedback blocked style');
   assertContains(stylesCss, '.workflow-feedback-details pre', 'workflow feedback detail style');
+  assertContains(stylesCss, '.command-bar-story-detail', 'cockpit header story detail styles');
   assertContains(uiJs, 'function checklistBlockers(checklist', 'checklist blocker helper');
   assertContains(uiJs, 'command-bar-blocker', 'command bar blocker summary');
   assertContains(uiJs, 'artifactScopeWarnings', 'view model archive warnings should render in workflow context');
