@@ -302,6 +302,52 @@
               <button id="clearCandidateQueue" class="secondary danger" type="button">Clear Queue</button>
             </div>
           </div>
+          <section class="candidate-filter-panel" aria-labelledby="candidateFilterTitle">
+            <div class="candidate-filter-heading">
+              <div>
+                <h3 id="candidateFilterTitle">Filter candidates</h3>
+                <p id="candidateFilterSummary">Showing all active candidate stories.</p>
+              </div>
+              <button id="clearCandidateFilters" class="secondary" type="button">Clear Filters</button>
+            </div>
+            <div class="candidate-filter-grid">
+              <label class="field">
+                <span>Published date</span>
+                <select id="candidatePublishedFilter">
+                  <option value="all">All candidates</option>
+                  <option value="has-date">Has published date</option>
+                  <option value="missing-date">Missing published date</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Status</span>
+                <select id="candidateStatusFilter">
+                  <option value="active">Active/reviewable</option>
+                  <option value="all">All statuses</option>
+                  <option value="ignored">Ignored only</option>
+                  <option value="shortlisted">Shortlisted/selected</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Quality</span>
+                <select id="candidateQualityFilter">
+                  <option value="all">All scores</option>
+                  <option value="high">High confidence (70+)</option>
+                  <option value="needs-review">Needs review / fallback</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Source/provider</span>
+                <select id="candidateSourceFilter">
+                  <option value="all">All sources</option>
+                </select>
+              </label>
+              <label class="field wide">
+                <span>Domain or title contains</span>
+                <input id="candidateDomainFilter" type="search" placeholder="example.com, youtube, Anthropic...">
+              </label>
+            </div>
+          </section>
           <form id="candidateClusterForm" class="cluster-panel">
             <div class="cluster-summary">
               <div>
