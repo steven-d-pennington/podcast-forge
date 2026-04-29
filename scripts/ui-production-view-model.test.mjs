@@ -430,6 +430,53 @@ test('view model covers script ready with required integrity review', () => {
   assert.ok(model.blockers.some((blocker) => blocker.message.includes('Integrity review has not been run')));
 });
 
+test('view model summarizes focused script review workspace without carrying stale approvals forward', () => {
+  const editedRevision = {
+    ...missingReviewRevision,
+    id: 'revision-2',
+    version: 2,
+    metadata: {
+      provenanceStatus: {
+        status: 'stale',
+        verified: false,
+        message: 'Human edit changed sourced claims; refresh citation coverage.',
+      },
+      warnings: [{ code: 'CLAIM_COVERAGE_STALE', message: 'Citation coverage is stale.' }],
+    },
+    createdAt: '2026-04-27T15:00:00.000Z',
+    updatedAt: '2026-04-27T15:00:00.000Z',
+  };
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [readyBrief],
+    selectedResearchPacketId: 'brief-1',
+    scripts: [approvedScript],
+    selectedScriptId: 'script-1',
+    selectedScript: approvedScript,
+    selectedRevision: editedRevision,
+    selectedRevisions: [editedRevision, passedReviewRevision],
+    selectedCoverageSummary: {
+      status: 'blocking',
+      headline: 'Coverage is stale after edits.',
+      counts: { totalClaims: 4, covered: 2, blockingFindings: 1 },
+    },
+    scriptCoachingActions: [
+      { action: 'tighten_attribution', label: 'Tighten attribution', description: 'Make cited claims clearer.' },
+    ],
+  }));
+
+  assert.equal(model.scriptReviewWorkspace.currentRevision.revisionId, 'revision-2');
+  assert.equal(model.scriptReviewWorkspace.approval.approved, false);
+  assert.equal(model.scriptReviewWorkspace.approval.stale, true);
+  assert.match(model.scriptReviewWorkspace.approval.label, /Prior approval belongs to revision revision-1/);
+  assert.equal(model.scriptReviewWorkspace.integrity.blocking, true);
+  assert.equal(model.scriptReviewWorkspace.sourceCitation.stale, true);
+  assert.equal(model.scriptReviewWorkspace.sourceCitation.warningCount, 2);
+  assert.equal(model.scriptReviewWorkspace.coaching.availableActionCount, 1);
+  assert.match(model.scriptReviewWorkspace.coaching.label, /creates a new unapproved revision/);
+});
+
 test('view model keeps failed integrity review retry actionable', () => {
   const model = deriveProductionViewModel(baseInput({
     storyCandidates: [candidate],
@@ -980,6 +1027,10 @@ test('view model separates active artifacts from historical artifacts', () => {
     assert.deepEqual(model.historicalArtifacts.audioCover.map((item) => item.id), ['asset-audio-old']);
     assert.equal(model.historicalArtifacts.audioCover[0].stage, 'production');
     assert.equal(model.historicalArtifacts.audioCover[0].productionKind, 'audio');
+    assert.equal(model.audioCoverReviewWorkspace.active.audio.id, 'asset-audio-1');
+    assert.equal(model.audioCoverReviewWorkspace.active.cover.id, 'asset-cover-1');
+    assert.deepEqual(model.audioCoverReviewWorkspace.archived.map((item) => item.id), ['asset-audio-old']);
+    assert.match(model.audioCoverReviewWorkspace.archiveNote, /audit only/);
     assert.ok(!model.warnings.some((warning) => warning.message.includes('non-production')));
     assert.deepEqual(model.historicalArtifacts.publishing.map((item) => item.id), ['episode-old']);
     assert.equal(model.visibility.groups.history, true);
