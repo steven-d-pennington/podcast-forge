@@ -935,6 +935,132 @@ function deriveWarningsAndBlockers({
   return { warnings, blockers };
 }
 
+function stageStatusLabel(status) {
+  return {
+    blocked: 'blocked',
+    done: 'complete',
+    'needs-review': 'needs review',
+    ready: 'ready',
+    running: 'running',
+  }[status] || status || 'not started';
+}
+
+function artifactStatusLabel(status) {
+  return {
+    'approved-for-audio': 'approved for audio',
+    'approved-for-publish': 'approved for publishing',
+    'audio-ready': 'audio and cover ready',
+    blocked: 'blocked',
+    draft: 'draft',
+    failed: 'failed',
+    'needs_more_sources': 'needs more sources',
+    published: 'published',
+    ready: 'ready',
+    succeeded: 'complete',
+  }[status] || status || 'not started';
+}
+
+function cockpitEpisodeStory({ activeEpisode, selectedCandidates, activeBrief, activeScript }) {
+  const episode = summarizeEpisode(activeEpisode);
+  if (episode) {
+    return {
+      label: 'Current episode',
+      title: episode.title,
+      detail: episode.status ? `Episode state: ${artifactStatusLabel(episode.status)}` : 'Episode record selected for this production path.',
+      kind: 'episode',
+    };
+  }
+
+  const candidate = summarizeCandidate(selectedCandidates[0]);
+  if (candidate) {
+    return {
+      label: 'Current story',
+      title: candidate.title,
+      detail: firstPresent(candidate.sourceName, candidate.url, 'Candidate story selected for this episode.'),
+      kind: 'story',
+    };
+  }
+
+  const brief = summarizeBrief(activeBrief);
+  if (brief) {
+    return {
+      label: 'Current research brief',
+      title: brief.title,
+      detail: `Research brief state: ${artifactStatusLabel(brief.status)}`,
+      kind: 'brief',
+    };
+  }
+
+  const script = summarizeScript(activeScript);
+  if (script) {
+    return {
+      label: 'Current script',
+      title: script.title,
+      detail: `Script state: ${artifactStatusLabel(script.status)}`,
+      kind: 'script',
+    };
+  }
+
+  return {
+    label: 'Current episode/story',
+    title: 'No active episode or story yet',
+    detail: 'Select a candidate story to define the episode focus.',
+    kind: 'empty',
+  };
+}
+
+function deriveCockpitHeader({
+  selectedShow,
+  selectedCandidates,
+  activeBrief,
+  activeScript,
+  activeEpisode,
+  currentStage,
+  warnings,
+  blockers,
+  primaryNextAction,
+  latestActionResult,
+}) {
+  const result = latestActionResult || {
+    status: 'idle',
+    title: 'Latest result',
+    message: 'No action result recorded yet.',
+    conciseMessage: 'No action result recorded yet.',
+  };
+
+  return {
+    selectedShow: summarizeShow(selectedShow) || {
+      title: 'No show selected',
+    },
+    currentEpisodeStory: cockpitEpisodeStory({
+      activeEpisode,
+      selectedCandidates,
+      activeBrief,
+      activeScript,
+    }),
+    activeStage: {
+      id: currentStage?.id || 'show',
+      label: currentStage?.label || 'Choose show',
+      status: currentStage?.status || 'blocked',
+      statusLabel: stageStatusLabel(currentStage?.status),
+    },
+    blockerCount: blockers.length,
+    warningCount: warnings.length,
+    blockerSummary: blockers[0]?.message || '',
+    latestResult: {
+      id: result.id || 'latest-result',
+      title: result.title || (['error', 'failed'].includes(result.status) ? 'Latest failure' : 'Latest result'),
+      status: result.status || 'idle',
+      message: result.conciseMessage || result.message || 'No action result recorded yet.',
+      nextStep: result.nextStep || '',
+    },
+    primaryNextAction: {
+      ...primaryNextAction,
+      disabledReason: primaryNextAction?.enabled ? '' : primaryNextAction?.blockerReason || blockers[0]?.message || 'The current workflow state blocks this action.',
+    },
+  };
+}
+
 function deriveHistoricalArtifacts({ activeIds, packets, scripts, revisions, assets, episodes }) {
   return {
     briefs: newest(packets).filter((packet) => packet.id !== activeIds.briefId).map((packet) => markArtifact(summarizeBrief(packet), 'archive')),
@@ -1080,6 +1206,18 @@ export function deriveProductionViewModel(input = {}) {
     selectedCandidates,
     inactiveSelectedArtifacts,
   });
+  const cockpitHeader = deriveCockpitHeader({
+    selectedShow,
+    selectedCandidates,
+    activeBrief,
+    activeScript,
+    activeEpisode,
+    currentStage,
+    warnings,
+    blockers,
+    primaryNextAction,
+    latestActionResult: workflowActionFeedback,
+  });
 
   return {
     selectedShowSummary: summarizeShow(selectedShow),
@@ -1099,6 +1237,7 @@ export function deriveProductionViewModel(input = {}) {
     primaryNextAction,
     secondaryActions,
     navigationActions,
+    cockpitHeader,
     latestActionResult: workflowActionFeedback,
     workflowActionFeedback,
     warnings,

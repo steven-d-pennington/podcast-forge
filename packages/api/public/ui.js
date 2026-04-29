@@ -1572,23 +1572,30 @@ function renderProductionCommandBar(viewModel, stages) {
     return;
   }
 
-  const action = viewModel.primaryNextAction;
+  const header = viewModel.cockpitHeader || {};
+  const action = header.primaryNextAction || viewModel.primaryNextAction;
   const actionTarget = commandBarActionTarget(action, stages);
   const actionTargetBlocked = Boolean(actionTarget.disabled);
   const actionBlocked = !action.enabled || actionTargetBlocked;
-  const blockerReason = action.blockerReason
+  const blockerReason = action.disabledReason
+    || action.blockerReason
     || (actionTargetBlocked ? actionTarget.actionReason || actionTarget.blockers?.[0] || 'Wait for the current stage action to finish.' : '')
-    || viewModel.blockers[0]?.message
+    || header.blockerSummary
     || '';
   const detailsTarget = commandBarDetailsTarget(viewModel.currentStage.id, stages);
-  const warningCount = viewModel.warnings.length;
-  const blockerCount = viewModel.blockers.length;
-  const result = viewModel.latestActionResult || viewModel.workflowActionFeedback || { status: 'idle', message: 'No action result recorded yet.' };
-  const sourceSummary = viewModel.selectedStorySourceSummary;
-  const showTitle = viewModel.selectedShowSummary?.title || 'No show selected';
-  const episodeTitle = viewModel.activeDraftEpisodeSummary?.title
-    || viewModel.activeArtifacts?.publishing?.title
-    || 'No active episode yet';
+  const warningCount = header.warningCount ?? viewModel.warnings.length;
+  const blockerCount = header.blockerCount ?? viewModel.blockers.length;
+  const result = header.latestResult || viewModel.latestActionResult || viewModel.workflowActionFeedback || { status: 'idle', message: 'No action result recorded yet.' };
+  const showTitle = header.selectedShow?.title || viewModel.selectedShowSummary?.title || 'No show selected';
+  const episodeStory = header.currentEpisodeStory || {
+    label: 'Current episode/story',
+    title: viewModel.activeDraftEpisodeSummary?.title || viewModel.activeArtifacts?.publishing?.title || 'No active episode or story yet',
+    detail: '',
+  };
+  const activeStage = header.activeStage || {
+    label: viewModel.currentStage.label,
+    statusLabel: commandBarStatusLabel(viewModel.currentStage.status),
+  };
   const blockerId = 'production-command-blocker';
   const resultId = 'production-command-result';
 
@@ -1596,19 +1603,28 @@ function renderProductionCommandBar(viewModel, stages) {
   context.className = 'command-bar-context';
   const kicker = document.createElement('span');
   kicker.className = 'command-bar-kicker';
-  kicker.textContent = 'Producing';
+  kicker.textContent = 'Selected show';
   const heading = document.createElement('h2');
   heading.textContent = showTitle;
-  const episode = document.createElement('p');
-  episode.textContent = episodeTitle;
-  context.append(kicker, heading, episode);
+  const story = document.createElement('p');
+  story.className = 'command-bar-story';
+  const storyLabel = document.createElement('span');
+  storyLabel.className = 'command-bar-story-label';
+  storyLabel.textContent = episodeStory.label;
+  const storyTitle = document.createElement('strong');
+  storyTitle.className = 'command-bar-story-title';
+  storyTitle.textContent = episodeStory.title;
+  story.append(storyLabel, storyTitle);
+  const storyDetail = document.createElement('p');
+  storyDetail.className = 'command-bar-story-detail';
+  storyDetail.textContent = episodeStory.detail || '';
+  context.append(kicker, heading, story, storyDetail);
 
   const metrics = document.createElement('div');
   metrics.className = 'command-bar-metrics';
-  appendCommandBarMetric(metrics, 'Stage', `${viewModel.currentStage.label} | ${commandBarStatusLabel(viewModel.currentStage.status)}`);
-  appendCommandBarMetric(metrics, 'Story source', sourceSummary ? `${sourceSummary.providerType} | ${sourceSummary.statusLabel}` : 'Choose source');
-  appendCommandBarMetric(metrics, 'Warnings', String(warningCount), warningCount > 0 ? 'warning' : '');
+  appendCommandBarMetric(metrics, 'Active stage', `${activeStage.label} | ${activeStage.statusLabel}`);
   appendCommandBarMetric(metrics, 'Blockers', String(blockerCount), blockerCount > 0 ? 'blocked' : '');
+  appendCommandBarMetric(metrics, 'Warnings', String(warningCount), warningCount > 0 ? 'warning' : '');
 
   const feedback = document.createElement('div');
   feedback.className = `command-bar-result ${statusClass(result.status || 'idle')}`;
@@ -1617,9 +1633,9 @@ function renderProductionCommandBar(viewModel, stages) {
   feedback.setAttribute('aria-live', 'polite');
   feedback.setAttribute('aria-atomic', 'true');
   const feedbackLabel = document.createElement('span');
-  feedbackLabel.textContent = result.status === 'error' || result.status === 'failed' ? 'Latest failure' : 'Latest result';
+  feedbackLabel.textContent = result.title || (result.status === 'error' || result.status === 'failed' ? 'Latest failure' : 'Latest result');
   const feedbackMessage = document.createElement('strong');
-  feedbackMessage.textContent = result.conciseMessage || result.message || 'No action result recorded yet.';
+  feedbackMessage.textContent = result.message || result.conciseMessage || 'No action result recorded yet.';
   feedback.append(feedbackLabel, feedbackMessage);
 
   const controls = document.createElement('div');
@@ -1630,6 +1646,7 @@ function renderProductionCommandBar(viewModel, stages) {
   primary.dataset.commandControl = 'primary';
   primary.textContent = action.label;
   primary.setAttribute('aria-describedby', actionBlocked ? blockerId : resultId);
+  primary.setAttribute('aria-disabled', actionBlocked ? 'true' : 'false');
   primary.disabled = actionBlocked;
   primary.title = actionBlocked && blockerReason ? blockerReason : '';
   primary.addEventListener('click', () => {
@@ -1655,7 +1672,7 @@ function renderProductionCommandBar(viewModel, stages) {
   blocker.textContent = actionBlocked
     ? `Blocked: ${blockerReason || 'the current workflow state blocks this action.'}`
     : blockerCount > 0
-      ? `Current blocker: ${viewModel.blockers[0].message}`
+      ? `Current blocker: ${header.blockerSummary || viewModel.blockers[0].message}`
       : 'Primary action is available.';
   els.productionCommandBar.append(context, metrics, feedback, controls, blocker);
   if (activeCommandControl) {

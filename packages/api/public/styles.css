@@ -245,6 +245,7 @@ button:disabled {
 
 .command-bar-kicker,
 .command-bar-metric span,
+.command-bar-story-label,
 .command-bar-result span {
   color: #687486;
   font-size: 0.76rem;
@@ -254,6 +255,7 @@ button:disabled {
 
 .command-bar-context h2,
 .command-bar-context p,
+.command-bar-story strong,
 .command-bar-result strong,
 .command-bar-blocker {
   margin: 0;
@@ -267,12 +269,33 @@ button:disabled {
 }
 
 .command-bar-context p,
+.command-bar-story strong,
 .command-bar-result strong,
 .command-bar-blocker {
   color: #3f4b5a;
   font-size: 0.9rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.command-bar-story {
+  align-items: baseline;
+  display: flex;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.command-bar-story-label {
+  flex: 0 0 auto;
+}
+
+.command-bar-story-title {
+  min-width: 0;
+}
+
+.command-bar-story-detail {
+  color: #687486;
+  font-size: 0.82rem;
 }
 
 .command-bar-metrics {
@@ -2004,16 +2027,35 @@ textarea {
   }
 
   .command-bar-kicker,
-  .command-bar-context p,
+  .command-bar-story-detail,
   .command-bar-result,
   .command-bar-details,
   .command-bar-blocker:not(.visible) {
     display: none;
   }
 
+  .command-bar-story {
+    gap: 0.25rem;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .command-bar-story-label {
+    font-size: 0.58rem;
+  }
+
+  .command-bar-story-title {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .command-bar-context h2 {
     font-size: 0.95rem;
     line-height: 1.15;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .command-bar-metrics {

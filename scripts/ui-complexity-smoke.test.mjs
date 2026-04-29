@@ -134,17 +134,18 @@ function expandedStageControls(stageId, viewModel) {
 
 function renderNormalProduceSnapshot(viewModel) {
   const currentStageId = trackerStageIdForViewModel(viewModel);
+  const header = viewModel.cockpitHeader;
+  const episodeStory = header.currentEpisodeStory;
   const commandBarControls = [
     viewModel.primaryNextAction.label,
     'Review current stage',
   ];
   const labels = [
-    'Production command bar',
-    'Producing',
-    viewModel.selectedShowSummary?.title || 'No show selected',
-    viewModel.activeArtifacts?.publishing?.title || 'No active episode yet',
-    `Stage ${viewModel.currentStage.label} | ${viewModel.currentStage.status}`,
-    'Story source',
+    'Produce Episode cockpit header',
+    'Selected show',
+    header.selectedShow?.title || 'No show selected',
+    episodeStory.title,
+    `Active stage ${header.activeStage.label} | ${header.activeStage.statusLabel}`,
     'Warnings',
     'Blockers',
     'Latest result',
@@ -152,19 +153,18 @@ function renderNormalProduceSnapshot(viewModel) {
   ];
 
   const commandBarHtml = `
-    <section id="productionCommandBar" class="production-command-bar" aria-label="Production command bar">
+    <section id="productionCommandBar" class="production-command-bar production-cockpit-header" aria-label="Produce Episode cockpit header">
       <div class="command-bar-context">
-        <span>Producing</span>
-        <h2>${escapeHtml(viewModel.selectedShowSummary?.title || 'No show selected')}</h2>
-        <p>${escapeHtml(viewModel.activeArtifacts?.publishing?.title || 'No active episode yet')}</p>
+        <span>Selected show</span>
+        <h2>${escapeHtml(header.selectedShow?.title || 'No show selected')}</h2>
+        <p><span>${escapeHtml(episodeStory.label)}</span><strong>${escapeHtml(episodeStory.title)}</strong></p>
       </div>
       <div class="command-bar-metrics">
-        <div><span>Stage</span><strong>${escapeHtml(viewModel.currentStage.label)} | ${escapeHtml(viewModel.currentStage.status)}</strong></div>
-        <div><span>Story source</span><strong>${escapeHtml(viewModel.selectedStorySourceSummary?.providerType || 'Choose source')}</strong></div>
-        <div><span>Warnings</span><strong>${viewModel.warnings.length}</strong></div>
-        <div><span>Blockers</span><strong>${viewModel.blockers.length}</strong></div>
+        <div><span>Active stage</span><strong>${escapeHtml(header.activeStage.label)} | ${escapeHtml(header.activeStage.statusLabel)}</strong></div>
+        <div><span>Blockers</span><strong>${header.blockerCount}</strong></div>
+        <div><span>Warnings</span><strong>${header.warningCount}</strong></div>
       </div>
-      <div class="command-bar-result" role="status"><span>Latest result</span><strong>${escapeHtml(viewModel.latestActionResult.conciseMessage || viewModel.latestActionResult.message || 'No action result recorded yet.')}</strong></div>
+      <div class="command-bar-result" role="status"><span>${escapeHtml(header.latestResult.title)}</span><strong>${escapeHtml(header.latestResult.message)}</strong></div>
       <div class="command-bar-controls">
         ${commandBarControls.map((label) => `<button type="button">${escapeHtml(label)}</button>`).join('')}
       </div>

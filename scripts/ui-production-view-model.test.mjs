@@ -291,6 +291,34 @@ test('view model covers candidate selected with no research brief', () => {
   assert.equal(model.primaryNextAction.enabled, true);
 });
 
+test('view model exposes Produce Episode cockpit header context', () => {
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [],
+    recentJobs: [{
+      id: 'job-search-ok',
+      type: 'source.search',
+      status: 'succeeded',
+      output: { inserted: 2, skipped: 0 },
+      updatedAt: '2026-04-28T12:00:00.000Z',
+    }],
+    latestActionResult: { status: '', message: '', source: 'test' },
+  }));
+
+  assert.equal(model.cockpitHeader.selectedShow.title, 'Demo Show');
+  assert.equal(model.cockpitHeader.currentEpisodeStory.label, 'Current story');
+  assert.equal(model.cockpitHeader.currentEpisodeStory.title, 'Regulators publish new AI safety guidance');
+  assert.equal(model.cockpitHeader.activeStage.label, 'Build research brief');
+  assert.equal(model.cockpitHeader.activeStage.statusLabel, 'ready');
+  assert.equal(model.cockpitHeader.blockerCount, 0);
+  assert.equal(model.cockpitHeader.warningCount, 0);
+  assert.equal(model.cockpitHeader.latestResult.title, 'Latest result');
+  assert.match(model.cockpitHeader.latestResult.message, /Source search succeeded/);
+  assert.equal(model.cockpitHeader.primaryNextAction.label, 'Build research brief');
+  assert.equal(model.cockpitHeader.primaryNextAction.disabledReason, '');
+});
+
 test('view model blocks drafting while research warnings are unresolved', () => {
   const model = deriveProductionViewModel(baseInput({
     storyCandidates: [candidate],
@@ -659,6 +687,10 @@ test('view model covers publish blocked with concrete blocker reason', () => {
   assert.equal(model.primaryNextAction.label, 'Approve for publishing');
   assert.equal(model.primaryNextAction.enabled, false);
   assert.match(model.primaryNextAction.blockerReason, /Feed metadata configured/);
+  assert.equal(model.cockpitHeader.currentEpisodeStory.label, 'Current episode');
+  assert.equal(model.cockpitHeader.currentEpisodeStory.title, 'AI safety guidance episode');
+  assert.equal(model.cockpitHeader.blockerCount > 0, true);
+  assert.match(model.cockpitHeader.primaryNextAction.disabledReason, /Feed metadata configured/);
   assert.ok(model.blockers.some((blocker) => blocker.stage === 'publishing'));
 });
 
