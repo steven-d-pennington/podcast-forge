@@ -56,8 +56,7 @@ describe('OpenRouter Perplexity source provider', () => {
                       url: 'https://www.anthropic.com/news/claude-opus-4-7',
                       sourceName: 'Anthropic',
                       summary: 'Official announcement with model details.',
-                      publishedAt: '2026-04-28',
-                      freshnessConfidence: 'claimed',
+                      date: '2026-04-28',
                       citations: ['1'],
                     },
                     {
@@ -91,9 +90,33 @@ describe('OpenRouter Perplexity source provider', () => {
     assert.equal((requestBody?.response_format as { type?: string }).type, 'json_schema');
     assert.ok((requestBody?.response_format as { json_schema?: unknown }).json_schema);
     assert.equal(requestBody?.search_recency_filter, 'day');
+    assert.ok((requestBody?.messages as Array<{ content: string }>)[0].content.includes('production approval gates'));
     assert.deepEqual(candidates.map((candidate) => candidate.title), ['Anthropic ships Claude Opus 4.7']);
     assert.equal(candidates[0].publishedAt?.toISOString(), '2026-04-28T00:00:00.000Z');
     assert.deepEqual(candidates[0].metadata.freshness, { requested: 'day', confidence: 'claimed', verified: false });
     assert.deepEqual(candidates[0].metadata.citations, ['https://www.anthropic.com/news/claude-opus-4-7']);
+  });
+
+  it('accepts string search domain filters from config', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const fetchImpl: OpenRouterPerplexityFetch = async (_url, init) => {
+      requestBody = JSON.parse(init.body) as Record<string, unknown>;
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return { choices: [{ message: { content: JSON.stringify({ candidates: [] }) } }] };
+        },
+      };
+    };
+
+    await searchOpenRouterPerplexity({
+      apiKey: 'test-key',
+      profile: { ...profile, config: { ...profile.config, search_domain_filter: 'example.com' } },
+      queries: [query],
+      fetchImpl,
+    });
+
+    assert.deepEqual(requestBody?.search_domain_filter, ['-example.com']);
   });
 });

@@ -162,6 +162,7 @@ function buildPrompt(query: SourceQueryRecord, profile: SourceProfileRecord, top
     `Search query: ${query.query}`,
     `Source profile: ${profile.name}`,
     'Prefer canonical article or official announcement URLs over homepages, social posts, videos, and aggregator list pages.',
+    'This is source discovery only; do not imply editorial approval, publish readiness, or that production approval gates have been satisfied.',
     'Return JSON only matching the schema. Use null when a publication date is not available. Treat freshness as claimed unless independently verified.'
   ].join('\n');
 }
