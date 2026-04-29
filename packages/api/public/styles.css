@@ -1626,21 +1626,80 @@ textarea {
 }
 
 .candidate-row {
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(4.6rem, 0.18fr) minmax(0, 1fr);
 }
 
 .candidate-row .candidate-select {
   align-self: start;
-  grid-row: 1 / 5;
+  grid-row: 1 / 2;
   height: 1.1rem;
-  margin-top: 0.2rem;
+  margin-top: 0.35rem;
   width: 1.1rem;
+}
+
+.candidate-rank {
+  align-self: stretch;
+  background: #eef1f5;
+  border: 1px solid #d8dde5;
+  border-radius: 6px;
+  color: #3f4b5a;
+  display: grid;
+  gap: 0.1rem;
+  justify-items: center;
+  min-width: 4.6rem;
+  padding: 0.45rem 0.35rem;
+  text-align: center;
+}
+
+.candidate-rank.recommended {
+  background: #eef6f2;
+  border-color: #9ac8aa;
+  color: #245b37;
+}
+
+.candidate-rank strong {
+  color: #20242c;
+  font-size: 1rem;
+  line-height: 1.1;
+}
+
+.candidate-rank span {
+  color: inherit;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.15;
+  text-transform: uppercase;
 }
 
 .candidate-row .candidate-body {
   display: grid;
-  gap: 0.4rem;
+  gap: 0.5rem;
   min-width: 0;
+}
+
+.candidate-review-header {
+  align-items: start;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.candidate-title-group {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.candidate-title {
+  color: #20242c;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.candidate-source-line {
+  color: #586575;
+  font-size: 0.86rem;
+  line-height: 1.3;
 }
 
 .candidate-facts,
@@ -1675,6 +1734,87 @@ textarea {
   background: #fff1df;
   border-color: #e2c391;
   color: #70440f;
+}
+
+.candidate-chip.article-date {
+  border-style: solid;
+}
+
+.candidate-chip.provider-freshness {
+  background: #eef6ff;
+  border-color: #9ec4ed;
+  color: #1f4d7a;
+}
+
+.candidate-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.candidate-actions button {
+  min-height: 2.15rem;
+}
+
+.candidate-actions .selected-action {
+  border-color: #9ac8aa;
+  color: #245b37;
+}
+
+.candidate-details {
+  background: white;
+  border: 1px solid #d8dde5;
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+}
+
+.candidate-details summary {
+  color: #3f4b5a;
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.candidate-detail-grid {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 0.6rem;
+}
+
+.candidate-detail-block {
+  background: #f8fafc;
+  border: 1px solid #d8dde5;
+  border-radius: 6px;
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.55rem 0.65rem;
+}
+
+.candidate-detail-block.ai-analysis {
+  background: #fbfaf1;
+  border-color: #d8cf73;
+}
+
+.candidate-detail-block h4 {
+  color: #27303b;
+  font-size: 0.82rem;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.candidate-detail-block p,
+.candidate-detail-block li {
+  color: #3f4b5a;
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.candidate-detail-block ul {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding-left: 1rem;
 }
 
 .record-row > button {
@@ -2015,6 +2155,33 @@ textarea {
 
   .candidate-filter-grid .wide {
     grid-column: auto;
+  }
+
+  .candidate-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .candidate-rank {
+    align-items: center;
+    display: flex;
+    gap: 0.35rem;
+    grid-column: 2;
+    justify-content: flex-start;
+    min-width: 0;
+    text-align: left;
+  }
+
+  .candidate-review-header,
+  .candidate-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .candidate-row .candidate-body {
+    grid-column: 1 / -1;
+  }
+
+  .candidate-actions {
+    justify-content: flex-start;
   }
 
 
