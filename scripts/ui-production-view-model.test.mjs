@@ -519,6 +519,8 @@ test('view model keeps unlinked production assets archived instead of active', (
   assert.equal(model.activeArtifacts.audioCover, null);
   assert.ok(model.historicalArtifacts.audioCover.some((item) => item.id === 'asset-unlinked-audio' && item.stateLabel === 'History/archive'));
   assert.ok(model.artifactScopeWarnings.some((item) => item.message.includes('not part of current production')));
+  assert.ok(model.auditHistory.warnings.some((warning) => warning.message.includes('not part of current production')));
+  assert.ok(!model.warnings.some((warning) => warning.message.includes('not part of current production')));
 });
 
 test('view model archives production artifacts that do not match the selected candidate path', () => {
@@ -566,7 +568,8 @@ test('view model archives production artifacts that do not match the selected ca
   assert.ok(model.historicalArtifacts.scripts.some((item) => item.id === 'script-1' && item.stateLabel === 'History/archive'));
   assert.ok(model.historicalArtifacts.audioCover.some((item) => item.id === 'asset-old-audio' && item.stateLabel === 'History/archive'));
   assert.ok(model.artifactScopeWarnings.some((item) => item.message.includes('not part of current production')));
-  assert.ok(model.warnings.some((warning) => warning.message.includes('not part of current production')));
+  assert.ok(model.auditHistory.warnings.some((warning) => warning.message.includes('not part of current production')));
+  assert.ok(!model.warnings.some((warning) => warning.message.includes('not part of current production')));
   assert.equal(model.primaryNextAction.label, 'Generate script draft');
 });
 
@@ -589,6 +592,7 @@ test('view model does not promote unlinked legacy packets as current for a selec
   assert.equal(model.activeArtifacts.brief, null);
   assert.ok(model.historicalArtifacts.briefs.some((item) => item.id === 'brief-legacy' && item.stateLabel === 'History/archive'));
   assert.ok(model.artifactScopeWarnings.some((item) => item.message.includes('not part of current production')));
+  assert.ok(model.auditHistory.warnings.some((warning) => warning.message.includes('not part of current production')));
   assert.equal(model.primaryNextAction.label, 'Build research brief');
 });
 
@@ -613,6 +617,7 @@ test('view model does not promote multi-candidate packets for a narrower selecte
   assert.equal(model.activeArtifacts.brief, null);
   assert.ok(model.historicalArtifacts.briefs.some((item) => item.id === 'brief-multi' && item.stateLabel === 'History/archive'));
   assert.ok(model.artifactScopeWarnings.some((item) => item.message.includes('not part of current production')));
+  assert.ok(model.auditHistory.warnings.some((warning) => warning.message.includes('not part of current production')));
   assert.equal(model.primaryNextAction.label, 'Build research brief');
 });
 
@@ -977,7 +982,14 @@ test('view model separates active artifacts from historical artifacts', () => {
     assert.equal(model.historicalArtifacts.audioCover[0].stage, 'production');
     assert.equal(model.historicalArtifacts.audioCover[0].productionKind, 'audio');
     assert.ok(!model.warnings.some((warning) => warning.message.includes('non-production')));
+    assert.ok(!model.warnings.some((warning) => warning.message.includes('not part of current production')));
     assert.deepEqual(model.historicalArtifacts.publishing.map((item) => item.id), ['episode-old']);
+    assert.equal(model.auditHistory.archiveCount, 5);
     assert.equal(model.visibility.groups.history, true);
   }
+
+  assert.equal(selectedModel.auditHistory.warningCount, 0);
+  assert.equal(defaultModel.auditHistory.warningCount, 1);
+  assert.match(defaultModel.auditHistory.warnings[0].message, /not part of current production/);
+  assert.equal(defaultModel.cockpitHeader.warningCount, defaultModel.warnings.length);
 });

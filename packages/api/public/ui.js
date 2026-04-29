@@ -1756,11 +1756,19 @@ function renderWorkflowFeedbackPanel(feedback, { compact = false } = {}) {
 function stageCard(stage, currentStageId = '') {
   const statusLabel = stageStatusLabel(stage);
   const expanded = pipelineStageIsExpanded(stage, currentStageId);
+  const headingId = `pipeline-stage-heading-${stage.id}`;
+  const summaryId = `pipeline-stage-summary-${stage.id}`;
+  const bodyId = `pipeline-stage-body-${stage.id}`;
   const card = document.createElement('article');
   card.className = `pipeline-card ${statusClass(statusLabel)}${expanded ? ' expanded' : ' collapsed'}${stage.id === currentStageId ? ' current' : ''}`;
   card.dataset.stage = String(stage.number);
   card.dataset.stageId = stage.id;
   card.dataset.stageStatus = statusLabel;
+  card.setAttribute('aria-labelledby', headingId);
+  card.setAttribute('aria-describedby', summaryId);
+  if (stage.id === currentStageId) {
+    card.setAttribute('aria-current', 'step');
+  }
 
   const top = document.createElement('div');
   top.className = 'pipeline-top';
@@ -1769,6 +1777,7 @@ function stageCard(stage, currentStageId = '') {
   step.className = 'pipeline-step';
   step.textContent = `Stage ${stage.number}`;
   const title = document.createElement('h3');
+  title.id = headingId;
   title.textContent = stage.title;
   heading.append(step, title);
   const status = document.createElement('span');
@@ -1784,6 +1793,7 @@ function stageCard(stage, currentStageId = '') {
 
   const summary = document.createElement('div');
   summary.className = 'pipeline-summary';
+  summary.id = summaryId;
   const summaryText = document.createElement('p');
   summaryText.textContent = stage.artifact;
   const summaryNext = document.createElement('p');
@@ -1799,6 +1809,7 @@ function stageCard(stage, currentStageId = '') {
     expandButton.className = 'secondary pipeline-expand';
     expandButton.textContent = 'Expand stage';
     expandButton.setAttribute('aria-expanded', 'false');
+    expandButton.setAttribute('aria-controls', bodyId);
     expandButton.setAttribute('aria-label', `Expand ${stage.title}`);
     expandButton.addEventListener('click', () => setPipelineStageExpanded(stage.id, true));
     card.append(expandButton);
@@ -1807,6 +1818,7 @@ function stageCard(stage, currentStageId = '') {
 
   const body = document.createElement('div');
   body.className = 'pipeline-card-body';
+  body.id = bodyId;
 
   const artifacts = document.createElement('div');
   artifacts.className = 'pipeline-artifacts';
@@ -1898,6 +1910,7 @@ function stageCard(stage, currentStageId = '') {
     collapseButton.className = 'secondary pipeline-expand';
     collapseButton.textContent = 'Collapse stage';
     collapseButton.setAttribute('aria-expanded', 'true');
+    collapseButton.setAttribute('aria-controls', bodyId);
     collapseButton.setAttribute('aria-label', `Collapse ${stage.title}`);
     collapseButton.addEventListener('click', () => setPipelineStageExpanded(stage.id, false));
     body.append(collapseButton);
@@ -2354,6 +2367,50 @@ function buildPipelineStages() {
   ];
 }
 
+function renderAuditHistoryDisclosure(viewModel) {
+  const auditHistory = viewModel.auditHistory || {};
+  const details = document.createElement('details');
+  details.className = `artifact-scope-panel audit-history-disclosure${auditHistory.warningCount > 0 ? ' warning' : ''}`;
+
+  const summary = document.createElement('summary');
+  const label = document.createElement('span');
+  label.textContent = auditHistory.warningCount > 0 ? 'Audit/history warnings' : 'Audit/history';
+  const summaryText = document.createElement('strong');
+  summaryText.textContent = auditHistory.summary || 'Only active/current artifacts are shown as production state.';
+  summary.append(label, summaryText);
+  details.append(summary);
+
+  const detail = document.createElement('p');
+  detail.textContent = auditHistory.detail || 'History/archive records remain available for audit, but production and publishing actions use active/current artifacts only.';
+  details.append(detail);
+
+  const sections = asArray(auditHistory.sections);
+  if (sections.length > 0) {
+    const list = document.createElement('ul');
+    list.className = 'audit-history-list';
+    sections.forEach((section) => {
+      const item = document.createElement('li');
+      item.textContent = `${section.label}: ${section.count}`;
+      list.append(item);
+    });
+    details.append(list);
+  }
+
+  const auditWarnings = asArray(auditHistory.warnings);
+  if (auditWarnings.length > 0) {
+    const warningList = document.createElement('div');
+    warningList.className = 'artifact-scope-warning-list';
+    auditWarnings.forEach((warning) => {
+      const warningItem = document.createElement('p');
+      warningItem.textContent = warning.message;
+      warningList.append(warningItem);
+    });
+    details.append(warningList);
+  }
+
+  return details;
+}
+
 function renderPipeline() {
   const viewModel = state.productionViewModel || deriveProductionViewModel(state);
   const show = selectedShow();
@@ -2387,32 +2444,7 @@ function renderPipeline() {
     els.workflowContext.append(renderWorkflowFeedbackPanel(viewModel.workflowActionFeedback));
   }
 
-  const scopeWarnings = asArray(viewModel.artifactScopeWarnings);
-  const archiveCounts = viewModel.historicalArtifacts || {};
-  const archiveCount = Object.values(archiveCounts).reduce((total, items) => total + asArray(items).length, 0);
-  const scopePanel = document.createElement('div');
-  scopePanel.className = `artifact-scope-panel${scopeWarnings.length > 0 ? ' warning' : ''}`;
-  const scopeLabel = document.createElement('span');
-  scopeLabel.textContent = scopeWarnings.length > 0 ? 'Current production warning' : 'Artifact scope';
-  const scopeText = document.createElement('strong');
-  scopeText.textContent = scopeWarnings.length > 0
-    ? `${scopeWarnings.length} artifact${scopeWarnings.length === 1 ? '' : 's'} not part of current production.`
-    : archiveCount > 0 ? `${archiveCount} history/archive artifact${archiveCount === 1 ? '' : 's'} kept out of active state.` : 'Only active/current artifacts are shown as production state.';
-  const scopeDetail = document.createElement('p');
-  scopeDetail.textContent = 'History/archive records remain available for audit, but production and publishing actions use active/current artifacts only.';
-  scopePanel.append(scopeLabel, scopeText);
-  if (scopeWarnings.length > 0) {
-    const warningList = document.createElement('div');
-    warningList.className = 'artifact-scope-warning-list';
-    scopeWarnings.forEach((warning) => {
-      const warningItem = document.createElement('p');
-      warningItem.textContent = warning.message;
-      warningList.append(warningItem);
-    });
-    scopePanel.append(warningList);
-  }
-  scopePanel.append(scopeDetail);
-  els.workflowContext.append(scopePanel);
+  els.workflowContext.append(renderAuditHistoryDisclosure(viewModel));
 
   const stages = buildPipelineStages();
   pruneExpandedPipelineStages(stages);

@@ -144,6 +144,10 @@ test('stage tracker progressively discloses only the current stage by default', 
   assertContains(uiJs, "artifactLabel.textContent = 'Active/current artifact'", 'expanded stages should not call archived records latest active artifacts');
   assertContains(uiJs, 'function pruneExpandedPipelineStages(stages)', 'expanded stage state should be pruned during render');
   assertContains(uiJs, 'state.expandedPipelineStageIds = []', 'changing workflow context should reset expanded stage state');
+  assertContains(uiJs, "card.setAttribute('aria-current', 'step')", 'current stage should expose aria-current step semantics');
+  assertContains(uiJs, "card.setAttribute('aria-labelledby', headingId)", 'stage cards should be labelled by their heading');
+  assertContains(uiJs, "expandButton.setAttribute('aria-controls', bodyId)", 'collapsed stage controls should point to expanded body');
+  assertContains(uiJs, "collapseButton.setAttribute('aria-controls', bodyId)", 'collapse controls should point to expanded body');
 
   for (const status of ['not started', 'blocked', 'ready', 'complete', 'warning']) {
     assertContains(uiJs, `return '${status}'`, `stage tracker status ${status}`);
@@ -189,8 +193,12 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(stylesCss, '.command-bar-story-detail', 'cockpit header story detail styles');
   assertContains(uiJs, 'function checklistBlockers(checklist', 'checklist blocker helper');
   assertContains(uiJs, 'command-bar-blocker', 'command bar blocker summary');
-  assertContains(uiJs, 'artifactScopeWarnings', 'view model archive warnings should render in workflow context');
+  assertContains(uiJs, 'function renderAuditHistoryDisclosure(viewModel)', 'audit/history disclosure renderer');
+  assertContains(uiJs, 'viewModel.auditHistory', 'view model archive warnings should render in audit history disclosure');
+  assertContains(uiJs, "label.textContent = auditHistory.warningCount > 0 ? 'Audit/history warnings' : 'Audit/history'", 'archive warnings should be labelled as audit/history');
   assertContains(uiJs, 'History/archive records remain available for audit, but production and publishing actions use active/current artifacts only.', 'workflow should explain active versus archive state');
+  assertContains(stylesCss, '.audit-history-disclosure p', 'audit history disclosure detail styles');
+  assertContains(stylesCss, '.audit-history-list', 'audit history count list styles');
   assertContains(uiJs, 'const researchPacketId = selectedResearchPacket()?.id', 'script generation should use active/current research packet selection');
   assert.doesNotMatch(uiJs, /const researchPacketId = state\.selectedResearchPacketId/, 'script generation must not post archived saved packet ids');
   assert.doesNotMatch(uiJs, /latestArtifacts\?\.publishing\?\.title/, 'command bar must not present archived/latest episodes as active production context');

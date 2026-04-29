@@ -885,7 +885,6 @@ function deriveWarningsAndBlockers({
   jobs,
   checklist,
   selectedCandidates,
-  inactiveSelectedArtifacts = [],
 }) {
   const warnings = [];
   const blockers = [];
@@ -921,15 +920,6 @@ function deriveWarningsAndBlockers({
       const target = checklistStage(item.key);
       blockers.push(warningItem(target, `${item.label}: ${item.reason}`, item, 'error'));
     }
-  }
-
-  for (const item of inactiveSelectedArtifacts) {
-    warnings.push(warningItem(
-      item.stage || 'production',
-      item.message || 'Loaded artifact is not part of current production.',
-      item.source || null,
-      'warning',
-    ));
   }
 
   return { warnings, blockers };
@@ -1071,6 +1061,41 @@ function deriveHistoricalArtifacts({ activeIds, packets, scripts, revisions, ass
   };
 }
 
+function deriveAuditHistory({ historicalArtifacts, inactiveSelectedArtifacts }) {
+  const sections = [
+    ['Research briefs', 'briefs'],
+    ['Scripts', 'scripts'],
+    ['Integrity reviews', 'reviews'],
+    ['Audio/cover assets', 'audioCover'],
+    ['Publishing records', 'publishing'],
+  ].map(([label, key]) => ({
+    key,
+    label,
+    count: asArray(historicalArtifacts[key]).length,
+  })).filter((section) => section.count > 0);
+  const warnings = asArray(inactiveSelectedArtifacts).map((item) => warningItem(
+    item.stage || 'production',
+    item.message || 'Loaded artifact is not part of current production.',
+    item.source || null,
+    'warning',
+  ));
+  const archiveCount = sections.reduce((total, section) => total + section.count, 0);
+  const warningCount = warnings.length;
+
+  return {
+    archiveCount,
+    warningCount,
+    sections,
+    warnings,
+    summary: warningCount > 0
+      ? `${warningCount} archive/history warning${warningCount === 1 ? '' : 's'} kept in audit disclosure.`
+      : archiveCount > 0
+        ? `${archiveCount} history/archive artifact${archiveCount === 1 ? '' : 's'} kept out of active state.`
+        : 'Only active/current artifacts are shown as production state.',
+    detail: 'History/archive records remain available for audit, but production and publishing actions use active/current artifacts only.',
+  };
+}
+
 export function deriveProductionViewModel(input = {}) {
   const shows = asArray(input.shows);
   const feeds = asArray(input.feeds);
@@ -1196,6 +1221,10 @@ export function deriveProductionViewModel(input = {}) {
     assets: productionAssets,
     episodes,
   });
+  const auditHistory = deriveAuditHistory({
+    historicalArtifacts,
+    inactiveSelectedArtifacts,
+  });
   const { warnings, blockers } = deriveWarningsAndBlockers({
     activeBrief,
     activeRevision,
@@ -1233,6 +1262,7 @@ export function deriveProductionViewModel(input = {}) {
     activeArtifacts,
     latestArtifacts,
     historicalArtifacts,
+    auditHistory,
     artifactScopeWarnings: inactiveSelectedArtifacts,
     primaryNextAction,
     secondaryActions,
@@ -1249,7 +1279,7 @@ export function deriveProductionViewModel(input = {}) {
       advanced: Boolean(input.activeSurface === 'settings' || input.activeSurface === 'debug'),
       groups: {
         activeWorkflow: true,
-        history: Object.values(historicalArtifacts).some((items) => items.length > 0),
+        history: auditHistory.archiveCount > 0 || auditHistory.warningCount > 0,
         admin: input.activeSurface === 'settings',
         debug: input.activeSurface === 'debug',
       },

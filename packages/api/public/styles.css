@@ -456,15 +456,39 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.artifact-scope-panel summary {
+  cursor: pointer;
+  display: grid;
+  gap: 0.2rem;
+}
+
 .artifact-scope-panel p {
   color: #586575;
   font-size: 0.86rem;
   margin: 0;
 }
 
+.audit-history-disclosure p {
+  margin-top: 0.45rem;
+}
+
+.audit-history-list {
+  color: #3f4b5a;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+  margin: 0.45rem 0 0;
+  padding-left: 1rem;
+}
+
+.audit-history-list li {
+  font-size: 0.86rem;
+}
+
 .artifact-scope-warning-list {
   display: grid;
   gap: 0.25rem;
+  margin-top: 0.45rem;
 }
 
 .artifact-scope-warning-list p {
