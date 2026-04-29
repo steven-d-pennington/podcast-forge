@@ -551,6 +551,32 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
     return candidate;
   }
 
+  async updateStoryCandidateStatus(id: string, input: { status: 'new' | 'shortlisted' | 'ignored' | 'merged'; metadata?: Record<string, unknown> }) {
+    const candidate = this.candidates.find((item) => item.id === id);
+    if (!candidate) {
+      return undefined;
+    }
+    candidate.status = input.status;
+    candidate.metadata = { ...candidate.metadata, ...(input.metadata ?? {}) };
+    return candidate;
+  }
+
+  async clearStoryCandidates(input: { showId: string; sourceProfileId?: string; status?: 'ignored'; metadata?: Record<string, unknown> }) {
+    let updated = 0;
+    for (const candidate of this.candidates) {
+      if (candidate.showId !== input.showId || candidate.status === 'ignored') {
+        continue;
+      }
+      if (input.sourceProfileId && candidate.sourceProfileId !== input.sourceProfileId) {
+        continue;
+      }
+      candidate.status = input.status ?? 'ignored';
+      candidate.metadata = { ...candidate.metadata, ...(input.metadata ?? {}) };
+      updated += 1;
+    }
+    return { updated };
+  }
+
   async listStoryCandidates(filter: StoryCandidateListFilter) {
     return this.candidates
       .filter((candidate) => candidate.showId === filter.showId)

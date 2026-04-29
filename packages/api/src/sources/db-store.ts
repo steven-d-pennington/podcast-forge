@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import {
   approvalEvents,
   createDb,
@@ -30,6 +30,8 @@ import type {
   StoryCandidateRecord,
   UpdateJobInput,
   UpdateStoryCandidateScoringInput,
+  UpdateStoryCandidateStatusInput,
+  ClearStoryCandidatesInput,
 } from '../search/store.js';
 import type {
   CreateResearchPacketInput,
@@ -169,7 +171,7 @@ function mapProfile(row: typeof sourceProfiles.$inferSelect): SourceProfileRecor
     showId: row.showId,
     slug: row.slug,
     name: row.name,
-    type: row.type,
+    type: row.type as SourceProfileRecord['type'],
     enabled: row.enabled,
     weight: Number(row.weight),
     freshness: row.freshness,
@@ -958,13 +960,52 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
       return row ? mapStoryCandidate(row) : undefined;
     },
 
+    async updateStoryCandidateStatus(id: string, input: UpdateStoryCandidateStatusInput) {
+      const current = await this.getStoryCandidate(id);
+      if (!current) {
+        return undefined;
+      }
+
+      const [row] = await db.update(storyCandidates)
+        .set({
+          status: input.status,
+          metadata: { ...current.metadata, ...(input.metadata ?? {}) },
+          updatedAt: new Date(),
+        })
+        .where(eq(storyCandidates.id, id))
+        .returning();
+
+      return row ? mapStoryCandidate(row) : undefined;
+    },
+
+    async clearStoryCandidates(input: ClearStoryCandidatesInput) {
+      const filters = [eq(storyCandidates.showId, input.showId), ne(storyCandidates.status, 'ignored')];
+      if (input.sourceProfileId) {
+        filters.push(eq(storyCandidates.sourceProfileId, input.sourceProfileId));
+      }
+
+      const rows = await db.update(storyCandidates)
+        .set({
+          status: input.status ?? 'ignored',
+          metadata: sql`${storyCandidates.metadata} || ${input.metadata ?? {}}::jsonb`,
+          updatedAt: new Date(),
+        })
+        .where(and(...filters))
+        .returning({ id: storyCandidates.id });
+
+      return { updated: rows.length };
+    },
+
     async listStoryCandidates(filter: StoryCandidateListFilter) {
       const orderBy = filter.sort === 'discovered'
         ? [desc(storyCandidates.discoveredAt)]
         : [sql`${storyCandidates.score} desc nulls last`, desc(storyCandidates.discoveredAt)];
+      const where = filter.includeIgnored
+        ? eq(storyCandidates.showId, filter.showId)
+        : and(eq(storyCandidates.showId, filter.showId), ne(storyCandidates.status, 'ignored'));
       const rows = await db.select()
         .from(storyCandidates)
-        .where(eq(storyCandidates.showId, filter.showId))
+        .where(where)
         .orderBy(...orderBy)
         .limit(filter.limit ?? 50);
 

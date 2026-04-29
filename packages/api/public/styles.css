@@ -38,6 +38,13 @@ button.secondary {
 button.danger {
   border-color: #9b2c2c;
   background: #b83232;
+  color: white;
+}
+
+button.secondary.danger {
+  border-color: #d6b8b8;
+  background: #fff7f7;
+  color: #9b2c2c;
 }
 
 button:disabled {

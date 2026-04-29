@@ -90,6 +90,19 @@ export interface StoryCandidateListFilter {
   showId: string;
   limit?: number;
   sort?: 'score' | 'discovered';
+  includeIgnored?: boolean;
+}
+
+export interface UpdateStoryCandidateStatusInput {
+  status: 'new' | 'shortlisted' | 'ignored' | 'merged';
+  metadata?: Record<string, unknown>;
+}
+
+export interface ClearStoryCandidatesInput {
+  showId: string;
+  sourceProfileId?: string;
+  status?: 'ignored';
+  metadata?: Record<string, unknown>;
 }
 
 export interface UpdateStoryCandidateScoringInput {
@@ -106,5 +119,7 @@ export interface SearchJobStore {
   listStoryCandidateDedupeKeys(showId: string): Promise<CandidateDedupeKey[]>;
   insertStoryCandidate(input: CreateStoryCandidateInput): Promise<StoryCandidateRecord | undefined>;
   updateStoryCandidateScoring(id: string, input: UpdateStoryCandidateScoringInput): Promise<StoryCandidateRecord | undefined>;
+  updateStoryCandidateStatus(id: string, input: UpdateStoryCandidateStatusInput): Promise<StoryCandidateRecord | undefined>;
+  clearStoryCandidates(input: ClearStoryCandidatesInput): Promise<{ updated: number }>;
   listStoryCandidates(filter: StoryCandidateListFilter): Promise<StoryCandidateRecord[]>;
 }
