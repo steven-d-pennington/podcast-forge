@@ -203,8 +203,10 @@ test('produce workflow labels and live regions stay concrete and accessible', ()
 
   assertContains(uiJs, "feedback.setAttribute('role', 'status')", 'command bar result live status role');
   assertContains(uiJs, "panel.setAttribute('role', 'status')", 'workflow feedback live status role');
+  assertContains(uiJs, 'if (stage.disabled)', 'stage action reason is scoped to disabled actions');
   assertContains(uiJs, "button.setAttribute('aria-describedby', actionReasonId)", 'stage action blocked reason link');
-  assertContains(uiJs, "jobButton.title = 'No task run has been recorded for this stage yet.'", 'disabled run control reason');
+  assertContains(uiJs, "const jobReasonId = `pipeline-run-reason-${stage.id}`", 'disabled run control dedicated reason id');
+  assertContains(uiJs, 'jobButton.title = jobReason.textContent', 'disabled run control reason');
 
   assert.doesNotMatch(uiJs, /Open Stage Panel/, 'normal Produce mode should not expose ambiguous stage panel labels');
   assert.doesNotMatch(uiJs, /Stage details/, 'normal Produce mode should not expose ambiguous command bar labels');

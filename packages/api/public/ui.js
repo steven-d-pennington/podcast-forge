@@ -1685,7 +1685,9 @@ function stageCard(stage, currentStageId = '') {
   button.disabled = stage.disabled;
   button.title = stage.disabled ? (stage.actionReason || stage.next) : '';
   const actionReasonId = `pipeline-action-reason-${stage.id}`;
-  button.setAttribute('aria-describedby', actionReasonId);
+  if (stage.disabled) {
+    button.setAttribute('aria-describedby', actionReasonId);
+  }
   if (stage.action) {
     button.addEventListener('click', stage.action);
   }
@@ -1702,7 +1704,6 @@ function stageCard(stage, currentStageId = '') {
     panelButton.type = 'button';
     panelButton.className = 'secondary';
     panelButton.textContent = stage.panelActionLabel || `Review ${stage.title}`;
-    panelButton.setAttribute('aria-label', `${panelButton.textContent}: ${stage.title}`);
     panelButton.addEventListener('click', () => scrollToPanel(stage.targetId));
     body.append(panelButton);
   }
@@ -1715,8 +1716,14 @@ function stageCard(stage, currentStageId = '') {
     const hasLatestRun = Boolean(latestRunForTypes(stage.jobTypes));
     jobButton.disabled = !hasLatestRun;
     if (!hasLatestRun) {
-      jobButton.title = 'No task run has been recorded for this stage yet.';
-      jobButton.setAttribute('aria-describedby', actionReasonId);
+      const jobReasonId = `pipeline-run-reason-${stage.id}`;
+      const jobReason = document.createElement('p');
+      jobReason.className = 'pipeline-action-reason blocked';
+      jobReason.id = jobReasonId;
+      jobReason.textContent = 'No task run has been recorded for this stage yet.';
+      jobButton.title = jobReason.textContent;
+      jobButton.setAttribute('aria-describedby', jobReasonId);
+      body.append(jobReason);
     }
     jobButton.addEventListener('click', () => viewLatestJob(stage.jobTypes));
     body.append(jobButton);
@@ -2010,7 +2017,7 @@ function buildPipelineStages() {
       actionReason: state.storyCandidates.length === 0
         ? 'Blocked: run/import candidates or submit a manual URL before choosing the story.'
         : candidates.length > 0
-          ? (candidateAnalysis.canLaunch ? 'Selection is ready for a research brief.' : firstBlockerText(candidateBlockers, 'Review selected story blockers before building a brief.'))
+          ? (candidateAnalysis.canLaunch ? 'Selection is ready for a research brief.' : firstBlockerText(candidateBlockers, 'Review selected story blockers before building a research brief.'))
           : 'Ready: select a candidate story to define the episode focus.',
       blockers: state.storyCandidates.length === 0 ? ['Run/import candidates or submit a manual story URL.'] : candidates.length > 0 && !candidateAnalysis.canLaunch ? candidateBlockers : [],
       actionLabel: candidates.length > 0 ? 'Clear Selection' : 'Select Top Candidate',
@@ -2915,7 +2922,7 @@ function renderSettingsSources() {
   }
 
   if (state.profiles.length === 0) {
-    els.settingsSources.append(settingsEmpty('No story sources/search recipes yet. Use New Show to seed one, or create a story source through the API.'));
+    els.settingsSources.append(settingsEmpty('No story sources/search recipes yet. Use Create New Show to seed one, or create a story source through the API.'));
     return;
   }
 
