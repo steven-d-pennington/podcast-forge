@@ -442,6 +442,8 @@ Recommended order:
 6. #80 — PF3-06 Move action feedback and job result summaries into workflow context ✅ merged (#89)
 7. #67 — PF3-06B Make generated audio assets accessible from local UI ✅ merged (#90)
 8. #81 — PF3-07 Replace ambiguous workflow labels and improve accessibility semantics ✅ merged (#91)
-9. #82 — PF3-08 Add UI architecture guardrails for view-model rendering and complexity
+9. #82 — PF3-08 Add UI architecture guardrails for view-model rendering and complexity ✅ merged (#92)
+
+PF3 issue queue is merged. Next required step before declaring the sprint done: run the post-sprint local UI/UX dogfood audit described in the durable orchestration loop, save the report under `~/clawd/data/podcast-forge-audit/post-sprint-<timestamp>/report.md`, and summarize remaining UX/product recommendations.
 
 #67 is no longer backlog for this pass; treat it as part of the PF3 sprint queue.
