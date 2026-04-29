@@ -489,10 +489,10 @@ Constraints:
 - Before branching UI agents, handle or explicitly preserve current dirty dogfood fixes on local `main`.
 
 Recommended order:
-1. #102 — PFI-00 Reconcile current dogfood fixes before Impeccable UI sprint
-2. #103 — PFI-01 Add Impeccable product/design context for Podcast Forge
-3. #104 — PFI-02 Produce Episode cockpit header with next action and blockers
-4. #105 — PFI-03 Distill Produce Episode into focused stage navigation
+1. #102 — PFI-00 Reconcile current dogfood fixes before Impeccable UI sprint — completed via PR #110.
+2. #103 — PFI-01 Add Impeccable product/design context for Podcast Forge — completed via PR #111.
+3. #104 — PFI-02 Produce Episode cockpit header with next action and blockers — completed via PR #112.
+4. #105 — PFI-03 Distill Produce Episode into focused stage navigation — active on branch `issue-105-pfi-03-stage-navigation` in `/home/steven/clawd/worktrees/podcast-forge-issue-105` (watchdog process `proc_603106d0fbcc`).
 5. #106 — PFI-04 Redesign candidate stories as a ranked editorial review queue
 6. #107 — PFI-05 Make AI, human approval, source evidence, and blockers visually distinct
 7. #108 — PFI-06 Give script and audio review a focused workspace
