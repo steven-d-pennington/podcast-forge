@@ -13,6 +13,9 @@ import {
   episodePlanResultSchema,
   extractedClaimsSchema,
   integrityReviewResultSchema,
+  PROMPT_OUTPUT_SCHEMAS,
+  scriptGenerationResultSchema,
+  scriptRevisionResultSchema,
 } from './schemas.js';
 
 describe('prompt registry defaults', () => {
@@ -110,6 +113,18 @@ describe('prompt output schemas', () => {
     });
 
     assert.equal(result.recommendedSources[0].priority, 'high');
+    assert.equal(episodePlanResultSchema.parse({
+      proposedAngle: 'Find primary sourcing for a fast-moving AI chip story.',
+      whyNow: 'The selected candidate lacks verified primary-source evidence.',
+      audienceRelevance: 'Listeners need to know what should be verified next.',
+      recommendedSources: [{
+        sourceType: 'primary company post',
+        rationale: 'The advisory planner may know the source family before it has a verified URL.',
+        url: '',
+        suggestedQuery: null,
+        priority: 'high',
+      }],
+    }).recommendedSources[0].url, undefined);
     const sparseResult = episodePlanResultSchema.parse({
       proposedAngle: 'Sparse but valid advisory plan',
       whyNow: 'Candidate metadata may still be incomplete.',
@@ -124,6 +139,119 @@ describe('prompt output schemas', () => {
       audienceRelevance: 'Audience',
       recommendedSources: [{ sourceType: '', rationale: 'Missing source type' }],
     }), ZodError);
+  });
+
+  it('describes nested episode plan arrays so JSON-mode models return objects instead of strings', () => {
+    const properties = PROMPT_OUTPUT_SCHEMAS.episode_plan_result.schemaHint.properties as Record<string, unknown>;
+    const recommendedSources = properties.recommendedSources as {
+      items?: { properties?: Record<string, unknown>; required?: string[] };
+    };
+    const warnings = properties.warnings as {
+      items?: { properties?: Record<string, unknown>; required?: string[] };
+    };
+
+    assert.deepEqual(recommendedSources.items?.required, ['sourceType', 'rationale']);
+    assert.deepEqual(Object.keys(recommendedSources.items?.properties ?? {}), [
+      'sourceType',
+      'rationale',
+      'suggestedQuery',
+      'url',
+      'priority',
+    ]);
+    assert.deepEqual(warnings.items?.required, ['code', 'severity', 'message']);
+    assert.deepEqual(Object.keys(warnings.items?.properties ?? {}), [
+      'code',
+      'severity',
+      'message',
+      'sourceDocumentId',
+      'metadata',
+    ]);
+  });
+
+  it('normalizes model-emitted script generation speaker objects and source citation maps', () => {
+    const result = scriptGenerationResultSchema.parse({
+      title: 'The Synthetic Lens - April 29, 2026',
+      format: 'feature-analysis',
+      body: 'DAVID: Today we are tracing a fast-moving AI rivalry story.',
+      speakers: [
+        { name: 'DAVID', role: 'host' },
+        { name: 'MARCUS', role: 'analyst' },
+      ],
+      citationMap: [{
+        id: '1',
+        url: 'https://www.cfr.org/articles/deepseek-v4-signals-a-new-phase-in-the-u-s-china-ai-rivalry',
+        title: 'DeepSeek V4 Signals a New Phase in the U.S.-China AI Rivalry',
+        claims: [
+          'DeepSeek released V4 large language model.',
+          'The release highlights U.S.-China AI competition.',
+        ],
+      }],
+      warnings: [],
+    });
+
+    assert.deepEqual(result.speakers, ['DAVID', 'MARCUS']);
+    assert.deepEqual(result.citationMap, [{
+      line: 'DeepSeek released V4 large language model. The release highlights U.S.-China AI competition.',
+      sourceDocumentIds: [],
+    }]);
+  });
+
+  it('describes nested script generation arrays so JSON-mode models avoid object speakers and source bibliography maps', () => {
+    const properties = PROMPT_OUTPUT_SCHEMAS.script_generation_result.schemaHint.properties as Record<string, unknown>;
+    const speakers = properties.speakers as { items?: Record<string, unknown> };
+    const citationMap = properties.citationMap as {
+      items?: { properties?: Record<string, unknown>; required?: string[] };
+    };
+    const warnings = properties.warnings as {
+      items?: { properties?: Record<string, unknown>; required?: string[] };
+    };
+
+    assert.deepEqual(speakers.items, { type: 'string' });
+    assert.deepEqual(citationMap.items?.required, ['line']);
+    assert.deepEqual(Object.keys(citationMap.items?.properties ?? {}), [
+      'line',
+      'claimId',
+      'sourceDocumentIds',
+    ]);
+    assert.deepEqual(warnings.items?.required, ['code', 'severity', 'message']);
+  });
+
+  it('normalizes model-emitted script revision warning strings', () => {
+    const result = scriptRevisionResultSchema.parse({
+      title: 'Edited script',
+      body: 'DAVID: A revised line with softer certainty.',
+      changeSummary: 'Reduced certainty and preserved attribution.',
+      speakers: ['DAVID'],
+      resolvedWarnings: ['Softened one overconfident phrase.'],
+      remainingWarnings: ['Primary source still needed for the high-stakes claim.'],
+    });
+
+    assert.deepEqual(result.resolvedWarnings, ['Softened one overconfident phrase.']);
+    assert.deepEqual(result.remainingWarnings, [{
+      code: 'MODEL_WARNING',
+      severity: 'warning',
+      message: 'Primary source still needed for the high-stakes claim.',
+    }]);
+  });
+
+  it('describes nested script revision warning arrays so JSON-mode models avoid string warnings', () => {
+    const properties = PROMPT_OUTPUT_SCHEMAS.script_revision_result.schemaHint.properties as Record<string, unknown>;
+    const speakers = properties.speakers as { items?: Record<string, unknown> };
+    const resolvedWarnings = properties.resolvedWarnings as { items?: Record<string, unknown> };
+    const remainingWarnings = properties.remainingWarnings as {
+      items?: { properties?: Record<string, unknown>; required?: string[] };
+    };
+
+    assert.deepEqual(speakers.items, { type: 'string' });
+    assert.deepEqual(resolvedWarnings.items, { type: 'string' });
+    assert.deepEqual(remainingWarnings.items?.required, ['code', 'severity', 'message']);
+    assert.deepEqual(Object.keys(remainingWarnings.items?.properties ?? {}), [
+      'code',
+      'severity',
+      'message',
+      'sourceDocumentId',
+      'metadata',
+    ]);
   });
 
   it('validates candidate score output', () => {
@@ -210,6 +338,74 @@ describe('prompt output schemas', () => {
       verdict: 'MAYBE',
       summary: 'Invalid verdict.',
     }), ZodError);
+  });
+
+  it('normalizes model-emitted integrity review issue aliases and suggested fix objects', () => {
+    const result = integrityReviewResultSchema.parse({
+      verdict: 'PASS_WITH_NOTES',
+      summary: 'Accurate but needs editorial review for high-stakes claims.',
+      claimIssues: [],
+      missingCitations: [{
+        claim: 'Several high-stakes claims lack primary source documentation.',
+        detail: 'Add primary source links before production.',
+      }],
+      unsupportedCertainty: [],
+      attributionWarnings: [{
+        location: 'MARCUS: The release changes the global AI race.',
+        detail: 'Attribute this as analysis rather than settled fact.',
+      }],
+      balanceWarnings: [{
+        location: 'INGRID: Regulators are moving quickly.',
+        detail: 'Mention that policy reactions vary by jurisdiction.',
+      }],
+      biasSensationalismWarnings: [],
+      suggestedFixes: [{ detail: 'Add an inline citation map and primary source caveat.' }],
+    });
+
+    assert.deepEqual(result.missingCitations, [{
+      scriptExcerpt: 'Several high-stakes claims lack primary source documentation.',
+      issue: 'Add primary source links before production.',
+      severity: 'warning',
+    }]);
+    assert.deepEqual(result.attributionWarnings, [{
+      scriptExcerpt: 'MARCUS: The release changes the global AI race.',
+      issue: 'Attribute this as analysis rather than settled fact.',
+      severity: 'warning',
+    }]);
+    assert.deepEqual(result.balanceWarnings, [{
+      scriptExcerpt: 'INGRID: Regulators are moving quickly.',
+      issue: 'Mention that policy reactions vary by jurisdiction.',
+      severity: 'warning',
+    }]);
+    assert.deepEqual(result.suggestedFixes, ['Add an inline citation map and primary source caveat.']);
+  });
+
+  it('describes nested integrity review arrays so JSON-mode models avoid alias fields', () => {
+    const properties = PROMPT_OUTPUT_SCHEMAS.integrity_review_result.schemaHint.properties as Record<string, unknown>;
+    const missingCitations = properties.missingCitations as {
+      items?: { properties?: Record<string, unknown>; required?: string[] };
+    };
+    const attributionWarnings = properties.attributionWarnings as {
+      items?: { properties?: Record<string, unknown>; required?: string[] };
+    };
+    const suggestedFixes = properties.suggestedFixes as { items?: Record<string, unknown> };
+
+    assert.deepEqual(missingCitations.items?.required, ['scriptExcerpt', 'issue']);
+    assert.deepEqual(Object.keys(missingCitations.items?.properties ?? {}), [
+      'scriptExcerpt',
+      'issue',
+      'suggestedCitation',
+      'suggestedFix',
+      'severity',
+    ]);
+    assert.deepEqual(attributionWarnings.items?.required, ['issue']);
+    assert.deepEqual(Object.keys(attributionWarnings.items?.properties ?? {}), [
+      'scriptExcerpt',
+      'issue',
+      'severity',
+      'suggestedFix',
+    ]);
+    assert.deepEqual(suggestedFixes.items, { type: 'string' });
   });
 });
 

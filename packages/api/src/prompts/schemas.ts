@@ -13,13 +13,25 @@ const citationReferenceSchema = z.object({
   message: 'Citation references must include sourceDocumentId or url.',
 });
 
-const warningSchema = z.object({
+const warningObjectSchema = z.object({
   code: z.string().min(1),
   severity: z.enum(['info', 'warning', 'critical']),
   message: z.string().min(1),
   sourceDocumentId: z.string().min(1).optional(),
   metadata: jsonObjectSchema.optional(),
 }).strict();
+
+const warningSchema = z.preprocess((value) => {
+  if (typeof value === 'string') {
+    return {
+      code: 'MODEL_WARNING',
+      severity: 'warning',
+      message: value,
+    };
+  }
+
+  return value;
+}, warningObjectSchema);
 
 const scoreDimensionsSchema = z.object({
   significance: z.number().min(0).max(100),
@@ -29,13 +41,57 @@ const scoreDimensionsSchema = z.object({
   urgency: z.number().min(0).max(100),
 }).strict();
 
+const optionalStringSchema = z.preprocess(
+  (value) => value === null || value === '' ? undefined : value,
+  z.string().min(1).optional(),
+);
+
 const recommendedSourceSchema = z.object({
   sourceType: z.string().min(1),
   rationale: z.string().min(1),
-  suggestedQuery: z.string().min(1).optional(),
-  url: z.string().url().optional(),
+  suggestedQuery: optionalStringSchema,
+  url: optionalStringSchema,
   priority: z.enum(['low', 'medium', 'high']).default('medium'),
 }).strict();
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+const scriptSpeakerSchema = z.preprocess((value) => {
+  const object = objectValue(value);
+
+  if (object && typeof object.name === 'string') {
+    return object.name;
+  }
+
+  return value;
+}, z.string().min(1));
+
+const scriptCitationMapEntrySchema = z.preprocess((value) => {
+  const object = objectValue(value);
+
+  if (!object || typeof object.line === 'string') {
+    return value;
+  }
+
+  const claims = Array.isArray(object.claims)
+    ? object.claims.filter((claim): claim is string => typeof claim === 'string' && claim.trim().length > 0)
+    : [];
+  const fallbackLine = claims.join(' ')
+    || (typeof object.title === 'string' ? object.title : '')
+    || (typeof object.url === 'string' ? object.url : '');
+
+  return {
+    line: fallbackLine,
+    ...(typeof object.claimId === 'string' ? { claimId: object.claimId } : {}),
+    sourceDocumentIds: Array.isArray(object.sourceDocumentIds) ? object.sourceDocumentIds : [],
+  };
+}, z.object({
+  line: z.string().min(1),
+  claimId: z.string().min(1).optional(),
+  sourceDocumentIds: z.array(z.string().min(1)).default([]),
+}).strict());
 
 export const episodePlanResultSchema = z.object({
   proposedAngle: z.string().min(1),
@@ -101,12 +157,8 @@ export const scriptGenerationResultSchema = z.object({
   title: z.string().min(1),
   format: z.string().min(1),
   body: z.string().min(1),
-  speakers: z.array(z.string().min(1)).min(1),
-  citationMap: z.array(z.object({
-    line: z.string().min(1),
-    claimId: z.string().min(1).optional(),
-    sourceDocumentIds: z.array(z.string().min(1)).default([]),
-  }).strict()).default([]),
+  speakers: z.array(scriptSpeakerSchema).min(1),
+  citationMap: z.array(scriptCitationMapEntrySchema).default([]),
   warnings: z.array(warningSchema).default([]),
 }).strict();
 
@@ -131,13 +183,36 @@ const integrityIssueSchema = z.object({
   suggestedFix: z.string().min(1).optional(),
 }).strict();
 
-const missingCitationSchema = z.object({
+const missingCitationSchema = z.preprocess((value) => {
+  const object = objectValue(value);
+
+  if (!object || typeof object.issue === 'string') {
+    return value;
+  }
+
+  return {
+    scriptExcerpt: typeof object.scriptExcerpt === 'string'
+      ? object.scriptExcerpt
+      : typeof object.claim === 'string'
+        ? object.claim
+        : typeof object.location === 'string'
+          ? object.location
+          : 'Unspecified script excerpt',
+    issue: typeof object.detail === 'string'
+      ? object.detail
+      : typeof object.claim === 'string'
+        ? object.claim
+        : 'Missing citation.',
+    ...(typeof object.suggestedFix === 'string' ? { suggestedFix: object.suggestedFix } : {}),
+    ...(typeof object.severity === 'string' ? { severity: object.severity } : {}),
+  };
+}, z.object({
   scriptExcerpt: z.string().min(1),
   issue: z.string().min(1),
   suggestedCitation: citationReferenceSchema.optional(),
   suggestedFix: z.string().min(1).optional(),
   severity: integrityIssueSeveritySchema.default('warning'),
-}).strict();
+}).strict());
 
 const unsupportedCertaintySchema = z.object({
   scriptExcerpt: z.string().min(1),
@@ -146,12 +221,43 @@ const unsupportedCertaintySchema = z.object({
   severity: integrityIssueSeveritySchema.default('warning'),
 }).strict();
 
-const integrityWarningSchema = z.object({
+const integrityWarningSchema = z.preprocess((value) => {
+  const object = objectValue(value);
+
+  if (!object || typeof object.issue === 'string') {
+    return value;
+  }
+
+  return {
+    ...(typeof object.location === 'string' ? { scriptExcerpt: object.location } : {}),
+    issue: typeof object.detail === 'string'
+      ? object.detail
+      : typeof object.claim === 'string'
+        ? object.claim
+        : 'Integrity warning.',
+    ...(typeof object.suggestedFix === 'string' ? { suggestedFix: object.suggestedFix } : {}),
+    ...(typeof object.severity === 'string' ? { severity: object.severity } : {}),
+  };
+}, z.object({
   scriptExcerpt: z.string().min(1).optional(),
   issue: z.string().min(1),
   severity: integrityIssueSeveritySchema.default('warning'),
   suggestedFix: z.string().min(1).optional(),
-}).strict();
+}).strict());
+
+const suggestedFixSchema = z.preprocess((value) => {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  const object = objectValue(value);
+  if (!object) {
+    return value;
+  }
+
+  return [object.fix, object.suggestion, object.detail, object.issue, object.action]
+    .find((part): part is string => typeof part === 'string' && part.trim().length > 0);
+}, z.string().min(1));
 
 export const integrityReviewResultSchema = z.object({
   verdict: z.enum(['PASS', 'PASS_WITH_NOTES', 'FAIL']),
@@ -162,7 +268,7 @@ export const integrityReviewResultSchema = z.object({
   attributionWarnings: z.array(integrityWarningSchema).default([]),
   balanceWarnings: z.array(integrityWarningSchema).default([]),
   biasSensationalismWarnings: z.array(integrityWarningSchema).default([]),
-  suggestedFixes: z.array(z.string().min(1)).default([]),
+  suggestedFixes: z.array(suggestedFixSchema).default([]),
 }).strict();
 
 export const metadataResultSchema = z.object({
@@ -213,8 +319,36 @@ export const PROMPT_OUTPUT_SCHEMAS: Record<PromptOutputSchemaName, PromptOutputS
       knownFacts: { type: 'array', items: { type: 'string' } },
       unknownsSourceGaps: { type: 'array', items: { type: 'string' } },
       questionsToAnswer: { type: 'array', items: { type: 'string' } },
-      recommendedSources: { type: 'array' },
-      warnings: { type: 'array' },
+      recommendedSources: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['sourceType', 'rationale'],
+          properties: {
+            sourceType: { type: 'string' },
+            rationale: { type: 'string' },
+            suggestedQuery: { type: 'string' },
+            url: { type: 'string' },
+            priority: { enum: ['low', 'medium', 'high'] },
+          },
+        },
+      },
+      warnings: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['code', 'severity', 'message'],
+          properties: {
+            code: { type: 'string' },
+            severity: { enum: ['info', 'warning', 'critical'] },
+            message: { type: 'string' },
+            sourceDocumentId: { type: 'string' },
+            metadata: { type: 'object' },
+          },
+        },
+      },
     }, ['proposedAngle', 'whyNow', 'audienceRelevance', 'knownFacts', 'unknownsSourceGaps', 'questionsToAnswer', 'recommendedSources']),
     validate: episodePlanResultSchema.parse,
   },
@@ -313,9 +447,35 @@ export const PROMPT_OUTPUT_SCHEMAS: Record<PromptOutputSchemaName, PromptOutputS
       title: { type: 'string' },
       format: { type: 'string' },
       body: { type: 'string' },
-      speakers: { type: 'array' },
-      citationMap: { type: 'array' },
-      warnings: { type: 'array' },
+      speakers: { type: 'array', items: { type: 'string' } },
+      citationMap: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['line'],
+          properties: {
+            line: { type: 'string' },
+            claimId: { type: 'string' },
+            sourceDocumentIds: { type: 'array', items: { type: 'string' } },
+          },
+        },
+      },
+      warnings: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['code', 'severity', 'message'],
+          properties: {
+            code: { type: 'string' },
+            severity: { enum: ['info', 'warning', 'critical'] },
+            message: { type: 'string' },
+            sourceDocumentId: { type: 'string' },
+            metadata: { type: 'object' },
+          },
+        },
+      },
     }, ['title', 'format', 'body', 'speakers']),
     validate: scriptGenerationResultSchema.parse,
   },
@@ -326,9 +486,23 @@ export const PROMPT_OUTPUT_SCHEMAS: Record<PromptOutputSchemaName, PromptOutputS
       title: { type: 'string' },
       body: { type: 'string' },
       changeSummary: { type: 'string' },
-      speakers: { type: 'array' },
-      resolvedWarnings: { type: 'array' },
-      remainingWarnings: { type: 'array' },
+      speakers: { type: 'array', items: { type: 'string' } },
+      resolvedWarnings: { type: 'array', items: { type: 'string' } },
+      remainingWarnings: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['code', 'severity', 'message'],
+          properties: {
+            code: { type: 'string' },
+            severity: { enum: ['info', 'warning', 'critical'] },
+            message: { type: 'string' },
+            sourceDocumentId: { type: 'string' },
+            metadata: { type: 'object' },
+          },
+        },
+      },
     }, ['title', 'body', 'changeSummary', 'speakers']),
     validate: scriptRevisionResultSchema.parse,
   },
@@ -338,13 +512,104 @@ export const PROMPT_OUTPUT_SCHEMAS: Record<PromptOutputSchemaName, PromptOutputS
     schemaHint: jsonSchemaHint('integrity_review_result', {
       verdict: { enum: ['PASS', 'PASS_WITH_NOTES', 'FAIL'] },
       summary: { type: 'string' },
-      claimIssues: { type: 'array' },
-      missingCitations: { type: 'array' },
-      unsupportedCertainty: { type: 'array' },
-      attributionWarnings: { type: 'array' },
-      balanceWarnings: { type: 'array' },
-      biasSensationalismWarnings: { type: 'array' },
-      suggestedFixes: { type: 'array' },
+      claimIssues: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['issue'],
+          properties: {
+            claimId: { type: 'string' },
+            scriptExcerpt: { type: 'string' },
+            issue: { type: 'string' },
+            severity: { enum: ['info', 'warning', 'critical'] },
+            sourceDocumentIds: { type: 'array', items: { type: 'string' } },
+            citationUrls: { type: 'array', items: { type: 'string' } },
+            suggestedFix: { type: 'string' },
+          },
+        },
+      },
+      missingCitations: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['scriptExcerpt', 'issue'],
+          properties: {
+            scriptExcerpt: { type: 'string' },
+            issue: { type: 'string' },
+            suggestedCitation: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                sourceDocumentId: { type: 'string' },
+                url: { type: 'string' },
+                title: { type: 'string' },
+                quote: { type: 'string' },
+              },
+            },
+            suggestedFix: { type: 'string' },
+            severity: { enum: ['info', 'warning', 'critical'] },
+          },
+        },
+      },
+      unsupportedCertainty: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['scriptExcerpt', 'issue'],
+          properties: {
+            scriptExcerpt: { type: 'string' },
+            issue: { type: 'string' },
+            suggestedFix: { type: 'string' },
+            severity: { enum: ['info', 'warning', 'critical'] },
+          },
+        },
+      },
+      attributionWarnings: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['issue'],
+          properties: {
+            scriptExcerpt: { type: 'string' },
+            issue: { type: 'string' },
+            severity: { enum: ['info', 'warning', 'critical'] },
+            suggestedFix: { type: 'string' },
+          },
+        },
+      },
+      balanceWarnings: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['issue'],
+          properties: {
+            scriptExcerpt: { type: 'string' },
+            issue: { type: 'string' },
+            severity: { enum: ['info', 'warning', 'critical'] },
+            suggestedFix: { type: 'string' },
+          },
+        },
+      },
+      biasSensationalismWarnings: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['issue'],
+          properties: {
+            scriptExcerpt: { type: 'string' },
+            issue: { type: 'string' },
+            severity: { enum: ['info', 'warning', 'critical'] },
+            suggestedFix: { type: 'string' },
+          },
+        },
+      },
+      suggestedFixes: { type: 'array', items: { type: 'string' } },
     }, ['verdict', 'summary']),
     validate: integrityReviewResultSchema.parse,
   },

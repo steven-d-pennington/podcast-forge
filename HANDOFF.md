@@ -466,3 +466,34 @@ Steven's live Produce Episode walkthrough exposed two follow-up areas that shoul
    - Candidate management is needed so Steven/Sam can curate top picks without direct DB cleanup or raw candidate pile sorting.
 
 Recommended order: #94 first to fix source quality/top-pick discovery, #95 second to fix the mobile command surface, #93 third unless candidate-pile management blocks the next walkthrough.
+
+
+## Fourth-pass Impeccable UI coordination sprint — editorial production cockpit
+
+Created: 2026-04-29
+Sprint plan: `/home/steven/clawd/data/podcast-forge-impeccable-sprint-2026-04-29/SPRINT_PLAN.md`
+Sprint state: `/home/steven/clawd/data/podcast-forge-impeccable-sprint-2026-04-29/sprint-state.json`
+Canonical sprint state mirror: `~/clawd/data/podcast-forge-sprint-state.json`
+Impeccable source inspected locally at `/tmp/impeccable`; use its product-register guidance as design methodology, not as a vendored dependency.
+
+Goal: make `/ui` feel like an evidence-first editorial production cockpit rather than a raw AI pipeline/admin console. The interface should answer quickly: what episode is active, what stage is current, what is blocked, what needs judgment, and what is the next safe action.
+
+Constraints:
+- Keep the static frontend stack: `packages/api/public/index.html`, split `ui-*.js` modules, `styles.css`, and Fastify static routes.
+- Do not introduce React, Next, Vite, Vue, Svelte, or a frontend build pipeline.
+- One GitHub issue per coding agent and one branch/worktree/PR per issue.
+- Do not run `npx jest`; use `npm run check`.
+- No live provider/model/network calls in tests.
+- Preserve source provenance, warnings, approval gates, and publish safety.
+- Treat Impeccable results as critique and guardrails, not pixel-perfect UI spec.
+- Before branching UI agents, handle or explicitly preserve current dirty dogfood fixes on local `main`.
+
+Recommended order:
+1. #102 — PFI-00 Reconcile current dogfood fixes before Impeccable UI sprint
+2. #103 — PFI-01 Add Impeccable product/design context for Podcast Forge
+3. #104 — PFI-02 Produce Episode cockpit header with next action and blockers
+4. #105 — PFI-03 Distill Produce Episode into focused stage navigation
+5. #106 — PFI-04 Redesign candidate stories as a ranked editorial review queue
+6. #107 — PFI-05 Make AI, human approval, source evidence, and blockers visually distinct
+7. #108 — PFI-06 Give script and audio review a focused workspace
+8. #109 — PFI-07 Impeccable polish pass for responsive layout, states, and anti-patterns
