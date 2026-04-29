@@ -287,6 +287,8 @@ test('view model covers candidate selected with no research brief', () => {
   assert.equal(model.activeArtifacts.audioCover, null);
   assert.ok(model.historicalArtifacts.audioCover.some((item) => item.id === 'asset-audio-1'));
   assert.ok(model.artifactScopeWarnings.some((item) => item.stage === 'publishing'));
+  assert.equal(model.warnings.some((warning) => warning.message.includes('not part of current production')), false);
+  assert.equal(model.cockpitHeader.warningCount, 0);
   assert.equal(model.primaryNextAction.label, 'Build research brief');
   assert.equal(model.primaryNextAction.enabled, true);
 });
@@ -519,6 +521,7 @@ test('view model keeps unlinked production assets archived instead of active', (
   assert.equal(model.activeArtifacts.audioCover, null);
   assert.ok(model.historicalArtifacts.audioCover.some((item) => item.id === 'asset-unlinked-audio' && item.stateLabel === 'History/archive'));
   assert.ok(model.artifactScopeWarnings.some((item) => item.message.includes('not part of current production')));
+  assert.equal(model.warnings.some((warning) => warning.message.includes('not part of current production')), false);
 });
 
 test('view model archives production artifacts that do not match the selected candidate path', () => {
@@ -566,7 +569,8 @@ test('view model archives production artifacts that do not match the selected ca
   assert.ok(model.historicalArtifacts.scripts.some((item) => item.id === 'script-1' && item.stateLabel === 'History/archive'));
   assert.ok(model.historicalArtifacts.audioCover.some((item) => item.id === 'asset-old-audio' && item.stateLabel === 'History/archive'));
   assert.ok(model.artifactScopeWarnings.some((item) => item.message.includes('not part of current production')));
-  assert.ok(model.warnings.some((warning) => warning.message.includes('not part of current production')));
+  assert.equal(model.warnings.some((warning) => warning.message.includes('not part of current production')), false);
+  assert.equal(model.cockpitHeader.warningCount, 0);
   assert.equal(model.primaryNextAction.label, 'Generate script draft');
 });
 

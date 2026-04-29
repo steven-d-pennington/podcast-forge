@@ -55,6 +55,8 @@ export const state = {
   activeSurface: 'workflow',
   activeSettingsTab: 'shows',
   expandedPipelineStageIds: [],
+  currentPipelineStageId: '',
+  auditHistoryOpen: false,
   showSetupOpen: false,
   runningActions: {},
 };
