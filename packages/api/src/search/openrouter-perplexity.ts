@@ -95,8 +95,16 @@ function normalizeDeniedDomain(domain: string): string | undefined {
   return normalized ? `-${normalized}` : undefined;
 }
 
+function searchDomainFilterFor(query: SourceQueryRecord, profile: SourceProfileRecord): string[] {
+  const configured = option(query, profile, 'search_domain_filter');
+  const configuredArray = asStringArray(configured);
+  if (configuredArray.length > 0) return configuredArray;
+  const configuredString = asString(configured);
+  return configuredString ? [configuredString] : [];
+}
+
 function denyDomainsFor(query: SourceQueryRecord, profile: SourceProfileRecord): string[] {
-  const configured = asStringArray(option(query, profile, 'search_domain_filter'));
+  const configured = searchDomainFilterFor(query, profile);
   const domains = configured.length > 0 ? configured : [...DEFAULT_DENY_DOMAINS, ...profile.excludeDomains, ...query.excludeDomains];
   return [...new Set(domains.map(normalizeDeniedDomain).filter((domain): domain is string => Boolean(domain)))];
 }
@@ -215,19 +223,20 @@ function mapCandidate(item: JsonObject, query: SourceQueryRecord, profile: Sourc
     ...asStringArray(item.evidenceUrls),
     ...(Array.isArray(item.__annotations) ? item.__annotations.map(asObject).map((citation) => asString(citation.url)).filter((value): value is string => Boolean(value)) : []),
   ].filter(isHttpUrl);
+  const publishedAt = parsePublishedAt(item.publishedAt ?? item.date ?? item.publicationDate);
   return {
     title: cleanText(title),
     url,
     canonicalUrl: canonicalizeUrl(url),
     sourceName: asString(item.sourceName) ?? asString(item.source) ?? hostname(url),
     summary: asString(item.summary) ?? asString(item.rationale) ?? null,
-    publishedAt: parsePublishedAt(item.publishedAt ?? item.date ?? item.publicationDate),
+    publishedAt,
     rawPayload: item,
     metadata: {
       provider: 'openrouter-perplexity',
       freshness: {
         requested: search.recency ?? null,
-        confidence: asString(item.freshnessConfidence) ?? (parsePublishedAt(item.publishedAt) ? 'claimed' : 'unknown'),
+        confidence: asString(item.freshnessConfidence) ?? (publishedAt ? 'claimed' : 'unknown'),
         verified: false,
       },
       citations: [...new Set(citations)],
