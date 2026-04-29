@@ -1194,7 +1194,6 @@ export function deriveProductionViewModel(input = {}) {
     jobs,
     checklist,
     selectedCandidates,
-    inactiveSelectedArtifacts,
   });
   const cockpitHeader = deriveCockpitHeader({
     selectedShow,

@@ -196,6 +196,9 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(uiJs, 'command-bar-blocker', 'command bar blocker summary');
   assertContains(uiJs, 'function renderAuditHistoryDisclosure(viewModel)', 'archive warnings should render behind an audit/history disclosure');
   assertContains(uiJs, "summaryLabel.textContent = 'Audit/history'", 'audit/history disclosure should be explicitly labeled');
+  assertContains(uiStateJs, 'auditHistoryOpen: false', 'audit/history disclosure state should be tracked across renders');
+  assertContains(uiJs, 'details.open = Boolean(state.auditHistoryOpen)', 'audit/history disclosure should restore its open state');
+  assertContains(uiJs, 'state.auditHistoryOpen = details.open', 'audit/history disclosure should persist user toggles');
   assertContains(uiJs, 'artifactScopeWarnings', 'view model archive warnings should stay accessible for audit');
   assertContains(uiJs, 'History/archive records remain available for audit, but production and publishing actions use active/current artifacts only.', 'workflow should explain active versus archive state');
   assertContains(stylesCss, '.audit-history-disclosure', 'audit/history disclosure styles');

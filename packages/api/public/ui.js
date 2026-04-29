@@ -2087,6 +2087,10 @@ function renderAuditHistoryDisclosure(viewModel) {
   const archiveCount = archiveEntries.reduce((total, [, items]) => total + items.length, 0);
   const details = document.createElement('details');
   details.className = `audit-history-disclosure${scopeWarnings.length > 0 ? ' has-history-warnings' : ''}`;
+  details.open = Boolean(state.auditHistoryOpen);
+  details.addEventListener('toggle', () => {
+    state.auditHistoryOpen = details.open;
+  });
 
   const summary = document.createElement('summary');
   const summaryLabel = document.createElement('span');
