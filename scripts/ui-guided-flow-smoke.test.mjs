@@ -460,7 +460,7 @@ test('story source summaries use editorial labels and hide credential values', (
   assert.equal(zaiModel.selectedStorySourceSummary.nextActionLabel, 'Search Z.AI Web');
   assert.equal(zaiModel.selectedStorySourceSummary.credentialLabel, 'Z.AI Web Search credential configured');
   assert.match(zaiModel.selectedStorySourceSummary.inputSummary, /1 enabled search query/);
-  assert.match(zaiModel.selectedStorySourceSummary.constraintsSummary, /freshness pw/);
+  assert.match(zaiModel.selectedStorySourceSummary.constraintsSummary, /freshness Past week/);
   assert.match(zaiModel.selectedStorySourceSummary.lastSearchResult, /2 inserted, 1 skipped, 1 warning/);
 
   const braveModel = deriveProductionViewModel({

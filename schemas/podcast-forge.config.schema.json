@@ -34,7 +34,7 @@
         "required": ["id", "type", "enabled"],
         "properties": {
           "id": { "type": "string" },
-          "type": { "enum": ["brave", "zai-web", "rss", "manual", "local-json"] },
+          "type": { "enum": ["brave", "zai-web", "openrouter-perplexity", "rss", "manual", "local-json"] },
           "enabled": { "type": "boolean" },
           "weight": { "type": "number" },
           "freshness": { "type": "string" },

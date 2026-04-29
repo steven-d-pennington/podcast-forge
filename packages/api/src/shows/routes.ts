@@ -40,10 +40,10 @@ const castSchema = z.array(z.object({
   role: z.string().trim().min(1).optional(),
   voice: z.string().trim().min(1),
 })).default([]);
-const sourceTypeSchema = z.enum(['brave', 'zai-web', 'rss', 'manual', 'local-json']);
+const sourceTypeSchema = z.enum(['brave', 'zai-web', 'openrouter-perplexity', 'rss', 'manual', 'local-json']);
 
 function supportsDiscoveryControls(type: z.infer<typeof sourceTypeSchema>) {
-  return type === 'brave' || type === 'zai-web' || type === 'rss';
+  return type === 'brave' || type === 'zai-web' || type === 'openrouter-perplexity' || type === 'rss';
 }
 
 const feedFieldsSchema = z.object({

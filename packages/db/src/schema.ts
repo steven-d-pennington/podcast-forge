@@ -12,7 +12,7 @@ import {
   uuid
 } from 'drizzle-orm/pg-core';
 
-export const sourceType = pgEnum('source_type', ['brave', 'zai-web', 'rss', 'manual', 'local-json']);
+export const sourceType = pgEnum('source_type', ['brave', 'zai-web', 'openrouter-perplexity', 'rss', 'manual', 'local-json']);
 export const showSetupStatus = pgEnum('show_setup_status', ['draft', 'active']);
 export const storyStatus = pgEnum('story_status', ['new', 'shortlisted', 'ignored', 'merged']);
 export const episodeCandidateStatus = pgEnum('episode_candidate_status', ['draft', 'researching', 'ready', 'rejected']);

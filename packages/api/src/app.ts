@@ -34,6 +34,7 @@ import type { RssFetch } from './search/rss.js';
 import type { CandidateScorer } from './search/scoring.js';
 import type { SearchJobStore } from './search/store.js';
 import type { ZaiWebFetch } from './search/zai-web.js';
+import type { OpenRouterPerplexityFetch } from './search/openrouter-perplexity.js';
 import type { LlmRuntime } from './llm/types.js';
 import { registerSchedulerRoutes } from './scheduler/routes.js';
 import type { SchedulerStore } from './scheduler/store.js';
@@ -54,8 +55,10 @@ interface BuildAppOptions extends FastifyServerOptions {
     & Partial<SchedulerStore>;
   braveApiKey?: string;
   zaiApiKey?: string;
+  openRouterApiKey?: string;
   fetchImpl?: BraveFetch;
   zaiFetchImpl?: ZaiWebFetch;
+  openRouterPerplexityFetchImpl?: OpenRouterPerplexityFetch;
   rssFetchImpl?: RssFetch;
   candidateScorer?: CandidateScorer;
   llmRuntime?: LlmRuntime;
@@ -96,8 +99,10 @@ export function buildApp(options: BuildAppOptions = {}) {
     sourceStore,
     braveApiKey,
     zaiApiKey,
+    openRouterApiKey,
     fetchImpl,
     zaiFetchImpl,
+    openRouterPerplexityFetchImpl,
     rssFetchImpl,
     candidateScorer,
     llmRuntime,
@@ -202,6 +207,7 @@ export function buildApp(options: BuildAppOptions = {}) {
         ?? process.env.ZHIPU_API_KEY
         ?? process.env.ZHIPUAI_API_KEY,
       ),
+      'openrouter-perplexity': Boolean(openRouterApiKey ?? process.env.OPENROUTER_API_KEY),
     },
   });
 
@@ -233,8 +239,10 @@ export function buildApp(options: BuildAppOptions = {}) {
     },
     braveApiKey,
     zaiApiKey,
+    openRouterApiKey,
     fetchImpl,
     zaiFetchImpl,
+    openRouterPerplexityFetchImpl,
     rssFetchImpl,
     candidateScorer,
     llmRuntime,

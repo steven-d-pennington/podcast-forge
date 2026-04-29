@@ -8,6 +8,7 @@ import { resolveRssFeedRefs, type RssFetch } from './rss.js';
 import { createLlmCandidateScorer, type CandidateScorer } from './scoring.js';
 import type { SearchJobStore } from './store.js';
 import type { ZaiWebFetch } from './zai-web.js';
+import type { OpenRouterPerplexityFetch } from './openrouter-perplexity.js';
 import { createLlmRuntime } from '../llm/runtime.js';
 import type { LlmRuntime } from '../llm/types.js';
 import { hasModelProfileStore, resolveModelProfile } from '../models/resolver.js';
@@ -31,8 +32,10 @@ export interface SearchRoutesOptions {
   getStore(): SourceStore & Partial<SearchJobStore> & Partial<ModelProfileStore> & Partial<PromptTemplateStore>;
   braveApiKey?: string;
   zaiApiKey?: string;
+  openRouterApiKey?: string;
   fetchImpl?: BraveFetch;
   zaiFetchImpl?: ZaiWebFetch;
+  openRouterPerplexityFetchImpl?: OpenRouterPerplexityFetch;
   rssFetchImpl?: RssFetch;
   candidateScorer?: CandidateScorer;
   llmRuntime?: LlmRuntime;
@@ -155,6 +158,10 @@ function resolveZaiApiKey(options: SearchRoutesOptions): string | undefined {
     ?? process.env.ZHIPUAI_API_KEY;
 }
 
+function resolveOpenRouterApiKey(options: SearchRoutesOptions): string | undefined {
+  return options.openRouterApiKey ?? process.env.OPENROUTER_API_KEY;
+}
+
 function searchCredentialForSource(profileType: string, options: SearchRoutesOptions): string {
   if (profileType === 'brave') {
     const apiKey = options.braveApiKey ?? process.env.BRAVE_API_KEY;
@@ -176,7 +183,17 @@ function searchCredentialForSource(profileType: string, options: SearchRoutesOpt
     return apiKey;
   }
 
-  throw new ApiError(400, 'UNSUPPORTED_SOURCE_TYPE', `source.search supports brave and zai-web profiles, not ${profileType}.`);
+  if (profileType === 'openrouter-perplexity') {
+    const apiKey = resolveOpenRouterApiKey(options);
+
+    if (!apiKey) {
+      throw new ApiError(400, 'OPENROUTER_API_KEY_REQUIRED', 'Set OPENROUTER_API_KEY before running an OpenRouter Perplexity source search.');
+    }
+
+    return apiKey;
+  }
+
+  throw new ApiError(400, 'UNSUPPORTED_SOURCE_TYPE', `source.search supports brave, zai-web, and openrouter-perplexity profiles, not ${profileType}.`);
 }
 
 async function resolveShowId(store: SourceStore, showId?: string, showSlug?: string): Promise<string> {
@@ -214,8 +231,8 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
         throw new ApiError(404, 'SOURCE_PROFILE_NOT_FOUND', `Source profile not found: ${request.params.id}`);
       }
 
-      if (profile.type !== 'brave' && profile.type !== 'zai-web') {
-        throw new ApiError(400, 'UNSUPPORTED_SOURCE_TYPE', `source.search supports brave and zai-web profiles, not ${profile.type}.`);
+      if (profile.type !== 'brave' && profile.type !== 'zai-web' && profile.type !== 'openrouter-perplexity') {
+        throw new ApiError(400, 'UNSUPPORTED_SOURCE_TYPE', `source.search supports brave, zai-web, and openrouter-perplexity profiles, not ${profile.type}.`);
       }
 
       if (!profile.enabled) {
@@ -241,6 +258,7 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
         store,
         fetchImpl: options.fetchImpl,
         zaiFetchImpl: options.zaiFetchImpl,
+        openRouterPerplexityFetchImpl: options.openRouterPerplexityFetchImpl,
         sleep: options.sleep,
         modelProfile,
         candidateScorer,

@@ -12,7 +12,7 @@ import type {
   UpdateSourceQueryInput,
 } from './store.js';
 
-const sourceTypeSchema = z.enum(['brave', 'zai-web', 'rss', 'manual', 'local-json']);
+const sourceTypeSchema = z.enum(['brave', 'zai-web', 'openrouter-perplexity', 'rss', 'manual', 'local-json']);
 const domainListSchema = z.array(z.string().trim().min(1)).default([]);
 const jsonObjectSchema = z.record(z.string(), z.unknown()).default({});
 const nullableTextSchema = z.string().trim().min(1).nullable().default(null);
@@ -88,7 +88,7 @@ class ApiError extends Error {
 }
 
 function supportsDiscoveryControls(type: z.infer<typeof sourceTypeSchema> | undefined): boolean {
-  return type === 'brave' || type === 'zai-web' || type === 'rss';
+  return type === 'brave' || type === 'zai-web' || type === 'openrouter-perplexity' || type === 'rss';
 }
 
 function normalizeProfileCreateInput(body: z.infer<typeof profileCreateSchema>): Omit<CreateSourceProfileInput, 'showId'> {
