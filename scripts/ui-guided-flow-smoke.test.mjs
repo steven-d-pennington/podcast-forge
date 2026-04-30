@@ -870,7 +870,10 @@ test('story source search queries use compact single-editor management', () => {
   for (const expected of [
     '.query-create',
     '.query-management-row',
+    'display: block',
+    'gap: 0',
     '.query-summary-row',
+    '.query-summary-row::marker',
     '.query-summary-pill',
     '.query-edit-affordance',
     '.query-editor-form',

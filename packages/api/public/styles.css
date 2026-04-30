@@ -2456,6 +2456,8 @@ textarea {
 }
 
 .query-management-row {
+  display: block;
+  gap: 0;
   padding: 0;
 }
 
@@ -2475,6 +2477,10 @@ textarea {
 
 .query-summary-row::-webkit-details-marker {
   display: none;
+}
+
+.query-summary-row::marker {
+  content: '';
 }
 
 .query-summary-content {
