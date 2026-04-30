@@ -60,6 +60,10 @@ function reportError(error, fallback = 'Something went wrong. Open technical det
   return fallback;
 }
 
+function firstPresent(...values) {
+  return values.find((value) => typeof value === 'string' && value.trim())?.trim() || '';
+}
+
 function openConfirmationDialog({
   title,
   description,
@@ -944,11 +948,40 @@ function assetWarningItems(asset) {
   ].filter(Boolean);
 }
 
+function jobMatchesSelectedProductionPath(job) {
+  const episode = selectedEpisode();
+  const episodeId = episode?.id || null;
+  const assetIds = new Set(selectedAssets().map((asset) => asset?.id).filter(Boolean));
+  if (!episodeId && assetIds.size === 0) {
+    return false;
+  }
+
+  const jobAssetId = firstPresent(
+    job?.assetId,
+    job?.summary?.assetId,
+    job?.input?.assetId,
+    job?.output?.assetId,
+    job?.metadata?.assetId,
+  );
+  if (jobAssetId && assetIds.size > 0) {
+    return assetIds.has(jobAssetId);
+  }
+
+  const jobEpisodeId = firstPresent(
+    job?.episodeId,
+    job?.summary?.episodeId,
+    job?.input?.episodeId,
+    job?.output?.episodeId,
+    job?.metadata?.episodeId,
+  );
+  return Boolean(episodeId && jobEpisodeId === episodeId);
+}
+
 function productionWarningItems() {
   return [
     ...asArray(selectedEpisode()?.warnings),
     ...selectedAssets().flatMap(assetWarningItems),
-    ...state.production.jobs.flatMap((job) => asArray(job.summary?.warnings)),
+    ...state.production.jobs.filter(jobMatchesSelectedProductionPath).flatMap((job) => asArray(job.summary?.warnings)),
   ];
 }
 
@@ -1154,11 +1187,13 @@ function publishChecklistState() {
     },
     {
       key: 'warnings',
-      label: 'No blocking warnings remain',
-      passed: unresolvedWarnings.length === 0 && productionWarnings.length === 0,
-      reason: unresolvedWarnings.length + productionWarnings.length === 0
-        ? 'No unresolved research or production warnings are selected.'
-        : `${unresolvedWarnings.length + productionWarnings.length} warning${unresolvedWarnings.length + productionWarnings.length === 1 ? '' : 's'} require review.`,
+      label: 'No review-blocking warnings remain',
+      passed: unresolvedWarnings.length === 0,
+      reason: unresolvedWarnings.length > 0
+        ? `${unresolvedWarnings.length} research warning${unresolvedWarnings.length === 1 ? '' : 's'} need override reasons before publishing.`
+        : productionWarnings.length > 0
+          ? `${productionWarnings.length} production warning${productionWarnings.length === 1 ? '' : 's'} visible for review; publish approval records the review decision.`
+          : 'No unresolved research warnings are selected.',
     },
     {
       key: 'publishApproval',

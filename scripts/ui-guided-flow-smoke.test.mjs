@@ -300,7 +300,7 @@ test('production command bar and concrete blocker copy remain present', () => {
     'Cover art asset exists',
     'Feed metadata configured',
     'RSS/public target configured',
-    'No blocking warnings remain',
+    'No review-blocking warnings remain',
     'Episode approved for publishing',
   ]) {
     assertContains(uiJs, checklistItem, `publish checklist item ${checklistItem}`);

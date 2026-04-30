@@ -692,6 +692,96 @@ test('view model treats publish approval as actionable when prerequisites are re
   assert.ok(model.navigationActions.some((navAction) => navAction.targetStage === 'publishing'));
 });
 
+test('view model keeps publish approval actionable when only scoped production warnings remain', () => {
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [readyBrief],
+    selectedResearchPacketId: 'brief-1',
+    scripts: [approvedScript],
+    selectedScriptId: 'script-1',
+    selectedScript: approvedScript,
+    selectedRevision: passedReviewRevision,
+    selectedRevisions: [passedReviewRevision],
+    production: {
+      episode,
+      assets: [audioAsset, coverAsset],
+      jobs: [
+        {
+          id: 'active-audio-job',
+          status: 'succeeded',
+          input: { episodeId: 'episode-1', assetId: 'asset-audio-1' },
+          summary: { warnings: [{ code: 'MISSING_SCRIPT_CITATION_MAP', message: 'Editors should verify factual lines.' }] },
+        },
+        {
+          id: 'archive-audio-job',
+          status: 'succeeded',
+          input: { episodeId: 'old-episode', assetId: 'old-asset' },
+          summary: { warnings: [{ code: 'ARCHIVE_WARNING', message: 'Archived production warning.' }] },
+        },
+      ],
+    },
+    episodes: [episode],
+    selectedEpisodeId: 'episode-1',
+    selectedAssetIds: ['asset-audio-1', 'asset-cover-1'],
+  }));
+
+  assert.equal(model.currentStage.id, 'publishing');
+  assert.equal(model.currentStage.status, 'ready');
+  assert.equal(model.primaryNextAction.label, 'Approve for publishing');
+  assert.equal(model.primaryNextAction.enabled, true);
+  assert.equal(model.cockpitHeader.blockerCount, 0);
+  assert.equal(model.cockpitHeader.warningCount, 1);
+  assert.ok(model.warnings.some((warning) => warning.message.includes('Editors should verify factual lines')));
+  assert.equal(model.warnings.some((warning) => warning.message.includes('Archived production warning')), false);
+  assert.equal(model.blockers.some((blocker) => blocker.message.includes('warning')), false);
+});
+
+test('view model excludes same-episode production warnings for unselected historical assetIds', () => {
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [readyBrief],
+    selectedResearchPacketId: 'brief-1',
+    scripts: [approvedScript],
+    selectedScriptId: 'script-1',
+    selectedScript: approvedScript,
+    selectedRevision: passedReviewRevision,
+    selectedRevisions: [passedReviewRevision],
+    production: {
+      episode,
+      assets: [audioAsset, coverAsset],
+      jobs: [
+        {
+          id: 'active-audio-job',
+          status: 'succeeded',
+          input: { episodeId: 'episode-1', assetId: 'asset-audio-1' },
+          summary: { warnings: [{ code: 'MISSING_SCRIPT_CITATION_MAP', message: 'Editors should verify factual lines.' }] },
+        },
+        {
+          id: 'historical-audio-job',
+          status: 'succeeded',
+          input: { episodeId: 'episode-1', assetId: 'archived-asset-audio-1' },
+          summary: { warnings: [{ code: 'ARCHIVED_ASSET_WARNING', message: 'Historical production warning.' }] },
+        },
+      ],
+    },
+    episodes: [episode],
+    selectedEpisodeId: 'episode-1',
+    selectedAssetIds: ['asset-audio-1', 'asset-cover-1'],
+  }));
+
+  assert.equal(model.currentStage.id, 'publishing');
+  assert.equal(model.currentStage.status, 'ready');
+  assert.equal(model.primaryNextAction.label, 'Approve for publishing');
+  assert.equal(model.primaryNextAction.enabled, true);
+  assert.equal(model.cockpitHeader.blockerCount, 0);
+  assert.equal(model.cockpitHeader.warningCount, 1);
+  assert.ok(model.warnings.some((warning) => warning.message.includes('Editors should verify factual lines')));
+  assert.equal(model.warnings.some((warning) => warning.message.includes('Historical production warning')), false);
+  assert.equal(model.blockers.some((blocker) => blocker.message.includes('Historical production warning')), false);
+});
+
 test('view model blocks publish approval until episode is audio-ready', () => {
   const draftEpisode = { ...episode, status: 'draft' };
   const model = deriveProductionViewModel(baseInput({
@@ -901,13 +991,13 @@ test('view model deduplicates overlapping recent and production jobs', () => {
     status: 'running',
     createdAt: '2026-04-27T14:20:00.000Z',
     updatedAt: '2026-04-27T14:30:00.000Z',
-    summary: { warnings: [{ message: 'Stale warning.' }] },
+    summary: { episodeId: 'episode-1', warnings: [{ message: 'Stale warning.' }] },
   };
   const duplicateJob = {
     ...recentJob,
     status: 'succeeded',
     updatedAt: '2026-04-27T14:45:00.000Z',
-    summary: { warnings: [{ message: 'Preview asset needs review.' }] },
+    summary: { episodeId: 'episode-1', warnings: [{ message: 'Preview asset needs review.' }] },
   };
 
   const model = deriveProductionViewModel(baseInput({
