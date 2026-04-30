@@ -25,8 +25,8 @@ describe('api config endpoints', () => {
     assert.match(response.body, /Produce Episode/);
     assert.match(response.body, /Settings \/ Admin/);
     assert.match(response.body, /Jobs \/ Debug/);
-    assert.match(response.body, /Shows &amp; Feeds/);
-    assert.match(response.body, /Prompt Templates/);
+    assert.match(response.body, /Basic Show Settings/);
+    assert.match(response.body, /Advanced\/Internal/);
     assert.match(response.body, /Editorial Production Workflow/);
     assert.match(response.body, /data-surface="workflow"/);
     assert.match(response.body, /data-surface="settings"/);

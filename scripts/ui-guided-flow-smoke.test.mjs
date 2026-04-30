@@ -730,6 +730,82 @@ test('workflow, settings, and debug surfaces stay separated', () => {
   assertContains(uiJs, 'SURFACES.has(surface)', 'surface allowlist');
 });
 
+test('settings admin defaults to basic overview with advanced details collapsed', () => {
+  for (const [id, tab, label] of [
+    ['settingsTabBasic', 'basic', 'Basic Show Settings'],
+    ['settingsTabSources', 'sources', 'Content Sources'],
+    ['settingsTabPublishing', 'publishing', 'Publishing'],
+    ['settingsTabAutomation', 'automation', 'Automation'],
+    ['settingsTabAi', 'ai', 'AI Configuration'],
+    ['settingsTabAdvanced', 'advanced', 'Advanced/Internal'],
+  ]) {
+    assertContains(indexHtml, `id="${id}"`, `settings tab id ${id}`);
+    assertContains(indexHtml, `data-settings-tab="${tab}"`, `settings tab key ${tab}`);
+    assertContains(indexHtml, label, `settings tab label ${label}`);
+  }
+
+  assertContains(uiStateJs, "activeSettingsTab: 'basic'", 'basic settings tab default');
+  assertContains(uiJs, 'const SETTINGS_TAB_PANELS = {', 'settings tab panel map');
+  assertContains(uiJs, 'basic: () => els.settingsShows', 'basic tab panel');
+  assertContains(uiJs, 'button.tabIndex = active ? 0 : -1', 'settings tabs roving tab index');
+  assertContains(uiJs, "event.key === 'ArrowRight'", 'settings tabs right arrow navigation');
+  assertContains(uiJs, "event.key === 'ArrowLeft'", 'settings tabs left arrow navigation');
+  assertContains(uiJs, "event.key === 'Home'", 'settings tabs home navigation');
+  assertContains(uiJs, "event.key === 'End'", 'settings tabs end navigation');
+
+  for (const expected of [
+    'Basic admin overview',
+    'settingsOverview(',
+    'Save Show',
+    'Save Feed',
+    'Show title',
+    'Publishing feeds',
+    'Public feed URL',
+  ]) {
+    assertContains(uiJs, expected, `basic settings marker ${expected}`);
+  }
+
+  for (const expected of [
+    'Advanced setup internals',
+    '<details class="settings-advanced">',
+    'Advanced show internals',
+    'Advanced feed routing and storage labels',
+    'Advanced source scoring and internal ID',
+    'Search query management',
+    'Advanced model/provider routing',
+    'Prompt internals and output schema',
+    'Advanced publishing paths and storage labels',
+    'Advanced schedule workflow and publish controls',
+    'Sanitized feed metadata',
+  ]) {
+    assertContains(indexHtml + uiJs, expected, `collapsed advanced settings marker ${expected}`);
+  }
+
+  assert.doesNotMatch(indexHtml + uiJs, /<details[^>]*class="[^"]*settings-advanced[^"]*"[^>]*\sopen\b/, 'advanced settings details should be closed by default');
+  assertContains(uiJs, '<button class="danger" name="delete" type="button">Delete</button>', 'delete control remains available inside query management');
+  assertOrdered(
+    uiJs,
+    [
+      /const queryPanel = document\.createElement\('details'\)/,
+      /queryPanel\.className = 'settings-nested settings-advanced settings-query-disclosure'/,
+      /<button class="danger" name="delete" type="button">Delete<\/button>/,
+    ],
+    'destructive query controls should sit behind collapsed query management',
+  );
+
+  assertContains(stylesCss, '.settings-overview', 'basic settings overview style');
+  assertContains(stylesCss, '.settings-advanced', 'advanced settings disclosure style');
+  assertContains(stylesCss, '.settings-section[hidden]', 'inactive settings panels hidden style');
+});
+
+test('settings admin demotes story sources sidebar', () => {
+  assertContains(indexHtml, '<aside class="sidebar" aria-labelledby="workspaceSidebarTitle">', 'sidebar landmark label');
+  assertContains(uiJs, "document.body.dataset.activeSurface = state.activeSurface", 'surface state reflected on body');
+  assertContains(uiJs, "classList.toggle('sidebar-admin-mode', state.activeSurface === 'settings')", 'settings surface demotes sidebar');
+  assertContains(stylesCss, '.sidebar.sidebar-admin-mode #profileList', 'profile list hidden while settings is active');
+  assertContains(stylesCss, 'collapsed while Settings/Admin is active', 'settings sidebar collapsed copy');
+});
+
 test('integrity, source coverage, and confirmation safety affordances remain present', () => {
   assertOrdered(
     uiJs,
