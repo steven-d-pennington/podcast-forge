@@ -52,6 +52,7 @@ export const state = {
   selectedAssetIds: [],
   selectedShowSlug: '',
   selectedProfileId: '',
+  editingSourceQueryId: '',
   activeSurface: 'workflow',
   activeSettingsTab: 'basic',
   expandedPipelineStageIds: [],

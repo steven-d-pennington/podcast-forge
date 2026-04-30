@@ -782,20 +782,102 @@ test('settings admin defaults to basic overview with advanced details collapsed'
   }
 
   assert.doesNotMatch(indexHtml + uiJs, /<details[^>]*class="[^"]*settings-advanced[^"]*"[^>]*\sopen\b/, 'advanced settings details should be closed by default');
-  assertContains(uiJs, '<button class="danger" name="delete" type="button">Delete</button>', 'delete control remains available inside query management');
+  assertContains(uiJs, 'function adminQueryManagementRow(query, profile = selectedProfile())', 'compact query management row renderer');
+  assertContains(uiJs, "state.editingSourceQueryId = ''", 'query editors start collapsed unless selected');
+  assertContains(uiJs, 'details.open = editing', 'query management rows should only open the selected editor');
+  assertContains(uiJs, "affordance.textContent = editing ? 'Editing' : 'Edit'", 'query summaries expose edit affordance');
+  assertContains(uiJs, 'query-danger-zone', 'query delete remains behind destructive action disclosure');
+  assertContains(uiJs, "ingestButton.textContent = 'Import RSS Items'", 'RSS ingest remains reachable from Settings Content Sources');
+  assertOrdered(
+    uiJs,
+    [
+      /choose\.addEventListener\('click', async \(\) => \{/,
+      /state\.selectedProfileId = profile\.id/,
+      /state\.editingSourceQueryId = ''/,
+      /savePipelineState\(\)/,
+      /await loadQueries\(\)/,
+    ],
+    'Load Search Queries should persist selected profile before loading queries',
+  );
   assertOrdered(
     uiJs,
     [
       /const queryPanel = document\.createElement\('details'\)/,
       /queryPanel\.className = 'settings-nested settings-advanced settings-query-disclosure'/,
-      /<button class="danger" name="delete" type="button">Delete<\/button>/,
+      /queryPanel\.append\(adminNewQueryForm\(profile\.id\)\)/,
+      /queryPanel\.append\(adminQueryManagementRow\(query, profile\)\)/,
     ],
-    'destructive query controls should sit behind collapsed query management',
+    'query management should render compact rows behind collapsed source query management',
   );
 
   assertContains(stylesCss, '.settings-overview', 'basic settings overview style');
   assertContains(stylesCss, '.settings-advanced', 'advanced settings disclosure style');
   assertContains(stylesCss, '.settings-section[hidden]', 'inactive settings panels hidden style');
+});
+
+test('story source search queries use compact single-editor management', () => {
+  for (const expected of [
+    'editingSourceQueryId',
+    'function adminQueryManagementRow(query, profile = selectedProfile())',
+    'function appendQuerySummaryMeta(summaryMeta, query, profile)',
+    'function pruneEditingSourceQuery(queries)',
+    'query-summary-row',
+    'query-summary-content',
+    'query-summary-meta',
+    'query-summary-pill',
+    'query-edit-affordance',
+    'query-editor-form',
+    'Freshness/domain controls inactive',
+    'sourceControlHelp(profile?.type)',
+    'applySourceControlState(form, profile?.type)',
+    'state.editingSourceQueryId = nextEditingId',
+    'state.editingSourceQueryId !== nextEditingId',
+    "const nextEditingId = details.open ? query.id : ''",
+    'details.open = editing',
+    'render();',
+  ]) {
+    assertContains(uiJs, expected, `compact query management marker ${expected}`);
+  }
+
+  assertOrdered(
+    uiJs,
+    [
+      /const editing = state\.editingSourceQueryId === query\.id/,
+      /details\.open = editing/,
+      /details\.append\(summary, adminQueryForm\(query, profile\)\)/,
+      /details\.addEventListener\('toggle'/,
+      /state\.editingSourceQueryId = nextEditingId/,
+    ],
+    'query rows should expand exactly the state-selected editor',
+  );
+
+  assertOrdered(
+    uiJs,
+    [
+      /<details class="query-danger-zone">/,
+      /<summary>Destructive action<\/summary>/,
+      /<button class="secondary danger" name="delete" type="button">Delete Search Query<\/button>/,
+      /form\.elements\.delete\.addEventListener\('click'/,
+      /await confirmDeleteQuery\(query\)/,
+    ],
+    'delete should stay behind an expanded destructive disclosure and confirmation flow',
+  );
+
+  assertContains(uiJs, 'openConfirmationDialog({', 'delete confirmation dialog remains explicit');
+  assertContains(uiJs, 'Delete Source Query', 'delete confirmation label');
+  assert.doesNotMatch(uiJs, /<button class="danger" name="delete" type="button">Delete<\/button>/, 'default query rows should not render repeated red delete buttons');
+
+  for (const expected of [
+    '.query-create',
+    '.query-management-row',
+    '.query-summary-row',
+    '.query-summary-pill',
+    '.query-edit-affordance',
+    '.query-editor-form',
+    '.query-danger-zone',
+  ]) {
+    assertContains(stylesCss, expected, `compact query style ${expected}`);
+  }
 });
 
 test('settings admin demotes story sources sidebar', () => {
