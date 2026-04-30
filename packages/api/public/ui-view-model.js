@@ -579,7 +579,11 @@ function jobResultNextStep(job) {
     return 'Review the draft, run integrity review, and approve a revision before production.';
   }
 
-  if (job.type === 'audio.preview' || job.type === 'audio.final' || job.type === 'art.generate') {
+  if (job.type === 'audio.preview') {
+    return 'Review the preview MP3 for script pacing, then create final audio before publish approval.';
+  }
+
+  if (job.type === 'audio.final' || job.type === 'art.generate') {
     return 'Review active final audio and cover assets before publish approval.';
   }
 

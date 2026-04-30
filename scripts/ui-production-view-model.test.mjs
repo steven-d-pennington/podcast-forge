@@ -553,6 +553,37 @@ test('view model treats preview audio as review-only for publish readiness', () 
   assert.ok(model.checklist.some((item) => item.key === 'audio' && item.passed === false && item.reason.includes('Preview MP3s are for review only')));
 });
 
+test('view model gives preview audio next steps without implying final audio exists', () => {
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [readyBrief],
+    selectedResearchPacketId: 'brief-1',
+    scripts: [approvedScript],
+    selectedScriptId: 'script-1',
+    selectedScript: approvedScript,
+    selectedRevision: passedReviewRevision,
+    selectedRevisions: [passedReviewRevision],
+    production: {
+      episode,
+      assets: [],
+      jobs: [{
+        id: 'job-audio-preview-ok',
+        type: 'audio.preview',
+        status: 'succeeded',
+        updatedAt: '2026-04-28T12:30:00.000Z',
+      }],
+    },
+    episodes: [episode],
+    selectedEpisodeId: 'episode-1',
+    latestActionResult: { status: '', message: '', source: 'test' },
+  }));
+
+  assert.match(model.cockpitHeader.latestResult.nextStep, /preview MP3/);
+  assert.match(model.cockpitHeader.latestResult.nextStep, /create final audio/i);
+  assert.doesNotMatch(model.cockpitHeader.latestResult.nextStep, /active final audio/);
+});
+
 test('view model falls back to current production assets when saved asset selection is stale', () => {
   const model = deriveProductionViewModel(baseInput({
     storyCandidates: [candidate],
