@@ -296,7 +296,7 @@ test('production command bar and concrete blocker copy remain present', () => {
     'Research brief approved',
     'Script approved for audio',
     'Integrity review passed or overridden',
-    'Valid audio asset exists',
+    'Publishable final audio asset exists',
     'Cover art asset exists',
     'Feed metadata configured',
     'RSS/public target configured',
@@ -329,7 +329,7 @@ test('produce workflow labels and live regions stay concrete and accessible', ()
     'Build research brief',
     'Generate script',
     'Review integrity gate',
-    'Create audio and cover assets',
+    'Create final audio and cover assets',
     'Review publish checklist',
   ]) {
     assertContains(uiJs, label, `concrete stage panel label ${label}`);
@@ -341,8 +341,8 @@ test('produce workflow labels and live regions stay concrete and accessible', ()
     'Review Script Draft',
     'Select Script Draft',
     'Review Approval Gates',
-    'Refresh Audio and Cover Assets',
-    'Create Missing Audio and Cover',
+    'Refresh Final Audio and Cover Assets',
+    'Create Missing Final Audio and Cover',
     'Approve Episode for Publishing',
   ]) {
     assertContains(uiJs, label, `concrete workflow action label ${label}`);
@@ -397,7 +397,7 @@ test('script and audio review use focused workspaces with active and archive sep
     'History/archive assets',
     'Only these active/current assets are used for publish approval and publishing checks.',
     'History/archive assets are kept for audit only; they do not satisfy current publish readiness.',
-    'Use Play, Open, or Download to review the preview MP3.',
+    'Use Play, Open, or Download to review the final publishable audio.',
     'Recovery: regenerate the asset or inspect the task run for storage metadata.',
   ]) {
     assertContains(uiJs, expected, `focused audio workspace marker ${expected}`);

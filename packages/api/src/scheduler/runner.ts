@@ -62,7 +62,7 @@ function stageJobType(stage: ScheduledPipelineStage, profile?: SourceProfileReco
   }
 
   if (stage === 'audio') {
-    return 'audio.preview';
+    return 'audio.final';
   }
 
   return 'publish.rss';

@@ -133,7 +133,7 @@ const approvedScript = {
 const audioAsset = {
   id: 'asset-audio-1',
   episodeId: 'episode-1',
-  type: 'audio-preview',
+  type: 'audio-final',
   status: 'ready',
   mimeType: 'audio/mpeg',
   byteSize: 1024,
@@ -522,6 +522,35 @@ test('view model covers audio produced with cover still active work', () => {
   assert.equal(model.currentStage.status, 'ready');
   assert.equal(model.primaryNextAction.label, 'Create missing cover art');
   assert.equal(model.primaryNextAction.enabled, true);
+});
+
+test('view model treats preview audio as review-only for publish readiness', () => {
+  const previewAudio = {
+    ...audioAsset,
+    id: 'asset-preview-1',
+    type: 'audio-preview',
+  };
+  const model = deriveProductionViewModel(baseInput({
+    storyCandidates: [candidate],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [readyBrief],
+    selectedResearchPacketId: 'brief-1',
+    scripts: [approvedScript],
+    selectedScriptId: 'script-1',
+    selectedScript: approvedScript,
+    selectedRevision: passedReviewRevision,
+    selectedRevisions: [passedReviewRevision],
+    production: { episode, assets: [previewAudio, coverAsset], jobs: [] },
+    episodes: [episode],
+    selectedEpisodeId: 'episode-1',
+    selectedAssetIds: ['asset-preview-1', 'asset-cover-1'],
+  }));
+
+  assert.equal(model.activeArtifacts.audioCover.status, 'partial');
+  assert.equal(model.activeArtifacts.audioCover.audio, null);
+  assert.equal(model.activeArtifacts.audioCover.cover.id, 'asset-cover-1');
+  assert.equal(model.primaryNextAction.label, 'Create missing final audio');
+  assert.ok(model.checklist.some((item) => item.key === 'audio' && item.passed === false && item.reason.includes('Preview MP3s are for review only')));
 });
 
 test('view model falls back to current production assets when saved asset selection is stale', () => {

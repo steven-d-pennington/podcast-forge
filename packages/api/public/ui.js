@@ -698,6 +698,10 @@ function isAudioAsset(asset) {
   return asset?.type === 'audio-preview' || asset?.type === 'audio-final' || asset?.mimeType?.startsWith('audio/');
 }
 
+function isFinalAudioAsset(asset) {
+  return asset?.type === 'audio-final';
+}
+
 function isLocalUiHost() {
   const hostname = window.location.hostname.toLowerCase();
   const privateLanPattern = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/;
@@ -1116,7 +1120,7 @@ function publishChecklistState() {
   const episode = selectedEpisode();
   const assets = selectedAssets();
   const feed = selectedFeed();
-  const audioAsset = assets.find((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview');
+  const audioAsset = assets.find(isFinalAudioAsset);
   const coverAsset = assets.find((asset) => asset.type === 'cover-art');
   const unresolvedWarnings = unresolvedResearchWarnings(packet);
   const productionWarnings = productionWarningItems();
@@ -1163,9 +1167,9 @@ function publishChecklistState() {
     },
     {
       key: 'audio',
-      label: 'Valid audio asset exists',
+      label: 'Publishable final audio asset exists',
       passed: audioValid,
-      reason: audioAsset ? (audioValid ? 'Audio asset has an audio MIME type and usable size.' : 'Audio asset metadata is incomplete or invalid.') : 'Create a preview MP3 or attach final audio.',
+      reason: audioAsset ? (audioValid ? 'Final audio has an audio MIME type and usable size.' : 'Final audio metadata is incomplete or invalid.') : 'Create final audio before publish approval. Preview MP3s are for review only.',
     },
     {
       key: 'cover',
@@ -1440,6 +1444,7 @@ function taskLabel(type) {
     'script.generate': 'Script draft',
     'script.integrity_review': 'Integrity review',
     'audio.preview': 'Preview audio',
+    'audio.final': 'Final audio',
     'art.generate': 'Cover art',
     'publish.rss': 'RSS publishing',
     'pipeline.scheduled': 'Scheduled pipeline',
@@ -2114,7 +2119,7 @@ function latestScriptText() {
 function latestProductionText() {
   const episode = selectedEpisode();
   const assets = selectedAssets();
-  const audio = assets.find((asset) => asset.type === 'audio-preview' || asset.type === 'audio-final');
+  const audio = assets.find((asset) => asset.type === 'audio-final');
   const art = assets.find((asset) => asset.type === 'cover-art');
 
   if (!episode) {
@@ -2298,7 +2303,7 @@ function buildPipelineStages() {
   const latestPacket = packet;
   const episode = selectedEpisode();
   const assets = selectedAssets();
-  const audioAsset = assets.find((asset) => asset.type === 'audio-preview' || asset.type === 'audio-final');
+  const audioAsset = assets.find((asset) => asset.type === 'audio-final');
   const coverAsset = assets.find((asset) => asset.type === 'cover-art');
   const script = activeSelectedScript();
   const revision = activeSelectedRevision();
@@ -2537,23 +2542,23 @@ function buildPipelineStages() {
       status: productionActionRunning ? 'running' : audioAsset && coverAsset ? 'done' : scriptReadyForProduction ? 'ready' : 'blocked',
       artifact: latestProductionText(),
       next: audioAsset && coverAsset
-        ? 'Preview audio and cover art are ready for approval and publishing review.'
-        : scriptReadyForProduction ? 'Create the missing preview audio and cover art assets.' : integrity.blocking ? 'Complete the integrity review gate before production.' : 'Approve the reviewed script revision for audio first.',
+        ? 'Final audio and cover art are ready for approval and publishing review.'
+        : scriptReadyForProduction ? 'Create the missing final audio and cover art assets. Preview MP3s remain review-only.' : integrity.blocking ? 'Complete the integrity review gate before production.' : 'Approve the reviewed script revision for audio first.',
       actionReason: productionActionRunning
         ? 'Production is already running; wait for audio or cover art task runs to finish.'
         : audioAsset && coverAsset
-          ? 'Audio and cover assets exist; review them for publish approval.'
+          ? 'Final audio and cover assets exist; review them for publish approval.'
           : scriptReadyForProduction
-            ? `Ready: create missing ${audioAsset ? 'cover art' : coverAsset ? 'audio' : 'audio and cover art'} assets.`
+            ? `Ready: create missing ${audioAsset ? 'cover art' : coverAsset ? 'final audio' : 'final audio and cover art'} assets.`
             : firstBlockerText(productionBlockers, 'Blocked: complete script approval and integrity review before production.'),
       blockers: !scriptReadyForProduction && !(audioAsset && coverAsset) ? productionBlockers : [],
-      actionLabel: audioAsset && coverAsset ? 'Refresh Audio and Cover Assets' : 'Create Missing Audio and Cover',
-      panelActionLabel: 'Create audio and cover assets',
+      actionLabel: audioAsset && coverAsset ? 'Refresh Final Audio and Cover Assets' : 'Create Missing Final Audio and Cover',
+      panelActionLabel: 'Create final audio and cover assets',
       action: audioAsset && coverAsset ? refreshProductionUntilSettled : createMissingProductionAssets,
       disabled: productionActionRunning || (!scriptReadyForProduction && !(audioAsset && coverAsset)),
       active: Boolean(audioAsset || coverAsset),
       targetId: 'productionPanel',
-      jobTypes: ['audio.preview', 'art.generate'],
+      jobTypes: ['audio.final', 'audio.preview', 'art.generate'],
     },
     {
       id: 'publishing',
@@ -2574,7 +2579,7 @@ function buildPipelineStages() {
             ? (publishChecklistReady ? 'Ready: publish the approved episode to RSS.' : `Blocked: ${firstBlockerText(publishBlockers, 'complete the publish checklist first.')}`)
             : episode?.status === 'audio-ready'
               ? (publishPreApprovalReady ? 'Ready: approve the episode for publishing after reviewing assets.' : `Blocked: ${firstBlockerText(publishPreApprovalBlockers, 'complete the publish checklist before approval.')}`)
-              : 'Blocked: produce audio and cover assets, then approve the episode for publishing.',
+              : 'Blocked: produce final audio and cover assets, then approve the episode for publishing.',
       blockers: episode?.status === 'published'
         ? []
         : episode?.status === 'approved-for-publish'
@@ -3952,6 +3957,7 @@ function renderProduction() {
 
   if (!hasScript) {
     els.generateAudioPreview.disabled = true;
+    els.generateFinalAudio.disabled = true;
     els.generateCoverArt.disabled = true;
     els.productionMeta.textContent = archivedAssets.length > 0
       ? 'No active/current script is selected. History/archive production assets below are retained for audit only.'
@@ -3971,11 +3977,14 @@ function renderProduction() {
   const integrity = integrityReviewState(revision);
   const readyForProduction = approved && !integrity.blocking;
   const audioJob = latestJob('audio.preview');
+  const finalAudioJob = latestJob('audio.final');
   const artJob = latestJob('art.generate');
   const audioRunning = audioJob && !isTerminalJob(audioJob);
+  const finalAudioRunning = finalAudioJob && !isTerminalJob(finalAudioJob);
   const artRunning = artJob && !isTerminalJob(artJob);
 
   els.generateAudioPreview.disabled = !readyForProduction || audioRunning;
+  els.generateFinalAudio.disabled = !readyForProduction || finalAudioRunning;
   els.generateCoverArt.disabled = !readyForProduction || artRunning;
   const activeEpisode = selectedEpisode();
   els.productionMeta.textContent = readyForProduction
@@ -3988,7 +3997,7 @@ function renderProduction() {
   if (state.production.jobs.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = 'No audio or cover asset tasks yet. Approve the script revision, then create a preview MP3 or cover art.';
+    empty.textContent = 'No audio or cover asset tasks yet. Approve the script revision, then create preview audio, final audio, or cover art.';
     els.productionJobs.append(empty);
   }
 
@@ -4023,7 +4032,7 @@ function renderProduction() {
     const empty = document.createElement('div');
     empty.className = 'empty';
     empty.textContent = readyForProduction
-      ? 'No active/current audio or cover assets recorded yet. Next action: create missing preview audio and cover art.'
+      ? 'No active/current final audio or cover assets recorded yet. Next action: create missing final audio and cover art.'
       : 'No active/current audio or cover assets recorded yet. Next action: complete script approval and integrity review before production.';
     els.productionAssets.append(empty);
   } else {
@@ -4721,7 +4730,7 @@ function productionAssetReviewCard(asset, kind, active = true) {
     const recovery = document.createElement('p');
     recovery.className = 'empty-inline';
     recovery.textContent = active
-      ? `Recovery: create ${kind === 'Preview MP3' ? 'preview audio' : 'cover art'} after the current script revision is approved and the integrity gate is clear.`
+      ? `Recovery: create ${kind === 'Cover art' ? 'cover art' : kind.toLowerCase()} after the current script revision is approved and the integrity gate is clear.`
       : 'History/archive assets appear here only when older or out-of-scope assets exist.';
     card.append(recovery);
     return card;
@@ -4729,10 +4738,12 @@ function productionAssetReviewCard(asset, kind, active = true) {
 
   const accessUrl = assetAccessUrl(asset);
   if (accessUrl) {
-    if (kind === 'Preview MP3') {
+    if (kind === 'Preview MP3' || kind === 'Final audio') {
       const note = document.createElement('p');
       note.className = 'help';
-      note.textContent = 'Use Play, Open, or Download to review the preview MP3.';
+      note.textContent = kind === 'Final audio'
+        ? 'Use Play, Open, or Download to review the final publishable audio.'
+        : 'Use Play, Open, or Download to review the preview MP3.';
       card.append(note);
       appendAssetAccessControls(card, asset, { audio: true });
     } else {
@@ -4755,7 +4766,7 @@ function productionAssetReviewCard(asset, kind, active = true) {
 function renderProductionReview() {
   const episode = selectedEpisode();
   const assets = selectedAssets();
-  const audioAsset = assets.find((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview');
+  const audioAsset = assets.find((asset) => asset.type === 'audio-final');
   const coverAsset = assets.find((asset) => asset.type === 'cover-art');
   const warnings = productionWarningItems();
   const viewModel = currentProductionViewModel();
@@ -4772,7 +4783,7 @@ function renderProductionReview() {
         trustKind: 'aiOutput',
         status: audioAsset && coverAsset ? 'ready' : audioAsset || coverAsset ? 'needs-review' : 'blocked',
         message: audioAsset && coverAsset
-          ? 'Preview MP3 and cover art are active/current for this production path.'
+          ? 'Final audio and cover art are active/current for this production path.'
           : workspace.emptyState || 'No active/current audio or cover assets are selected for this production path.',
         detail: `Audio: ${audioAsset ? 'ready' : 'missing'} | Cover art: ${coverAsset ? 'ready' : 'missing'}`,
       },
@@ -4789,7 +4800,7 @@ function renderProductionReview() {
         status: audioAsset && coverAsset ? 'ready' : 'blocked',
         message: audioAsset && coverAsset
           ? 'Review the active assets, then approve assets for publishing when the checklist is clear.'
-          : workspace.recoveryAction || 'Approve the current script revision with a non-blocking integrity review, then create missing audio and cover assets.',
+          : workspace.recoveryAction || 'Approve the current script revision with a non-blocking integrity review, then create missing final audio and cover assets.',
       },
     ]),
     reviewTrustSummary([
@@ -4811,7 +4822,7 @@ function renderProductionReview() {
       !audioAsset || !coverAsset ? {
         kind: 'blocker',
         title: 'Blocker',
-        message: 'Audio and cover assets are both required before publish approval.',
+        message: 'Final audio and cover art are both required before publish approval. Preview MP3s are review-only.',
       } : null,
     ]),
     reviewFacts([
@@ -4832,7 +4843,7 @@ function renderProductionReview() {
   const activeMedia = document.createElement('div');
   activeMedia.className = 'asset-preview-grid focused-assets';
   activeMedia.append(
-    productionAssetReviewCard(audioAsset, 'Preview MP3', true),
+    productionAssetReviewCard(audioAsset, 'Final audio', true),
     productionAssetReviewCard(coverAsset, 'Cover art', true),
   );
   activeSection.append(activeHeading, activeHelp, activeMedia);
@@ -4852,7 +4863,7 @@ function renderProductionReview() {
     const archiveGrid = document.createElement('div');
     archiveGrid.className = 'asset-preview-grid focused-assets';
     for (const asset of archivedAssets) {
-      archiveGrid.append(productionAssetReviewCard(asset, asset.type === 'cover-art' ? 'Cover art' : 'Preview MP3', false));
+      archiveGrid.append(productionAssetReviewCard(asset, asset.type === 'cover-art' ? 'Cover art' : asset.type === 'audio-final' ? 'Final audio' : 'Preview MP3', false));
     }
     archiveSection.append(archiveGrid);
   }
@@ -4881,7 +4892,7 @@ function renderProductionReview() {
   actions.append(approve);
   const productionApprovalBlockers = checklistBlockers(publishChecklistState(), false);
   const reason = !episode
-    ? 'Blocked: produce missing audio and cover assets to create an episode record.'
+    ? 'Blocked: produce missing final audio and cover assets to create an episode record.'
     : episode.status !== 'audio-ready'
       ? `Blocked: episode status is ${episode.status}; publish approval requires audio-ready.`
       : productionApprovalBlockers.length > 0
@@ -5538,15 +5549,15 @@ async function createMissingProductionAssets() {
   }
 
   setActionRunning('production', true);
-  setStatus('Creating missing audio and cover assets...');
+  setStatus('Creating missing final audio and cover assets...');
 
   try {
     let assets = selectedAssets();
-    const hasAudio = assets.some((asset) => asset.type === 'audio-preview' || asset.type === 'audio-final');
+    const hasAudio = assets.some((asset) => asset.type === 'audio-final');
     const hasCover = assets.some((asset) => asset.type === 'cover-art');
 
     if (!hasAudio) {
-      await api(`/scripts/${script.id}/production/audio-preview`, {
+      await api(`/scripts/${script.id}/production/audio-final`, {
         method: 'POST',
         body: JSON.stringify({ actor: 'local-user' }),
       });
@@ -6634,6 +6645,38 @@ async function startAudioPreview() {
   }
 }
 
+async function startFinalAudio() {
+  const script = activeSelectedScript();
+  const revision = activeSelectedRevision();
+  if (!script || !revision) {
+    return;
+  }
+
+  const integrity = integrityReviewState(revision);
+  if (integrity.blocking) {
+    setStatus(`Final audio blocked: integrity review ${integrityReviewLabel(integrity.status)}.`);
+    render();
+    return;
+  }
+
+  els.generateFinalAudio.disabled = true;
+  setStatus('Starting final audio task...');
+
+  try {
+    await api(`/scripts/${script.id}/production/audio-final`, {
+      method: 'POST',
+      body: JSON.stringify({ actor: 'local-user' }),
+    });
+    await refreshProductionUntilSettled();
+    await loadJobs();
+    setStatus('Final audio task updated.');
+  } catch (error) {
+    await loadProduction();
+    render();
+    reportError(error);
+  }
+}
+
 async function startCoverArt() {
   const script = activeSelectedScript();
   const revision = activeSelectedRevision();
@@ -6766,6 +6809,7 @@ els.scriptGenerateForm.addEventListener('submit', generateScript);
 els.scriptEditForm.addEventListener('submit', saveScriptRevision);
 els.approveScript.addEventListener('click', approveSelectedScript);
 els.generateAudioPreview.addEventListener('click', startAudioPreview);
+els.generateFinalAudio.addEventListener('click', startFinalAudio);
 els.generateCoverArt.addEventListener('click', startCoverArt);
 
 await loadAll();
