@@ -773,7 +773,7 @@ test('settings admin defaults to basic overview with advanced details collapsed'
     'Advanced source scoring and internal ID',
     'Search query management',
     'Advanced model/provider routing',
-    'Prompt internals and output schema',
+    'Advanced prompt body and output schema',
     'Advanced publishing paths and storage labels',
     'Advanced schedule workflow and publish controls',
     'Sanitized feed metadata',
@@ -812,7 +812,71 @@ test('settings admin defaults to basic overview with advanced details collapsed'
 
   assertContains(stylesCss, '.settings-overview', 'basic settings overview style');
   assertContains(stylesCss, '.settings-advanced', 'advanced settings disclosure style');
+  assertContains(stylesCss, '.settings-summary-kv', 'compact settings summary style');
   assertContains(stylesCss, '.settings-section[hidden]', 'inactive settings panels hidden style');
+});
+
+test('ai role prompt and schedule admin surfaces render summaries before advanced internals', () => {
+  for (const expected of [
+    'function modelRoleSummary(profile',
+    'function promptTemplateSummary(template)',
+    'function failedRunForPipeline(pipeline)',
+    'function scheduleFailureSummary(job)',
+    'settings-summary-kv',
+    'advanced edit closed',
+    'Body length',
+    'Last failure',
+    'Run Now',
+  ]) {
+    assertContains(uiJs, expected, `compact AI/admin marker ${expected}`);
+  }
+
+  assertOrdered(
+    uiJs,
+    [
+      /function renderSettingsModels\(\)/,
+      /<div class="settings-kv settings-summary-kv"><\/div>/,
+      /<details class="settings-advanced">/,
+      /<summary>Advanced model\/provider routing<\/summary>/,
+      /<label class="field"><span>Provider<\/span><input name="provider" type="text" required><\/label>/,
+      /<label class="field"><span>Model<\/span><input name="model" type="text" required><\/label>/,
+      /<div class="actions"><button type="submit">Save Model Role<\/button><\/div>/,
+    ],
+    'AI role settings should show compact role summaries before collapsed provider/model edit fields',
+  );
+
+  assertOrdered(
+    uiJs,
+    [
+      /function renderSettingsPrompts\(\)/,
+      /<div class="settings-kv settings-summary-kv"><\/div>/,
+      /<details class="settings-advanced">/,
+      /<summary>Advanced prompt body and output schema<\/summary>/,
+      /<label class="field"><span>Agent instructions<\/span><textarea rows="8" readonly><\/textarea><\/label>/,
+      /<details class="debug-details"><summary>Output schema summary<\/summary><pre><\/pre><\/details>/,
+    ],
+    'Prompt templates should summarize metadata before collapsed body and schema debug data',
+  );
+
+  assertOrdered(
+    uiJs,
+    [
+      /function renderSettingsSchedules\(\)/,
+      /<button class="secondary" name="run" type="button">Run Now<\/button>/,
+      /<div class="settings-kv settings-summary-kv"><\/div>/,
+      /<details class="settings-advanced">/,
+      /<summary>Advanced schedule workflow and publish controls<\/summary>/,
+      /<label class="field"><span>Cron<\/span><input name="cron" type="text" required><\/label>/,
+      /<label class="field"><span>Workflow<\/span><input name="workflow" type="text" required><\/label>/,
+      /<label class="toggle admin-toggle"><input name="autopublish" type="checkbox"><span>Autopublish<\/span><\/label>/,
+      /<div class="actions inline"><button type="submit">Save Schedule<\/button><\/div>/,
+    ],
+    'Scheduled pipelines should show run/status summaries before collapsed cron workflow and autopublish controls',
+  );
+
+  assert.doesNotMatch(uiJs, /<details[^>]*class="[^"]*settings-advanced[^"]*"[^>]*\sopen\b/, 'AI/admin advanced internals should not render expanded by default');
+  assertContains(stylesCss, 'max-width: 72ch', 'long help text should have a readable max width');
+  assertContains(stylesCss, 'line-height: 1.5', 'readability line-height adjustments');
 });
 
 test('story source search queries use compact single-editor management', () => {
