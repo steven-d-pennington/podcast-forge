@@ -3615,6 +3615,19 @@ function renderSettingsSources() {
       event.preventDefault();
       await saveProfileForm(profile.id, form);
     });
+    if (profile.type === 'rss') {
+      const rssActions = document.createElement('div');
+      rssActions.className = 'actions inline settings-source-actions';
+      const ingestButton = document.createElement('button');
+      ingestButton.type = 'button';
+      ingestButton.className = 'secondary';
+      ingestButton.textContent = 'Import RSS Items';
+      ingestButton.addEventListener('click', async () => {
+        await ingestProfile(profile, ingestButton);
+      });
+      rssActions.append(ingestButton);
+      form.append(rssActions);
+    }
     els.settingsSources.append(form);
 
     const queries = state.selectedProfileId === profile.id ? state.queries : [];
@@ -3630,6 +3643,7 @@ function renderSettingsSources() {
     choose.textContent = state.selectedProfileId === profile.id ? 'Selected Source' : 'Load Search Queries';
     choose.addEventListener('click', async () => {
       state.selectedProfileId = profile.id;
+      savePipelineState();
       await loadQueries();
       render();
     });
@@ -6302,14 +6316,12 @@ async function saveProfile(event) {
   }
 }
 
-async function ingestSelectedProfile() {
-  const profile = selectedProfile();
-
+async function ingestProfile(profile, button = els.ingestProfile) {
   if (!profile || profile.type !== 'rss') {
     return;
   }
 
-  els.ingestProfile.disabled = true;
+  button.disabled = true;
   setStatus('Ingesting RSS feeds...');
 
   try {
@@ -6321,8 +6333,12 @@ async function ingestSelectedProfile() {
   } catch (error) {
     reportError(error);
   } finally {
-    els.ingestProfile.disabled = false;
+    button.disabled = false;
   }
+}
+
+async function ingestSelectedProfile() {
+  await ingestProfile(selectedProfile(), els.ingestProfile);
 }
 
 async function submitManualUrl(event) {

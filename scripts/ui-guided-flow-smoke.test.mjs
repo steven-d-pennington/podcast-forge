@@ -783,6 +783,17 @@ test('settings admin defaults to basic overview with advanced details collapsed'
 
   assert.doesNotMatch(indexHtml + uiJs, /<details[^>]*class="[^"]*settings-advanced[^"]*"[^>]*\sopen\b/, 'advanced settings details should be closed by default');
   assertContains(uiJs, '<button class="danger" name="delete" type="button">Delete</button>', 'delete control remains available inside query management');
+  assertContains(uiJs, "ingestButton.textContent = 'Import RSS Items'", 'RSS ingest remains reachable from Settings Content Sources');
+  assertOrdered(
+    uiJs,
+    [
+      /choose\.addEventListener\('click', async \(\) => \{/,
+      /state\.selectedProfileId = profile\.id/,
+      /savePipelineState\(\)/,
+      /await loadQueries\(\)/,
+    ],
+    'Load Search Queries should persist selected profile before loading queries',
+  );
   assertOrdered(
     uiJs,
     [
