@@ -236,7 +236,7 @@ Created queue:
 3. #124 — Replace expanded source-query cards with compact query management
 4. #125 — Compact AI role, prompt, schedule admin surfaces and readability
 
-Important sequencing note: #121 real Vertex Gemini final-audio production path merged via PR #126 on 2026-04-30, clearing the blocker for the declutter queue. The full declutter queue is now merged: #122 via PR #127, #123 via PR #128, #124 via PR #129, and #125 via PR #130. No declutter implementation agent is currently active. Before declaring the sprint fully done, run final merged-main verification and a local UI/UX dogfood audit from current `origin/main`.
+Important sequencing note: #121 real Vertex Gemini final-audio production path merged via PR #126 on 2026-04-30, clearing the blocker for the declutter queue. The full declutter queue is merged and final-verified: #122 via PR #127, #123 via PR #128, #124 via PR #129, and #125 via PR #130. Final merged-main verification passed on commit `79765785e5d07a7cbc2229dc2d002703c13493ad`: `npm run check`, `git diff --check`, local UI endpoint smoke, browser console checks, Produce Episode visual dogfood, and Settings/Admin AI + Automation tab smoke. No declutter implementation agent is currently active.
 
 Each declutter issue must preserve the static frontend stack, editorial integrity, source provenance, warnings, approval gates, and publish safety. Do not migrate to React/Next/Vite/Vue/Svelte. Do not run `npx jest`; use `npm run check` and `git diff --check`.
 
