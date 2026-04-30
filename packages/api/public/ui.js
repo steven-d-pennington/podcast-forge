@@ -1624,6 +1624,7 @@ function pruneExpandedPipelineStages(stages) {
 function syncCurrentPipelineStage(currentStageId) {
   if (state.currentPipelineStageId && state.currentPipelineStageId !== currentStageId) {
     state.expandedPipelineStageIds = [];
+    state.contextDisclosureOpen = {};
   }
   state.currentPipelineStageId = currentStageId;
 }
@@ -2022,7 +2023,7 @@ function stageCard(stage, currentStageId = '') {
 
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = stage.primary ? '' : 'secondary';
+  button.className = stage.id === currentStageId || stage.primary ? 'pipeline-primary-action' : 'secondary';
   button.textContent = stage.actionLabel;
   button.disabled = stage.disabled;
   button.title = stage.disabled ? (stage.actionReason || stage.next) : '';
@@ -2041,13 +2042,14 @@ function stageCard(stage, currentStageId = '') {
 
   body.append(artifacts, next, button, actionReason);
 
+  const secondaryActions = [];
   if (stage.targetId && panelIsAvailable(stage.targetId)) {
     const panelButton = document.createElement('button');
     panelButton.type = 'button';
     panelButton.className = 'secondary';
     panelButton.textContent = stage.panelActionLabel || `Review ${stage.title}`;
     panelButton.addEventListener('click', () => scrollToPanel(stage.targetId));
-    body.append(panelButton);
+    secondaryActions.push(panelButton);
   }
 
   if (stage.jobTypes?.length) {
@@ -2065,10 +2067,22 @@ function stageCard(stage, currentStageId = '') {
       jobReason.textContent = 'No task run has been recorded for this stage yet.';
       jobButton.title = jobReason.textContent;
       jobButton.setAttribute('aria-describedby', jobReasonId);
-      body.append(jobReason);
+      secondaryActions.push(jobReason);
     }
     jobButton.addEventListener('click', () => viewLatestJob(stage.jobTypes));
-    body.append(jobButton);
+    secondaryActions.push(jobButton);
+  }
+
+  if (secondaryActions.length > 0) {
+    const secondaryDisclosure = document.createElement('details');
+    secondaryDisclosure.className = 'pipeline-secondary-actions';
+    const secondarySummary = document.createElement('summary');
+    secondarySummary.textContent = 'More stage options';
+    const secondaryBody = document.createElement('div');
+    secondaryBody.className = 'pipeline-secondary-actions-body';
+    secondaryBody.append(...secondaryActions);
+    secondaryDisclosure.append(secondarySummary, secondaryBody);
+    body.append(secondaryDisclosure);
   }
 
   if (stage.id !== currentStageId) {
@@ -2180,6 +2194,42 @@ function appendSourceSummaryMetric(container, label, value, className = '') {
   container.append(item);
 }
 
+function contextDisclosureIsOpen(key, defaultOpen = false) {
+  return Object.prototype.hasOwnProperty.call(state.contextDisclosureOpen, key)
+    ? Boolean(state.contextDisclosureOpen[key])
+    : Boolean(defaultOpen);
+}
+
+function renderContextDisclosure(config, renderBody) {
+  const details = document.createElement('details');
+  details.className = `context-disclosure ${config.key || 'context'}${config.prominent ? ' prominent' : ''}`;
+  details.open = contextDisclosureIsOpen(config.key, config.defaultOpen);
+  details.addEventListener('toggle', () => {
+    state.contextDisclosureOpen[config.key] = details.open;
+  });
+
+  const summary = document.createElement('summary');
+  const label = document.createElement('span');
+  label.textContent = config.label || 'Details';
+  const text = document.createElement('strong');
+  text.textContent = config.summary || 'Details available';
+  summary.append(label, text);
+
+  const body = document.createElement('div');
+  body.className = 'context-disclosure-body';
+  const reason = document.createElement('p');
+  reason.className = 'context-disclosure-reason';
+  reason.textContent = config.reason || 'Details are available when needed.';
+  body.append(reason);
+  const renderedBody = renderBody();
+  if (renderedBody) {
+    body.append(renderedBody);
+  }
+
+  details.append(summary, body);
+  return details;
+}
+
 function renderStorySourceSummary(summary) {
   const panel = document.createElement('section');
   panel.className = `story-source-summary${summary?.discoveryReady === false ? ' blocked' : ''}`;
@@ -2227,6 +2277,26 @@ function renderStorySourceSummary(summary) {
 
   panel.append(header, metrics, action);
   return panel;
+}
+
+function renderStorySourceDisclosure(viewModel) {
+  const disclosure = viewModel.contextDisclosures?.storySource || {
+    key: 'storySource',
+    label: 'Story-source details',
+    summary: 'Story source details available.',
+    defaultOpen: false,
+  };
+  return renderContextDisclosure(disclosure, () => renderStorySourceSummary(viewModel.selectedStorySourceSummary));
+}
+
+function renderWorkflowFeedbackDisclosure(viewModel) {
+  const feedback = viewModel.workflowActionFeedback;
+  const disclosure = viewModel.contextDisclosures?.actionResult;
+  if (!feedback || feedback.status === 'idle' || !disclosure?.visible) {
+    return null;
+  }
+
+  return renderContextDisclosure(disclosure, () => renderWorkflowFeedbackPanel(feedback));
 }
 
 function archiveArtifactGroupLabel(key) {
@@ -2626,10 +2696,11 @@ function renderPipeline() {
     els.workflowContext.append(item);
   }
 
-  els.workflowContext.append(renderStorySourceSummary(viewModel.selectedStorySourceSummary));
+  els.workflowContext.append(renderStorySourceDisclosure(viewModel));
 
-  if (viewModel.workflowActionFeedback && viewModel.workflowActionFeedback.status !== 'idle') {
-    els.workflowContext.append(renderWorkflowFeedbackPanel(viewModel.workflowActionFeedback));
+  const feedbackDisclosure = renderWorkflowFeedbackDisclosure(viewModel);
+  if (feedbackDisclosure) {
+    els.workflowContext.append(feedbackDisclosure);
   }
 
   els.workflowContext.append(renderAuditHistoryDisclosure(viewModel));

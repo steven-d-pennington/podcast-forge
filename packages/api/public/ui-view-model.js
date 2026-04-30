@@ -1199,6 +1199,43 @@ function deriveCockpitHeader({
   };
 }
 
+function deriveContextDisclosures({
+  currentStage,
+  selectedStorySourceSummary,
+  workflowActionFeedback,
+}) {
+  const sourceDiscoveryIsCurrent = ['source', 'discover'].includes(currentStage?.id);
+  const sourceSummaryText = selectedStorySourceSummary
+    ? `${selectedStorySourceSummary.name} | ${selectedStorySourceSummary.providerType} | ${selectedStorySourceSummary.enabledQueryCount ?? 0} enabled input${selectedStorySourceSummary.enabledQueryCount === 1 ? '' : 's'}`
+    : 'No story source selected';
+  const feedbackIsVisible = Boolean(workflowActionFeedback && workflowActionFeedback.status !== 'idle');
+
+  return {
+    storySource: {
+      key: 'storySource',
+      label: sourceDiscoveryIsCurrent ? 'Source discovery setup' : 'Story-source details',
+      summary: sourceDiscoveryIsCurrent
+        ? (selectedStorySourceSummary?.nextActionDescription || 'Choose or run the current story source.')
+        : sourceSummaryText,
+      defaultOpen: sourceDiscoveryIsCurrent,
+      prominent: sourceDiscoveryIsCurrent,
+      reason: sourceDiscoveryIsCurrent
+        ? 'Source/search-recipe detail is current-stage work.'
+        : 'Source/search-recipe detail is available for audit without competing with the current stage.',
+    },
+    actionResult: {
+      key: 'actionResult',
+      label: 'Latest task result',
+      summary: feedbackIsVisible
+        ? workflowActionFeedback.message || workflowActionFeedback.conciseMessage || 'Task result available.'
+        : 'No task result recorded yet.',
+      defaultOpen: false,
+      visible: feedbackIsVisible,
+      reason: 'Run details stay available without adding another default status surface above the current workspace.',
+    },
+  };
+}
+
 function deriveHistoricalArtifacts({ activeIds, packets, scripts, revisions, assets, episodes }) {
   return {
     briefs: newest(packets).filter((packet) => packet.id !== activeIds.briefId).map((packet) => markArtifact(summarizeBrief(packet), 'archive')),
@@ -1355,6 +1392,12 @@ export function deriveProductionViewModel(input = {}) {
     primaryNextAction,
     latestActionResult: workflowActionFeedback,
   });
+  const selectedStorySourceSummary = summarizeSource(selectedSource, sourceQueries, jobs);
+  const contextDisclosures = deriveContextDisclosures({
+    currentStage,
+    selectedStorySourceSummary,
+    workflowActionFeedback,
+  });
   const scriptReviewWorkspace = summarizeScriptReviewWorkspace(
     activeScript,
     activeRevision,
@@ -1365,7 +1408,7 @@ export function deriveProductionViewModel(input = {}) {
 
   return {
     selectedShowSummary: summarizeShow(selectedShow),
-    selectedStorySourceSummary: summarizeSource(selectedSource, sourceQueries, jobs),
+    selectedStorySourceSummary,
     selectedCandidateStorySummary: summarizeCandidates(selectedCandidates),
     activeDraftEpisodeSummary: activeEpisode && activeEpisode.status !== 'published' ? summarizeEpisode(activeEpisode) : null,
     currentStage: {
@@ -1384,6 +1427,7 @@ export function deriveProductionViewModel(input = {}) {
     secondaryActions,
     navigationActions,
     cockpitHeader,
+    contextDisclosures,
     latestActionResult: workflowActionFeedback,
     workflowActionFeedback,
     warnings,
