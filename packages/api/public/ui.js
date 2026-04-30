@@ -3323,6 +3323,45 @@ function appendSettingsChip(container, label, value) {
   container.append(item);
 }
 
+function countLabel(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function modelRoleSummary(profile, params = asObject(profile.config?.params)) {
+  return [
+    ['Role key', formatRole(profile.role)],
+    ['Agent instructions', profile.promptTemplateKey ? 'custom prompt selected' : 'default prompt'],
+    ['Fallbacks', countLabel(asArray(profile.fallbacks).length, 'fallback')],
+    ['Budget guard', profile.budgetUsd === null || profile.budgetUsd === undefined ? 'not configured' : 'configured'],
+    ['Reasoning', typeof params.reasoningEffort === 'string' ? 'configured' : 'default'],
+  ];
+}
+
+function promptTemplateSummary(template) {
+  const body = String(template.body || '');
+  return [
+    ['Role', formatRole(template.role)],
+    ['Key', template.key],
+    ['Version', template.version],
+    ['Output format', template.outputFormat],
+    ['Schema', template.outputSchemaName || 'none'],
+    ['Body length', countLabel(body.length, 'character')],
+    ['Variables', countLabel(asArray(template.inputVariables).length, 'variable')],
+  ];
+}
+
+function failedRunForPipeline(pipeline) {
+  return state.failedScheduledRuns.find((job) => {
+    const input = asObject(job.input);
+    return input.scheduledPipelineSlug === pipeline.slug
+      || input.scheduledPipelineId === pipeline.id;
+  }) || null;
+}
+
+function scheduleFailureSummary(job) {
+  return job ? `failed ${formatTime(job.updatedAt)}` : 'none recorded';
+}
+
 function setActiveSettingsTab(tab) {
   if (!SETTINGS_TAB_PANELS[tab]) {
     return;
@@ -3776,8 +3815,9 @@ function renderSettingsModels() {
           <h3></h3>
           <p class="help"></p>
         </div>
+        <span class="status-pill neutral">advanced edit closed</span>
       </div>
-      <div class="settings-kv"></div>
+      <div class="settings-kv settings-summary-kv"></div>
       <details class="settings-advanced">
         <summary>Advanced model/provider routing</summary>
         <div class="grid">
@@ -3796,8 +3836,9 @@ function renderSettingsModels() {
     form.querySelector('h3').textContent = info.title;
     form.querySelector('.help').textContent = info.description;
     const kv = form.querySelector('.settings-kv');
-    appendSettingsChip(kv, 'Role key', formatRole(profile.role));
-    appendSettingsChip(kv, 'Routing', 'collapsed in Advanced model/provider routing');
+    for (const [label, value] of modelRoleSummary(profile, params)) {
+      appendSettingsChip(kv, label, value);
+    }
     form.elements.provider.value = profile.provider;
     form.elements.model.value = profile.model;
     form.elements.promptTemplateKey.value = profile.promptTemplateKey || '';
@@ -3848,8 +3889,9 @@ function renderSettingsPrompts() {
         </div>
         <span class="status-pill ready"></span>
       </div>
+      <div class="settings-kv settings-summary-kv"></div>
       <details class="settings-advanced">
-        <summary>Prompt internals and output schema</summary>
+        <summary>Advanced prompt body and output schema</summary>
         <div class="settings-kv"></div>
         <label class="field"><span>Agent instructions</span><textarea rows="8" readonly></textarea></label>
         <details class="debug-details"><summary>Output schema summary</summary><pre></pre></details>
@@ -3858,7 +3900,11 @@ function renderSettingsPrompts() {
     card.querySelector('h3').textContent = template.title || template.key;
     card.querySelector('.help').textContent = template.description || 'No description recorded.';
     card.querySelector('.status-pill').textContent = template.showId ? 'show override' : 'global default';
-    const kv = card.querySelector('.settings-kv');
+    const summaryKv = card.querySelector('.settings-summary-kv');
+    for (const [label, value] of promptTemplateSummary(template)) {
+      appendSettingsChip(summaryKv, label, value);
+    }
+    const advancedKv = card.querySelector('.settings-advanced .settings-kv');
     for (const [label, value] of [
       ['Role', formatRole(template.role)],
       ['Key', template.key],
@@ -3866,9 +3912,7 @@ function renderSettingsPrompts() {
       ['Output format', template.outputFormat],
       ['Schema', template.outputSchemaName || 'none'],
     ]) {
-      const item = document.createElement('span');
-      item.textContent = `${label}: ${value}`;
-      kv.append(item);
+      appendSettingsChip(advancedKv, label, value);
     }
     card.querySelector('textarea').value = template.body || '';
     card.querySelector('pre').textContent = JSON.stringify(sanitizedDebug({
@@ -3979,7 +4023,7 @@ function renderSettingsSchedules() {
 
   els.settingsSchedules.append(settingsOverview(
     'Automation',
-    'Review whether scheduled work is enabled and whether publishing is allowed unattended. Cron, workflow, and manual run controls are collapsed by default.',
+    'Review whether scheduled work is enabled, when it runs next, and whether it failed recently. Cron, workflow, and autopublish controls are collapsed by default.',
   ));
 
   if (state.scheduledPipelines.length === 0) {
@@ -3987,37 +4031,44 @@ function renderSettingsSchedules() {
   }
 
   for (const pipeline of state.scheduledPipelines) {
+    const nextRun = pipeline.nextRunAt ? formatTime(pipeline.nextRunAt) : 'not scheduled';
+    const failedRun = failedRunForPipeline(pipeline);
     const form = document.createElement('form');
     form.className = 'settings-card settings-form';
     form.innerHTML = `
       <div class="settings-card-heading">
         <div>
           <h3></h3>
-          <p class="help">Routine automation review shows whether the run is enabled. Cron, workflow, manual run, and autopublish controls are advanced.</p>
+          <p class="help">Run status is visible first. Cron, workflow, and autopublish controls stay in advanced editing.</p>
         </div>
-        <button type="submit">Save Schedule</button>
+        <button class="secondary" name="run" type="button">Run Now</button>
       </div>
-      <div class="grid">
-        <label class="field"><span>Name</span><input name="name" type="text" required></label>
-        <label class="toggle admin-toggle"><input name="enabled" type="checkbox"><span>Enabled</span></label>
-      </div>
+      <div class="settings-kv settings-summary-kv"></div>
       <details class="settings-advanced">
         <summary>Advanced schedule workflow and publish controls</summary>
         <div class="grid">
+          <label class="field"><span>Name</span><input name="name" type="text" required></label>
           <label class="field"><span>Slug</span><input name="slug" type="text" required></label>
           <label class="field"><span>Cron</span><input name="cron" type="text" required></label>
           <label class="field"><span>Timezone</span><input name="timezone" type="text" required></label>
           <label class="field"><span>Workflow</span><input name="workflow" type="text" required></label>
+          <label class="toggle admin-toggle"><input name="enabled" type="checkbox"><span>Enabled</span></label>
           <label class="toggle admin-toggle"><input name="autopublish" type="checkbox"><span>Autopublish</span></label>
         </div>
         <p class="settings-note">Autopublish should stay off unless the show is explicitly approved for unattended publishing.</p>
-        <div class="actions inline">
-          <button class="secondary" name="run" type="button">Run Now</button>
-        </div>
+        <div class="actions inline"><button type="submit">Save Schedule</button></div>
       </details>
     `;
-    const nextRun = pipeline.nextRunAt ? new Date(pipeline.nextRunAt).toLocaleString() : 'not scheduled';
-    form.querySelector('h3').textContent = `${pipeline.name} | next ${nextRun}`;
+    form.querySelector('h3').textContent = pipeline.name;
+    const summaryKv = form.querySelector('.settings-summary-kv');
+    for (const [label, value] of [
+      ['Status', pipeline.enabled ? 'enabled' : 'disabled'],
+      ['Next run', nextRun],
+      ['Last failure', scheduleFailureSummary(failedRun)],
+      ['Publishing', pipeline.autopublish ? 'autopublish configured' : 'approval required'],
+    ]) {
+      appendSettingsChip(summaryKv, label, value);
+    }
     form.elements.name.value = pipeline.name;
     form.elements.slug.value = pipeline.slug;
     form.elements.cron.value = pipeline.cron;
