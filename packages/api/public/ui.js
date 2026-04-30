@@ -60,6 +60,10 @@ function reportError(error, fallback = 'Something went wrong. Open technical det
   return fallback;
 }
 
+function firstPresent(...values) {
+  return values.find((value) => typeof value === 'string' && value.trim())?.trim() || '';
+}
+
 function openConfirmationDialog({
   title,
   description,
