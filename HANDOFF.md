@@ -236,7 +236,7 @@ Created queue:
 3. #124 — Replace expanded source-query cards with compact query management
 4. #125 — Compact AI role, prompt, schedule admin surfaces and readability
 
-Important sequencing note: #121 real Vertex Gemini final-audio production path merged via PR #126 on 2026-04-30, clearing the blocker for the declutter queue. #122 merged via PR #127 on 2026-04-30. #123 is now the active declutter implementation on branch `issue-123-settings-basic-advanced` in worktree `/home/steven/clawd/worktrees/podcast-forge-issue-123` with log `/home/steven/clawd/logs/podcast-forge-issue-123-settings-basic-advanced.log`. #123/#124/#125 touch `ui.js`, so run these UI declutter tasks sequentially unless the diff scopes are proven independent.
+Important sequencing note: #121 real Vertex Gemini final-audio production path merged via PR #126 on 2026-04-30, clearing the blocker for the declutter queue. #122 merged via PR #127 on 2026-04-30. #123 merged via PR #128 on 2026-04-30. #124 is now the active declutter implementation on branch `issue-124-compact-query-management` in worktree `/home/steven/clawd/worktrees/podcast-forge-issue-124` with log `/home/steven/clawd/logs/podcast-forge-issue-124-compact-query-management.log`. #124/#125 touch `ui.js`, so run these UI declutter tasks sequentially unless the diff scopes are proven independent.
 
 Each declutter issue must preserve the static frontend stack, editorial integrity, source provenance, warnings, approval gates, and publish safety. Do not migrate to React/Next/Vite/Vue/Svelte. Do not run `npx jest`; use `npm run check` and `git diff --check`.
 
