@@ -218,6 +218,28 @@ Podcast Forge is an active managed sprint. Do **not** rely on session memory to 
 - Rough second-pass UI direction: `docs/prototypes/second-pass-rough-ui-prototype.html` (rough draft only; preserve workflow/product intent, do not copy verbatim)
 - Review/comment shepherd state: `~/clawd/data/pr-comment-shepherd/` and `~/clawd/data/pr-shepherd/`
 
+## Active declutter sprint — 2026-04-29
+
+Steven requested another deep dogfood/product pass focused on decluttering Produce Episode and collapsing Settings/Admin complexity behind advanced settings.
+
+Audit artifacts:
+
+- Sprint plan: `~/clawd/data/podcast-forge-declutter-sprint-2026-04-29/SPRINT_PLAN.md`
+- Sprint state: `~/clawd/data/podcast-forge-declutter-sprint-2026-04-29/sprint-state.json`
+- Mirrored current queue: `~/clawd/data/podcast-forge-sprint-state.json`
+- Impeccable raw output: `~/clawd/data/podcast-forge-declutter-sprint-2026-04-29/impeccable_url.raw.txt`
+
+Created queue:
+
+1. #122 — Focus Produce Episode around one current-stage workspace
+2. #123 — Collapse Settings/Admin into Basic vs Advanced sections
+3. #124 — Replace expanded source-query cards with compact query management
+4. #125 — Compact AI role, prompt, schedule admin surfaces and readability
+
+Important sequencing note: #121 real Vertex Gemini final-audio production path is already running in a separate worktree and may touch production/audio UI. Avoid launching #122 while #121 is still active unless a human explicitly accepts the `ui.js` conflict risk. If #121 opens a PR, verify/shepherd/merge it first, then launch #122. #123/#124/#125 also touch `ui.js`, so run these UI declutter tasks sequentially unless the diff scopes are proven independent.
+
+Each declutter issue must preserve the static frontend stack, editorial integrity, source provenance, warnings, approval gates, and publish safety. Do not migrate to React/Next/Vite/Vue/Svelte. Do not run `npx jest`; use `npm run check` and `git diff --check`.
+
 Every heartbeat or resume should:
 
 1. Check GitHub PRs/issues first; GitHub is truth.
