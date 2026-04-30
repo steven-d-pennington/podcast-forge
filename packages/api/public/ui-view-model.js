@@ -373,7 +373,7 @@ function summarizeAsset(asset) {
 }
 
 function summarizeAudioCover(assets) {
-  const latestAudio = latest(asArray(assets).filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'));
+  const latestAudio = latest(asArray(assets).filter((asset) => asset.type === 'audio-final'));
   const latestCover = latest(asArray(assets).filter((asset) => asset.type === 'cover-art'));
 
   if (!latestAudio && !latestCover) {
@@ -411,7 +411,7 @@ function summarizeEpisode(episode) {
 }
 
 function summarizeAudioCoverReviewWorkspace(activeAssets, historicalAudioCover) {
-  const audio = latest(asArray(activeAssets).filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'));
+  const audio = latest(asArray(activeAssets).filter((asset) => asset.type === 'audio-final'));
   const cover = latest(asArray(activeAssets).filter((asset) => asset.type === 'cover-art'));
   const archived = asArray(historicalAudioCover);
   return {
@@ -422,9 +422,9 @@ function summarizeAudioCoverReviewWorkspace(activeAssets, historicalAudioCover) 
     },
     archived,
     emptyState: audio || cover
-      ? 'One active/current production asset is missing. Create the missing preview MP3 or cover art before publish approval.'
+      ? 'One active/current production asset is missing. Create the missing final audio or cover art before publish approval.'
       : 'No active/current audio or cover assets are selected for this production path.',
-    recoveryAction: 'Approve the current script revision with a non-blocking integrity review, then create missing audio and cover assets.',
+    recoveryAction: 'Approve the current script revision with a non-blocking integrity review, then create missing final audio and cover assets.',
     archiveNote: archived.length > 0
       ? 'History/archive assets remain available for audit only and are not used by publish approval.'
       : 'No history/archive audio or cover assets are attached to this path.',
@@ -466,6 +466,7 @@ function jobResultStage(job) {
     'script.generate': 'script',
     'script.integrity_review': 'review',
     'audio.preview': 'production',
+    'audio.final': 'production',
     'art.generate': 'production',
     'publish.rss': 'publishing',
   }[job?.type] || 'workflow';
@@ -479,6 +480,7 @@ function jobResultLabel(job) {
     'script.generate': 'Script generation',
     'script.integrity_review': 'Integrity review',
     'audio.preview': 'Preview audio',
+    'audio.final': 'Final audio',
     'art.generate': 'Cover art',
     'publish.rss': 'RSS publishing',
   }[job?.type] || job?.type || 'Task run';
@@ -555,6 +557,7 @@ function jobResultNextStep(job) {
       'script.generate': 'Select a ready research brief and review task details before retrying script generation.',
       'script.integrity_review': 'Inspect review details, revise unsupported claims, then rerun the integrity reviewer.',
       'audio.preview': 'Review the selected approved script and provider details before retrying preview audio.',
+      'audio.final': 'Review the selected approved script, Vertex provider configuration, and finalization details before retrying final audio.',
       'art.generate': 'Review cover prompt/provider details before retrying cover art.',
       'publish.rss': 'Complete publish approval, asset, and public URL checks before retrying RSS publishing.',
     }[job.type] || 'Open task details for logs and retry guidance.';
@@ -576,8 +579,12 @@ function jobResultNextStep(job) {
     return 'Review the draft, run integrity review, and approve a revision before production.';
   }
 
-  if (job.type === 'audio.preview' || job.type === 'art.generate') {
-    return 'Review active audio and cover assets before publish approval.';
+  if (job.type === 'audio.preview') {
+    return 'Review the preview MP3 for script pacing, then create final audio before publish approval.';
+  }
+
+  if (job.type === 'audio.final' || job.type === 'art.generate') {
+    return 'Review active final audio and cover assets before publish approval.';
   }
 
   if (job.type === 'publish.rss') {
@@ -780,7 +787,7 @@ function selectedFeed(feeds, episode, show) {
 }
 
 function publishChecklist({ packet, script, revision, episode, assets, feed, jobs }) {
-  const audio = latest(asArray(assets).filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'));
+  const audio = latest(asArray(assets).filter((asset) => asset.type === 'audio-final'));
   const cover = latest(asArray(assets).filter((asset) => asset.type === 'cover-art'));
   const researchWarnings = unresolvedResearchWarnings(packet);
   const prodWarnings = productionWarnings(episode, assets, jobs);
@@ -828,9 +835,9 @@ function publishChecklist({ packet, script, revision, episode, assets, feed, job
     },
     {
       key: 'audio',
-      label: 'Valid audio asset exists',
+      label: 'Publishable final audio asset exists',
       passed: audioValid,
-      reason: audio ? (audioValid ? 'Audio asset metadata is usable.' : 'Audio asset metadata is incomplete or invalid.') : 'Create a preview MP3 or attach final audio.',
+      reason: audio ? (audioValid ? 'Final audio metadata is usable.' : 'Final audio metadata is incomplete or invalid.') : 'Create final audio before publish approval. Preview MP3s are for review only.',
     },
     {
       key: 'cover',
@@ -914,7 +921,7 @@ function deriveStages(context) {
   const unresolvedBriefWarnings = unresolvedResearchWarnings(activeBrief);
   const briefNeedsReview = Boolean(activeBrief && unresolvedBriefWarnings.length > 0);
   const briefReady = researchReady(activeBrief);
-  const audio = latest(assets.filter((asset) => asset.type === 'audio-final' || asset.type === 'audio-preview'));
+  const audio = latest(assets.filter((asset) => asset.type === 'audio-final'));
   const cover = latest(assets.filter((asset) => asset.type === 'cover-art'));
   const checklist = publishChecklist({
     packet: activeBrief,
@@ -977,7 +984,7 @@ function deriveStages(context) {
   } else if (!scriptApproved) {
     primaryNextAction = action('Approve script for audio', 'review', true);
   } else if (!audio || !cover) {
-    primaryNextAction = action(`Create missing ${audio ? 'cover art' : cover ? 'audio' : 'audio and cover art'}`, 'production', readyForProduction);
+    primaryNextAction = action(`Create missing ${audio ? 'cover art' : cover ? 'final audio' : 'final audio and cover art'}`, 'production', readyForProduction);
   } else if (activeEpisode?.status === 'approved-for-publish') {
     primaryNextAction = action(
       'Publish to RSS',
@@ -1381,6 +1388,7 @@ export function deriveProductionViewModel(input = {}) {
     workflowActionFeedback,
     warnings,
     blockers,
+    checklist,
     visibility: {
       workflow: true,
       settings: input.activeSurface === 'settings',

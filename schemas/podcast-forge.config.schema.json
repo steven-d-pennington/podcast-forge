@@ -82,6 +82,13 @@
       "type": "object",
       "properties": {
         "ttsProvider": { "type": "string" },
+        "vertexProjectId": { "type": "string" },
+        "vertexLocation": { "type": "string" },
+        "vertexTtsModel": { "type": "string" },
+        "vertexTtsEndpoint": { "type": "string" },
+        "vertexTtsTimeoutMs": { "type": "integer", "minimum": 1 },
+        "vertexTtsSampleRateHz": { "type": "integer", "minimum": 1 },
+        "vertexTtsMaxInputChars": { "type": "integer", "minimum": 100 },
         "artProvider": { "type": "string" },
         "storage": { "enum": ["local", "s3", "r2"] },
         "rssFeedPath": { "type": "string" },

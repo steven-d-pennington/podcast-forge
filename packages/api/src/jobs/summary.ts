@@ -184,11 +184,11 @@ function retryInfo(job: JobRecord): JobRetryInfo {
   }
 
   const scriptId = asRecord(job.input).scriptId;
-  if ((job.type === 'audio.preview' || job.type === 'art.generate') && typeof scriptId === 'string') {
+  if ((job.type === 'audio.preview' || job.type === 'audio.final' || job.type === 'art.generate') && typeof scriptId === 'string') {
     return {
       supported: true,
       method: 'POST',
-      endpoint: `/scripts/${scriptId}/production/${job.type === 'audio.preview' ? 'audio-preview' : 'cover-art'}`,
+      endpoint: `/scripts/${scriptId}/production/${job.type === 'audio.preview' ? 'audio-preview' : job.type === 'audio.final' ? 'audio-final' : 'cover-art'}`,
       reason: 'Creates a new production task from the approved script revision.',
     };
   }

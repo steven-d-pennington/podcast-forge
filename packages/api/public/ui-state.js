@@ -179,6 +179,7 @@ export const els = {
   productionPanel: document.querySelector('#productionPanel'),
   productionMeta: document.querySelector('#productionMeta'),
   generateAudioPreview: document.querySelector('#generateAudioPreview'),
+  generateFinalAudio: document.querySelector('#generateFinalAudio'),
   generateCoverArt: document.querySelector('#generateCoverArt'),
   productionJobs: document.querySelector('#productionJobs'),
   productionAssets: document.querySelector('#productionAssets'),

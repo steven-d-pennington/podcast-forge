@@ -21,6 +21,8 @@ import {
   deterministicAudioPreviewProvider,
   deterministicCoverArtProvider,
   localAssetRoot,
+  vertexGeminiTtsFinalAudioProvider,
+  type AudioFinalProvider,
   type AudioPreviewProvider,
   type CoverArtProvider,
   type GeneratedProductionAsset,
@@ -67,6 +69,7 @@ export interface ProductionRoutesOptions {
     & Partial<ProductionStore>;
   llmRuntime?: LlmRuntime;
   audioPreviewProvider?: AudioPreviewProvider;
+  audioFinalProvider?: AudioFinalProvider;
   coverArtProvider?: CoverArtProvider;
   publishStorageAdapterFactory?: (feed: FeedRecord) => PublishStorageAdapter;
   rssUpdateAdapter?: RssUpdateAdapter;
@@ -531,7 +534,7 @@ function assertRevisionReadyForAudio(revision: ScriptRevisionRecord) {
 }
 
 function assertEpisodeReadyForPublishApproval(episode: EpisodeRecord) {
-  if (!['audio-ready', 'approved-for-publish', 'published'].includes(episode.status)) {
+  if (!['approved-for-audio', 'audio-ready', 'approved-for-publish', 'published'].includes(episode.status)) {
     throw new ApiError(409, 'EPISODE_NOT_AUDIO_READY', 'Episode must have production audio before publish approval.');
   }
 }
@@ -735,7 +738,7 @@ async function resolveCoverPrompt(input: {
 
 function assetInput(
   episode: EpisodeRecord,
-  type: 'audio-preview' | 'cover-art',
+  type: 'audio-preview' | 'audio-final' | 'cover-art',
   generated: GeneratedProductionAsset,
   metadata: Record<string, unknown>,
 ): CreateEpisodeAssetInput {
@@ -941,7 +944,7 @@ function publishBlockers(
   researchPacket?: ResearchPacketRecord | null,
 ): PublishBlockedReason[] {
   const blockers: PublishBlockedReason[] = [];
-  const audioAsset = assets.find((asset) => ['audio-final', 'audio-preview'].includes(asset.type));
+  const audioAsset = assets.find((asset) => asset.type === 'audio-final');
   const coverAsset = assets.find((asset) => asset.type === 'cover-art');
 
   if (episode.status === 'published' && episode.feedGuid && !options.republish) {
@@ -992,8 +995,8 @@ function publishBlockers(
 
   if (!audioAsset) {
     blockers.push({
-      code: 'AUDIO_ASSET_REQUIRED',
-      message: 'Episode is missing required audio asset.',
+      code: 'AUDIO_FINAL_ASSET_REQUIRED',
+      message: 'Episode is missing required final audio asset.',
     });
   } else {
     if (!audioAsset.mimeType?.startsWith('audio/')) {
@@ -1108,6 +1111,7 @@ function feedGuid(episode: EpisodeRecord, feed: FeedRecord) {
 
 export function registerProductionRoutes(app: FastifyInstance, options: ProductionRoutesOptions) {
   const audioPreviewProvider = options.audioPreviewProvider ?? deterministicAudioPreviewProvider;
+  const audioFinalProvider = options.audioFinalProvider ?? vertexGeminiTtsFinalAudioProvider;
   const coverArtProvider = options.coverArtProvider ?? deterministicCoverArtProvider;
   const rssUpdateAdapter = options.rssUpdateAdapter ?? localRssUpdateAdapter;
   const urlValidator = options.publishUrlValidator ?? strictPublicUrlValidator;
@@ -1141,7 +1145,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
 
       const episode = await productionStore.getEpisodeForScript(script.id, script.researchPacketId);
       const assets = episode ? await productionStore.listEpisodeAssets(episode.id) : [];
-      const jobs = episode ? await jobStore.listJobs({ episodeId: episode.id, types: ['audio.preview', 'art.generate'] }) : [];
+      const jobs = episode ? await jobStore.listJobs({ episodeId: episode.id, types: ['audio.preview', 'audio.final', 'art.generate'] }) : [];
 
       return { ok: true, episode, assets, jobs };
     } catch (error) {
@@ -1266,7 +1270,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
         });
       }
 
-      const audioAsset = selectAsset(assets, ['audio-final', 'audio-preview'], 'audio');
+      const audioAsset = selectAsset(assets, ['audio-final'], 'final audio');
       const coverAsset = selectAsset(assets, ['cover-art'], 'cover art');
       const guid = feedGuid(episode, feed);
       const expectedRssUrl = resolvedRssPublicUrl(feed) ?? '';
@@ -1590,11 +1594,15 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
       const warnings = revisionWarnings(revision);
       const integrityReview = integrityGateState(revision);
 
+      const previewProvider = 'local-espeak-preview';
+      const configuredProvider = production.ttsProvider ?? null;
+
       logs.push(log('info', 'Starting audio.preview job.', {
         scriptId: script.id,
         revisionId: revision.id,
         episodeId: episode.id,
-        provider: production.ttsProvider ?? 'vertex-gemini-tts',
+        provider: previewProvider,
+        configuredProvider,
         warningCount: warnings.length,
         integrityStatus: integrityReview.status,
       }));
@@ -1609,7 +1617,8 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
           scriptId: script.id,
           revisionId: revision.id,
           episodeId: episode.id,
-          provider: production.ttsProvider ?? 'vertex-gemini-tts',
+          provider: previewProvider,
+          configuredProvider,
           actor: body.actor,
           retryOfJobId: body.retryOfJobId,
           stage,
@@ -1621,7 +1630,7 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
       });
 
       stage = 'rendering-audio';
-      logs.push(log('info', 'Rendering preview audio.', { provider: production.ttsProvider ?? 'vertex-gemini-tts' }));
+      logs.push(log('info', 'Rendering preview audio.', { provider: previewProvider, configuredProvider }));
       job = await updateJob(jobStore, job.id, { progress: 45, logs, output: { stage } }) ?? job;
       const generated = await audioPreviewProvider.generatePreviewAudio({
         show,
@@ -1640,7 +1649,6 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
         integrityReview,
       }));
       const updatedEpisode = await productionStore.updateEpisodeProduction(episode.id, {
-        status: 'audio-ready',
         durationSeconds: asset.durationSeconds,
         metadata: {
           ...episode.metadata,
@@ -1681,6 +1689,142 @@ export function registerProductionRoutes(app: FastifyInstance, options: Producti
     } catch (error) {
       if (jobStore && job) {
         const message = error instanceof Error ? error.message : 'Audio preview job failed.';
+        logs.push(log('error', message));
+        job = await updateJob(jobStore, job.id, {
+          status: 'failed',
+          progress: job.progress,
+          logs,
+          error: message,
+          output: failureOutput(stage, error, {
+            scriptId: request.params.id,
+            provider: job.input.provider,
+          }),
+          finishedAt: new Date(),
+        }) ?? job;
+      }
+
+      return sendError(reply, error, job);
+    }
+  });
+
+  app.post<{ Params: { id: string } }>('/scripts/:id/production/audio-final', async (request, reply) => {
+    let job: JobRecord | undefined;
+    let jobStore: Pick<SearchJobStore, 'createJob' | 'updateJob'> | undefined;
+    const logs: Array<Record<string, unknown>> = [];
+    let stage = 'initializing';
+
+    try {
+      const rawStore = options.getStore();
+      const body = requestSchema.parse(request.body ?? {});
+      const scriptStore = requireScriptStore(rawStore);
+      const productionStore = requireProductionStore(rawStore);
+      jobStore = requireJobStore(rawStore);
+      const { script, revision } = await loadApprovedScript(scriptStore, request.params.id);
+      const show = await getShow(rawStore, script.showId);
+      const episode = await getOrCreateEpisode(productionStore, script, revision);
+      const production = productionConfig(show);
+      const warnings = revisionWarnings(revision);
+      const integrityReview = integrityGateState(revision);
+
+      logs.push(log('info', 'Starting audio.final job.', {
+        scriptId: script.id,
+        revisionId: revision.id,
+        episodeId: episode.id,
+        provider: production.ttsProvider ?? 'vertex-gemini-tts',
+        warningCount: warnings.length,
+        integrityStatus: integrityReview.status,
+      }));
+      job = await createJob(jobStore, {
+        showId: script.showId,
+        episodeId: episode.id,
+        type: 'audio.final',
+        status: 'running',
+        progress: 5,
+        attempts: 1,
+        input: {
+          scriptId: script.id,
+          revisionId: revision.id,
+          episodeId: episode.id,
+          provider: production.ttsProvider ?? 'vertex-gemini-tts',
+          actor: body.actor,
+          retryOfJobId: body.retryOfJobId,
+          stage,
+          warnings,
+          integrityReview,
+        },
+        logs,
+        startedAt: new Date(),
+      });
+
+      stage = 'rendering-final-audio';
+      logs.push(log('info', 'Rendering final audio.', { provider: production.ttsProvider ?? 'vertex-gemini-tts' }));
+      job = await updateJob(jobStore, job.id, { progress: 40, logs, output: { stage } }) ?? job;
+      const generated = await audioFinalProvider.generateFinalAudio({
+        show,
+        script,
+        revision,
+        episodeId: episode.id,
+        episodeSlug: episode.slug,
+        production,
+      });
+      const generatedWarnings = Array.isArray(generated.metadata?.warnings)
+        ? generated.metadata.warnings.filter((warning): warning is Record<string, unknown> => {
+            return Boolean(warning && typeof warning === 'object' && !Array.isArray(warning));
+          })
+        : [];
+      const allWarnings = [...warnings, ...generatedWarnings];
+
+      stage = 'persisting-asset';
+      const asset = await productionStore.createEpisodeAsset(assetInput(episode, 'audio-final', generated, {
+        scriptId: script.id,
+        revisionId: revision.id,
+        jobId: job.id,
+        warnings: allWarnings,
+        integrityReview,
+      }));
+      const updatedEpisode = await productionStore.updateEpisodeProduction(episode.id, {
+        status: 'audio-ready',
+        durationSeconds: asset.durationSeconds,
+        metadata: {
+          ...episode.metadata,
+          scriptId: script.id,
+          approvedRevisionId: revision.id,
+          audioFinalAssetId: asset.id,
+        },
+      }) ?? episode;
+
+      logs.push(log('info', 'Completed audio.final job.', {
+        assetId: asset.id,
+        publicUrl: asset.publicUrl,
+      }));
+      job = await updateJob(jobStore, job.id, {
+        status: 'succeeded',
+        progress: 100,
+        logs,
+        output: {
+          stage: 'completed',
+          episodeId: updatedEpisode.id,
+          assetId: asset.id,
+          publicUrl: asset.publicUrl,
+          objectKey: asset.objectKey,
+          durationSeconds: asset.durationSeconds,
+          byteSize: asset.byteSize,
+          mimeType: asset.mimeType,
+          checksum: asset.checksum,
+          provider: asset.metadata.provider,
+          adapter: asset.metadata.adapter,
+          adapterKind: asset.metadata.adapterKind,
+          retryable: false,
+          warnings: allWarnings,
+          integrityReview,
+        },
+        finishedAt: new Date(),
+      }) ?? job;
+
+      return reply.code(201).send({ ok: true, job, episode: updatedEpisode, asset });
+    } catch (error) {
+      if (jobStore && job) {
+        const message = error instanceof Error ? error.message : 'Final audio job failed.';
         logs.push(log('error', message));
         job = await updateJob(jobStore, job.id, {
           status: 'failed',

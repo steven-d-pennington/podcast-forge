@@ -45,6 +45,13 @@ export interface ModelConfig {
 
 export interface ProductionConfig {
   ttsProvider?: string;
+  vertexProjectId?: string;
+  vertexLocation?: string;
+  vertexTtsModel?: string;
+  vertexTtsEndpoint?: string;
+  vertexTtsTimeoutMs?: number;
+  vertexTtsSampleRateHz?: number;
+  vertexTtsMaxInputChars?: number;
   artProvider?: string;
   storage?: 'local' | 's3' | 'r2';
   rssFeedPath?: string;

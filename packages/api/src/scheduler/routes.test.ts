@@ -415,7 +415,7 @@ describe('scheduler routes', () => {
     assert.equal(body.job.input.triggeredBy, 'dashboard-user');
     assert.deepEqual(
       body.stageJobs.map((job: JobRecord) => job.type),
-      ['source.ingest', 'research.packet', 'script.generate', 'audio.preview', 'publish.rss'],
+      ['source.ingest', 'research.packet', 'script.generate', 'audio.final', 'publish.rss'],
     );
     assert.equal(body.stageJobs[0].status, 'succeeded');
     assert.equal(body.job.output.stageStatuses[0].stage, null);

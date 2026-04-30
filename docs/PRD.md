@@ -146,6 +146,7 @@ Each role should support:
 ### 6.7 Audio/art production
 
 - Generate preview audio from approved script.
+- Generate publishable final audio from approved script; preview audio is review-only.
 - Generate cover art or use uploaded art.
 - Track production jobs with logs/progress.
 - Support multiple TTS providers via adapter:

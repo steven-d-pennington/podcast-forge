@@ -44,6 +44,7 @@ user-facing labels in the app.
 - `script.generate`
 - `script.polish`
 - `audio.preview`
+- `audio.final`
 - `art.generate`
 - `publish.rss`
 - `analytics.sync`
@@ -94,6 +95,7 @@ Recommended object keys:
 ```text
 shows/{showSlug}/episodes/{episodeSlug}/script.txt
 shows/{showSlug}/episodes/{episodeSlug}/audio-preview.mp3
+shows/{showSlug}/episodes/{episodeSlug}/audio-final.mp3
 shows/{showSlug}/episodes/{episodeSlug}/cover.png
 shows/{showSlug}/sources/{sourceDocumentId}.md
 shows/{showSlug}/research/{researchPacketId}.json
@@ -103,7 +105,7 @@ shows/{showSlug}/research/{researchPacketId}.json
 
 Public publishing requires:
 
-- episode has approved script or approved preview audio.
+- episode has an approved script, non-blocking or explicitly overridden integrity review, and publishable final audio.
 - required assets exist.
 - asset and feed public URLs are valid HTTP(S) when configured.
 - research warnings resolved or explicitly overridden.
@@ -119,10 +121,13 @@ Scheduled pipeline publishing follows the same rule. A recurring pipeline can
 prepare or queue publish work, but RSS publication stays blocked on approval
 unless the schedule is explicitly configured for autopublish.
 
-Production adapters are injectable. The default development adapters are
-deterministic local fakes that create placeholder files and persist local path,
-object key, URL, duration, size, MIME, checksum, provider, adapter, warnings,
-and prompt metadata. Real TTS/image/storage/RSS adapters should stay behind the
+Production adapters are injectable. Preview audio and default cover art remain
+deterministic local development adapters that persist local path, object key,
+URL, duration, size, MIME, checksum, provider, adapter, warnings, and prompt
+metadata. Preview audio is review-only and does not satisfy RSS publishing
+readiness. Final audio uses the configured final-audio adapter, with
+`vertex-gemini-tts` routed through the Vertex Gemini TTS provider to create an
+`audio-final` asset. Real TTS/image/storage/RSS adapters should stay behind the
 same contracts so tests can continue to run without live provider calls.
 
 Publishing is idempotent by episode/feed GUID. A second publish call for an

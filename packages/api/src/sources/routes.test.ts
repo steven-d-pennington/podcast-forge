@@ -16,7 +16,7 @@ import type {
   ModelProfileStore,
   UpdateModelProfileInput,
 } from '../models/store.js';
-import type { AudioPreviewProvider } from '../production/providers.js';
+import type { AudioFinalProvider, AudioPreviewProvider } from '../production/providers.js';
 import type {
   PublishStorageAdapter,
   PublishUrlValidator,
@@ -1108,6 +1108,31 @@ const publishStorageAdapterFactory = (): PublishStorageAdapter => ({
     };
   },
 });
+
+const fakeAudioFinalProvider: AudioFinalProvider = {
+  async generateFinalAudio(context) {
+    const objectKey = `shows/${context.show.slug}/episodes/${context.episodeSlug}/audio-final.mp3`;
+
+    return {
+      provider: context.production.ttsProvider ?? 'vertex-gemini-tts',
+      label: 'Final audio',
+      mimeType: 'audio/mpeg',
+      byteSize: 16,
+      durationSeconds: 6,
+      checksum: 'fake-final-audio-checksum',
+      localPath: null,
+      objectKey,
+      publicUrl: context.production.publicBaseUrl ? `${context.production.publicBaseUrl.replace(/\/$/, '')}/${objectKey}` : null,
+      metadata: {
+        adapter: 'vertex-gemini-tts',
+        adapterKind: 'real-vertex-gemini-tts',
+        voiceMap: context.show.cast.map((member) => ({ speaker: member.name, voice: member.voice })),
+        finalization: { loudnorm: 'I=-16:TP=-1.5:LRA=11' },
+        publishable: true,
+      },
+    };
+  },
+};
 const rssUpdateAdapter: RssUpdateAdapter = {
   async upsertEpisode({ feed, entry }) {
     const inserted = !rssEntries.has(entry.guid);
@@ -1277,6 +1302,7 @@ const app = buildApp({
   researchFetchImpl: researchFetch,
   researchModelServices,
   llmRuntime,
+  audioFinalProvider: fakeAudioFinalProvider,
   publishStorageAdapterFactory,
   rssUpdateAdapter,
   publishUrlValidator,
@@ -1358,7 +1384,7 @@ describe('source profile routes', () => {
 
     await app.inject({
       method: 'POST',
-      url: `/scripts/${initial.script.id}/production/audio-preview`,
+      url: `/scripts/${initial.script.id}/production/audio-final`,
       payload: { actor: 'producer@example.com' },
     });
     const artResponse = await app.inject({
@@ -2933,7 +2959,7 @@ describe('source profile routes', () => {
     assert.equal(audioResponse.json().blockedReasons[0].metadata.status, 'missing');
   });
 
-  it('produces preview audio and cover art as durable jobs linked to an episode', async () => {
+  it('produces preview audio, final audio, and cover art as durable jobs linked to an episode', async () => {
     const packet = await store.createResearchPacket({
       showId: store.shows[0].id,
       episodeCandidateId: null,
@@ -2973,16 +2999,40 @@ describe('source profile routes', () => {
     assert.equal(audioBody.job.type, 'audio.preview');
     assert.equal(audioBody.job.status, 'succeeded');
     assert.equal(audioBody.job.progress, 100);
+    assert.equal(audioBody.job.input.provider, 'local-espeak-preview');
+    assert.equal(audioBody.job.input.configuredProvider, 'vertex-gemini-tts');
+    assert.equal(audioBody.job.logs[0].provider, 'local-espeak-preview');
+    assert.equal(audioBody.job.logs[0].configuredProvider, 'vertex-gemini-tts');
     assert.equal(audioBody.asset.type, 'audio-preview');
     assert.equal(audioBody.asset.mimeType, 'audio/mpeg');
-    assert.equal(audioBody.asset.metadata.provider, 'vertex-gemini-tts');
+    assert.equal(audioBody.asset.metadata.provider, 'local-espeak-preview');
+    assert.equal(audioBody.asset.metadata.configuredProvider, 'vertex-gemini-tts');
     assert.equal(audioBody.asset.metadata.adapterKind, 'fake-local-audio-preview');
+    assert.equal(audioBody.asset.metadata.publishable, false);
     assert.match(audioBody.asset.localPath, /audio-preview\.mp3$/);
     assert.equal(audioBody.job.output.stage, 'completed');
     assert.equal(audioBody.job.output.byteSize, audioBody.asset.byteSize);
     assert.equal(audioBody.job.output.mimeType, 'audio/mpeg');
-    assert.equal(audioBody.episode.status, 'audio-ready');
+    assert.equal(audioBody.episode.status, 'approved-for-audio');
     assert.equal(audioBody.episode.metadata.audioPreviewAssetId, audioBody.asset.id);
+
+    const finalAudioResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/audio-final`,
+      payload: { actor: 'producer@example.com' },
+    });
+    const finalAudioBody = finalAudioResponse.json();
+
+    assert.equal(finalAudioResponse.statusCode, 201);
+    assert.equal(finalAudioBody.job.type, 'audio.final');
+    assert.equal(finalAudioBody.job.status, 'succeeded');
+    assert.equal(finalAudioBody.asset.type, 'audio-final');
+    assert.equal(finalAudioBody.asset.mimeType, 'audio/mpeg');
+    assert.equal(finalAudioBody.asset.metadata.provider, 'vertex-gemini-tts');
+    assert.equal(finalAudioBody.asset.metadata.adapterKind, 'real-vertex-gemini-tts');
+    assert.equal(finalAudioBody.asset.metadata.finalization.loudnorm, 'I=-16:TP=-1.5:LRA=11');
+    assert.equal(finalAudioBody.episode.status, 'audio-ready');
+    assert.equal(finalAudioBody.episode.metadata.audioFinalAssetId, finalAudioBody.asset.id);
 
     const artResponse = await app.inject({
       method: 'POST',
@@ -3003,6 +3053,7 @@ describe('source profile routes', () => {
     assert.equal(artBody.asset.metadata.promptMetadata.source, 'cover_prompt_writer');
     assert.match(artBody.asset.localPath, /cover\.png$/);
     assert.equal(artBody.episode.id, audioBody.episode.id);
+    assert.equal(artBody.episode.status, 'audio-ready');
     assert.equal(artBody.episode.metadata.coverArtAssetId, artBody.asset.id);
 
     const jobResponse = await app.inject({ method: 'GET', url: `/jobs/${audioBody.job.id}` });
@@ -3016,11 +3067,11 @@ describe('source profile routes', () => {
     assert.equal(productionBody.episode.id, audioBody.episode.id);
     assert.deepEqual(
       productionBody.assets.map((asset: EpisodeAssetRecord) => asset.type).sort(),
-      ['audio-preview', 'cover-art'],
+      ['audio-final', 'audio-preview', 'cover-art'],
     );
     assert.deepEqual(
       productionBody.jobs.map((job: JobRecord) => job.type).sort(),
-      ['art.generate', 'audio.preview'],
+      ['art.generate', 'audio.final', 'audio.preview'],
     );
 
     const audioAssetResponse = await app.inject({
@@ -3129,6 +3180,59 @@ describe('source profile routes', () => {
     assert.match(String(htmlMimeResponse.headers['content-type'] ?? ''), /application\/octet-stream/);
   });
 
+  it('blocks publish approval when only preview audio exists', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Preview Only Publish Story',
+      status: 'approved',
+      sourceDocumentIds: [],
+      claims: [{ id: 'claim-1', text: 'A preview-only claim exists.', sourceDocumentIds: [], citationUrls: ['https://example.com/preview-only'] }],
+      citations: [],
+      warnings: [],
+      content: { summary: 'A packet summary for preview-only publish testing.' },
+    });
+    await store.approveResearchPacket(packet.id, {
+      actor: 'research-editor@example.com',
+      reason: 'Research reviewed.',
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+
+    await runIntegrityReview(initial.script.id, initial.revision.id);
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/approve-for-audio`,
+      payload: { actor: 'producer@example.com' },
+    });
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/audio-preview`,
+      payload: { actor: 'producer@example.com' },
+    });
+    const artResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/cover-art`,
+      payload: { actor: 'producer@example.com' },
+    });
+    const episode = artResponse.json().episode as EpisodeRecord;
+    await store.updateEpisodeProduction(episode.id, { status: 'audio-ready' });
+    const approvalResponse = await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/approve-for-publish`,
+      payload: { actor: 'editor@example.com' },
+    });
+    const body = approvalResponse.json();
+
+    assert.equal(approvalResponse.statusCode, 409);
+    assert.equal(body.code, 'PUBLISH_APPROVAL_BLOCKED');
+    assert.equal(
+      body.blockedReasons.some((reason: { code: string }) => reason.code === 'AUDIO_FINAL_ASSET_REQUIRED'),
+      true,
+    );
+    assert.equal(store.approvalEvents.some((event) => event.gate === 'episode-publish'), false);
+  });
+
   it('rejects RSS publishing until an episode is approved for publish', async () => {
     const { episode } = await createProducedEpisode('Unapproved Publish Story');
     const response = await app.inject({
@@ -3179,6 +3283,61 @@ describe('source profile routes', () => {
     assert.equal(store.episodes.find((candidate) => candidate.id === episode.id)?.status, 'approved-for-publish');
   });
 
+  it('blocks RSS publishing when only preview audio exists even if an episode was manually advanced', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Preview Only Publish Story',
+      status: 'approved',
+      sourceDocumentIds: [],
+      claims: [{ id: 'claim-1', text: 'A preview-only claim exists.', sourceDocumentIds: [], citationUrls: ['https://example.com/preview-only'] }],
+      citations: [],
+      warnings: [],
+      content: { summary: 'A packet summary for preview-only publish testing.' },
+    });
+    await store.approveResearchPacket(packet.id, {
+      actor: 'research-editor@example.com',
+      reason: 'Research reviewed for preview-only publish testing.',
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+
+    await runIntegrityReview(initial.script.id, initial.revision.id);
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/approve-for-audio`,
+      payload: { actor: 'producer@example.com' },
+    });
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/audio-preview`,
+      payload: { actor: 'producer@example.com' },
+    });
+    const artResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/cover-art`,
+      payload: { actor: 'producer@example.com' },
+    });
+    const episode = artResponse.json().episode as EpisodeRecord;
+
+    await store.updateEpisodeProduction(episode.id, { status: 'approved-for-publish' });
+    const response = await app.inject({
+      method: 'POST',
+      url: `/episodes/${episode.id}/publish/rss`,
+      payload: { actor: 'publisher@example.com' },
+    });
+    const body = response.json();
+
+    assert.equal(response.statusCode, 409);
+    assert.equal(body.code, 'PUBLISH_BLOCKED');
+    assert.equal(
+      body.blockedReasons.some((reason: { code: string }) => reason.code === 'AUDIO_FINAL_ASSET_REQUIRED'),
+      true,
+    );
+    assert.equal(uploadedPublishAssets.length, 0);
+    assert.equal(store.publishEvents.length, 0);
+  });
+
   it('blocks publish approval when the research brief has no recorded approval event', async () => {
     const packet = await store.createResearchPacket({
       showId: store.shows[0].id,
@@ -3210,6 +3369,11 @@ describe('source profile routes', () => {
     await app.inject({
       method: 'POST',
       url: `/scripts/${initial.script.id}/production/audio-preview`,
+      payload: { actor: 'producer@example.com' },
+    });
+    await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/production/audio-final`,
       payload: { actor: 'producer@example.com' },
     });
     const artResponse = await app.inject({
@@ -3303,7 +3467,7 @@ describe('source profile routes', () => {
     assert.equal(publishBody.episode.status, 'published');
     assert.equal(publishBody.publishEvent.status, 'succeeded');
     assert.equal(uploadedPublishAssets.length, 2);
-    assert.deepEqual(uploadedPublishAssets.map((asset) => asset.type).sort(), ['audio-preview', 'cover-art']);
+    assert.deepEqual(uploadedPublishAssets.map((asset) => asset.type).sort(), ['audio-final', 'cover-art']);
     assert.match(publishBody.publishEvent.audioUrl, /^https:\/\/op3\.dev\/e\/https:\/\/cdn\.example\.com\//);
     assert.equal(publishBody.publishEvent.coverUrl.startsWith('https://cdn.example.com/'), true);
     assert.equal(publishBody.publishEvent.rssUrl, 'https://podcast.example.com/the-synthetic-lens/feed.xml');

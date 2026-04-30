@@ -24,7 +24,7 @@ import type { ResearchModelServices } from './research/models.js';
 import type { ResearchStore } from './research/store.js';
 import { registerScriptRoutes } from './scripts/routes.js';
 import type { ScriptStore } from './scripts/store.js';
-import type { AudioPreviewProvider, CoverArtProvider } from './production/providers.js';
+import type { AudioFinalProvider, AudioPreviewProvider, CoverArtProvider } from './production/providers.js';
 import type { PublishStorageAdapter, PublishUrlValidator, RssUpdateAdapter } from './production/publishing.js';
 import { registerProductionRoutes } from './production/routes.js';
 import type { FeedRecord, ProductionStore } from './production/store.js';
@@ -65,6 +65,7 @@ interface BuildAppOptions extends FastifyServerOptions {
   researchModelServices?: ResearchModelServices;
   researchFetchImpl?: ResearchFetch;
   audioPreviewProvider?: AudioPreviewProvider;
+  audioFinalProvider?: AudioFinalProvider;
   coverArtProvider?: CoverArtProvider;
   publishStorageAdapterFactory?: (feed: FeedRecord) => PublishStorageAdapter;
   rssUpdateAdapter?: RssUpdateAdapter;
@@ -109,6 +110,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     researchModelServices,
     researchFetchImpl,
     audioPreviewProvider,
+    audioFinalProvider,
     coverArtProvider,
     publishStorageAdapterFactory,
     rssUpdateAdapter,
@@ -282,6 +284,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     },
     llmRuntime,
     audioPreviewProvider,
+    audioFinalProvider,
     coverArtProvider,
     publishStorageAdapterFactory,
     rssUpdateAdapter,
