@@ -2444,6 +2444,90 @@ textarea {
   background: #f5f6f8;
 }
 
+.query-create {
+  border: 1px dashed #c5ced9;
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+}
+
+.query-create .query-card {
+  border: 0;
+  padding: 0.85rem 0 0;
+}
+
+.query-management-row {
+  padding: 0;
+}
+
+.query-management-row[open] {
+  border-color: #9bb7d3;
+}
+
+.query-summary-row {
+  align-items: center;
+  cursor: pointer;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  list-style: none;
+  padding: 0.85rem 0.9rem;
+}
+
+.query-summary-row::-webkit-details-marker {
+  display: none;
+}
+
+.query-summary-content {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.query-summary-content strong {
+  overflow-wrap: anywhere;
+}
+
+.query-summary-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.query-summary-pill {
+  background: #eef3f8;
+  border: 1px solid #d3dde8;
+  border-radius: 999px;
+  color: #42536a;
+  display: inline-flex;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  max-width: 100%;
+  padding: 0.18rem 0.5rem;
+}
+
+.query-edit-affordance {
+  color: #1c5d96;
+  font-weight: 700;
+}
+
+.query-editor-form {
+  border-top: 1px solid #d8dde5;
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.9rem;
+}
+
+.query-danger-zone {
+  border-top: 1px solid #e4d2d2;
+  padding-top: 0.35rem;
+}
+
+.query-danger-zone summary {
+  color: #8f2d2d;
+  font-weight: 700;
+}
+
 .query-card .query-top {
   align-items: center;
   display: flex;

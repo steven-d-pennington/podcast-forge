@@ -26,6 +26,7 @@ import {
   slugify,
   sourceActionDescription,
   sourceActionLabel,
+  sourceControlHelp,
   sourceConstraintsSummary,
   sourceControlsSupported,
   sourceCredentialSummary,
@@ -1373,6 +1374,7 @@ function renderProfiles() {
     button.querySelector('.profile-availability').classList.add(credential.status);
     button.addEventListener('click', async () => {
       state.selectedProfileId = profile.id;
+      state.editingSourceQueryId = '';
       savePipelineState();
       await loadQueries();
       render();
@@ -2745,6 +2747,7 @@ function renderPipeline() {
 function renderQueries() {
   els.queryList.innerHTML = '';
   els.queryCount.textContent = `${state.queries.filter((query) => query.enabled).length} enabled of ${state.queries.length}`;
+  pruneEditingSourceQuery(state.queries);
 
   if (state.queries.length === 0) {
     const empty = document.createElement('div');
@@ -2754,61 +2757,9 @@ function renderQueries() {
     return;
   }
 
+  const profile = selectedProfile();
   for (const query of state.queries) {
-    const form = document.createElement('form');
-    form.className = `query-card${query.enabled ? '' : ' disabled'}`;
-    form.innerHTML = `
-      <div class="query-top">
-        <label class="toggle">
-          <input name="enabled" type="checkbox">
-          <span>Enabled</span>
-        </label>
-        <button class="danger" name="delete" type="button">Delete</button>
-      </div>
-      <label class="field">
-        <span>Search query</span>
-        <textarea name="query" rows="2" required></textarea>
-      </label>
-      <div class="query-grid">
-        <label class="field">
-          <span>Weight</span>
-          <input name="weight" type="number" min="0" step="0.001" required>
-        </label>
-        <label class="field">
-          <span>Freshness window</span>
-          <input name="freshness" type="text">
-        </label>
-        <label class="field">
-          <span>Include domains</span>
-          <textarea name="includeDomains" rows="2"></textarea>
-        </label>
-        <label class="field">
-          <span>Exclude domains</span>
-          <textarea name="excludeDomains" rows="2"></textarea>
-        </label>
-      </div>
-      <p class="help" data-source-control-help></p>
-      <div class="actions">
-        <button type="submit">Save Search Query</button>
-      </div>
-    `;
-
-    form.elements.enabled.checked = query.enabled;
-    form.elements.query.value = query.query;
-    form.elements.weight.value = query.weight;
-    form.elements.freshness.value = query.freshness || '';
-    form.elements.includeDomains.value = listToLines(query.includeDomains);
-    form.elements.excludeDomains.value = listToLines(query.excludeDomains);
-    applySourceControlState(form, selectedProfile()?.type);
-
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      await saveQuery(query.id, form, selectedProfile());
-    });
-    form.elements.delete.addEventListener('click', async () => {
-      await confirmDeleteQuery(query);
-    });
-    els.queryList.append(form);
+    els.queryList.append(adminQueryManagementRow(query, profile));
   }
 }
 
@@ -3615,6 +3566,19 @@ function renderSettingsSources() {
       event.preventDefault();
       await saveProfileForm(profile.id, form);
     });
+    if (profile.type === 'rss') {
+      const rssActions = document.createElement('div');
+      rssActions.className = 'actions inline settings-source-actions';
+      const ingestButton = document.createElement('button');
+      ingestButton.type = 'button';
+      ingestButton.className = 'secondary';
+      ingestButton.textContent = 'Import RSS Items';
+      ingestButton.addEventListener('click', async () => {
+        await ingestProfile(profile, ingestButton);
+      });
+      rssActions.append(ingestButton);
+      form.append(rssActions);
+    }
     els.settingsSources.append(form);
 
     const queries = state.selectedProfileId === profile.id ? state.queries : [];
@@ -3630,22 +3594,37 @@ function renderSettingsSources() {
     choose.textContent = state.selectedProfileId === profile.id ? 'Selected Source' : 'Load Search Queries';
     choose.addEventListener('click', async () => {
       state.selectedProfileId = profile.id;
+      state.editingSourceQueryId = '';
+      savePipelineState();
       await loadQueries();
       render();
     });
     queryPanel.append(querySummary, choose);
 
     if (state.selectedProfileId === profile.id) {
+      pruneEditingSourceQuery(queries);
       queryPanel.append(adminNewQueryForm(profile.id));
       for (const query of queries) {
-        queryPanel.append(adminQueryForm(query, profile));
+        queryPanel.append(adminQueryManagementRow(query, profile));
       }
     }
     els.settingsSources.append(queryPanel);
   }
 }
 
+function pruneEditingSourceQuery(queries) {
+  if (state.editingSourceQueryId && !queries.some((query) => query.id === state.editingSourceQueryId)) {
+    state.editingSourceQueryId = '';
+  }
+}
+
 function adminNewQueryForm(profileId) {
+  const details = document.createElement('details');
+  details.className = 'query-create settings-advanced';
+
+  const summary = document.createElement('summary');
+  summary.textContent = 'Add search query';
+
   const form = document.createElement('form');
   form.className = 'query-card';
   form.innerHTML = `
@@ -3656,16 +3635,85 @@ function adminNewQueryForm(profileId) {
     event.preventDefault();
     await createQueryForProfile(profileId, form);
   });
-  return form;
+  details.append(summary, form);
+  return details;
+}
+
+function domainCountLabel(count, singular) {
+  return `${count} ${count === 1 ? singular : `${singular}s`}`;
+}
+
+function querySummaryText(query) {
+  const value = String(query.query || '').replace(/\s+/g, ' ').trim();
+  return value || 'Untitled search query';
+}
+
+function appendQuerySummaryMeta(summaryMeta, query, profile) {
+  const controlsSupported = sourceControlsSupported(profile?.type);
+  const items = [
+    query.enabled ? 'Enabled' : 'Disabled',
+    query.freshness ? `Freshness ${freshnessLabel(query.freshness)}` : 'No query freshness',
+    domainCountLabel(asArray(query.includeDomains).length, 'included domain'),
+    domainCountLabel(asArray(query.excludeDomains).length, 'excluded domain'),
+  ];
+
+  if (!controlsSupported) {
+    items.push('Freshness/domain controls inactive');
+  }
+
+  for (const item of items) {
+    const pill = document.createElement('span');
+    pill.className = 'query-summary-pill';
+    pill.textContent = item;
+    summaryMeta.append(pill);
+  }
+}
+
+function adminQueryManagementRow(query, profile = selectedProfile()) {
+  const details = document.createElement('details');
+  const editing = state.editingSourceQueryId === query.id;
+  details.className = `query-card query-management-row${query.enabled ? '' : ' disabled'}${editing ? ' editing' : ''}`;
+  details.open = editing;
+  details.title = sourceControlHelp(profile?.type);
+
+  const summary = document.createElement('summary');
+  summary.className = 'query-summary-row';
+
+  const content = document.createElement('span');
+  content.className = 'query-summary-content';
+
+  const queryText = document.createElement('strong');
+  queryText.textContent = querySummaryText(query);
+
+  const meta = document.createElement('span');
+  meta.className = 'query-summary-meta';
+  appendQuerySummaryMeta(meta, query, profile);
+
+  content.append(queryText, meta);
+
+  const affordance = document.createElement('span');
+  affordance.className = 'query-edit-affordance';
+  affordance.textContent = editing ? 'Editing' : 'Edit';
+
+  summary.append(content, affordance);
+  details.append(summary, adminQueryForm(query, profile));
+  details.addEventListener('toggle', () => {
+    const nextEditingId = details.open ? query.id : '';
+    if (state.editingSourceQueryId !== nextEditingId) {
+      state.editingSourceQueryId = nextEditingId;
+      render();
+    }
+  });
+
+  return details;
 }
 
 function adminQueryForm(query, profile = selectedProfile()) {
   const form = document.createElement('form');
-  form.className = `query-card${query.enabled ? '' : ' disabled'}`;
+  form.className = 'query-editor-form';
   form.innerHTML = `
     <div class="query-top">
       <label class="toggle"><input name="enabled" type="checkbox"><span>Enabled</span></label>
-      <button class="danger" name="delete" type="button">Delete</button>
     </div>
     <label class="field"><span>Search query</span><textarea name="query" rows="2" required></textarea></label>
     <div class="query-grid">
@@ -3676,6 +3724,11 @@ function adminQueryForm(query, profile = selectedProfile()) {
     </div>
     <p class="help" data-source-control-help></p>
     <div class="actions"><button type="submit">Save Search Query</button></div>
+    <details class="query-danger-zone">
+      <summary>Destructive action</summary>
+      <p class="help">Deleting a search query stops it from running in future discovery. Existing candidate stories and audit records remain.</p>
+      <div class="actions"><button class="secondary danger" name="delete" type="button">Delete Search Query</button></div>
+    </details>
   `;
   form.elements.enabled.checked = query.enabled;
   form.elements.query.value = query.query;
@@ -5201,14 +5254,20 @@ async function loadProfiles() {
   if (!state.selectedShowSlug) {
     state.profiles = [];
     state.selectedProfileId = '';
+    state.editingSourceQueryId = '';
     return;
   }
 
+  const previousProfileId = state.selectedProfileId;
   const body = await api(`/source-profiles?showSlug=${encodeURIComponent(state.selectedShowSlug)}`);
   state.profiles = body.sourceProfiles;
 
   if (!state.profiles.some((profile) => profile.id === state.selectedProfileId)) {
     state.selectedProfileId = state.profiles[0]?.id || '';
+  }
+
+  if (state.selectedProfileId !== previousProfileId) {
+    state.editingSourceQueryId = '';
   }
 }
 
@@ -5225,11 +5284,13 @@ async function loadFeeds() {
 async function loadQueries() {
   if (!state.selectedProfileId) {
     state.queries = [];
+    state.editingSourceQueryId = '';
     return;
   }
 
   const body = await api(`/source-profiles/${state.selectedProfileId}/queries`);
   state.queries = body.sourceQueries;
+  pruneEditingSourceQuery(state.queries);
 }
 
 async function loadScripts() {
@@ -5879,9 +5940,11 @@ async function loadAll() {
     await safeLoad('story sources', loadProfiles, () => {
       state.profiles = [];
       state.selectedProfileId = '';
+      state.editingSourceQueryId = '';
     });
     await safeLoad('search queries', loadQueries, () => {
       state.queries = [];
+      state.editingSourceQueryId = '';
     });
     await safeLoad('feeds', loadFeeds, () => {
       state.feeds = [];
@@ -6234,6 +6297,7 @@ async function createShow(event) {
     });
     state.selectedShowSlug = body.show.slug;
     state.selectedProfileId = '';
+    state.editingSourceQueryId = '';
     clearPipelineSelections();
     state.showSetupOpen = false;
     els.showSetupForm.reset();
@@ -6302,14 +6366,12 @@ async function saveProfile(event) {
   }
 }
 
-async function ingestSelectedProfile() {
-  const profile = selectedProfile();
-
+async function ingestProfile(profile, button = els.ingestProfile) {
   if (!profile || profile.type !== 'rss') {
     return;
   }
 
-  els.ingestProfile.disabled = true;
+  button.disabled = true;
   setStatus('Ingesting RSS feeds...');
 
   try {
@@ -6321,8 +6383,12 @@ async function ingestSelectedProfile() {
   } catch (error) {
     reportError(error);
   } finally {
-    els.ingestProfile.disabled = false;
+    button.disabled = false;
   }
+}
+
+async function ingestSelectedProfile() {
+  await ingestProfile(selectedProfile(), els.ingestProfile);
 }
 
 async function submitManualUrl(event) {
@@ -6442,6 +6508,9 @@ async function deleteQuery(id) {
   try {
     await api(`/source-queries/${id}`, { method: 'DELETE' });
     state.queries = state.queries.filter((query) => query.id !== id);
+    if (state.editingSourceQueryId === id) {
+      state.editingSourceQueryId = '';
+    }
     render();
     setStatus('Search query deleted.');
   } catch (error) {
@@ -6970,6 +7039,7 @@ els.showSetupForm.addEventListener('submit', createShow);
 els.showSelect.addEventListener('change', async () => {
   state.selectedShowSlug = els.showSelect.value;
   state.selectedProfileId = '';
+  state.editingSourceQueryId = '';
   clearPipelineSelections();
   restorePipelineStateForShow();
   await loadProfiles();
