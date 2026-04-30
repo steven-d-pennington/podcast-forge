@@ -6,7 +6,7 @@
     <title>Podcast Forge Command Center</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
-  <body>
+  <body data-active-surface="workflow">
     <header class="topbar">
       <div>
         <h1>Podcast Forge</h1>
@@ -85,10 +85,6 @@
               <input id="showName" type="text" required>
             </label>
             <label class="field">
-              <span>Slug</span>
-              <input id="showSlug" type="text" pattern="[a-z0-9]+(-[a-z0-9]+)*" required>
-            </label>
-            <label class="field">
               <span>Host voice</span>
               <input id="showHostVoice" type="text" placeholder="Nova" required>
             </label>
@@ -127,10 +123,6 @@
 
           <div class="grid">
             <label class="field">
-              <span>RSS output path</span>
-              <input id="showOutputPath" type="text" placeholder="feeds/show.xml">
-            </label>
-            <label class="field">
               <span>Starter search query</span>
               <input id="showSourceQuery" type="text">
               <small>Creates the first story source search recipe for this show.</small>
@@ -144,20 +136,31 @@
             </label>
           </div>
 
-          <div class="grid">
-            <label class="field">
-              <span>Default AI provider</span>
-              <input id="showModelProvider" type="text" value="openai" required>
-            </label>
-            <label class="field">
-              <span>Default model</span>
-              <input id="showModelName" type="text" value="gpt-5.5" required>
-            </label>
-            <label class="field">
-              <span>Reasoning setting</span>
-              <input id="showReasoningEffort" type="text" value="high">
-            </label>
-          </div>
+          <details class="settings-advanced">
+            <summary>Advanced setup internals</summary>
+            <div class="grid">
+              <label class="field">
+                <span>Slug</span>
+                <input id="showSlug" type="text" pattern="[a-z0-9]+(-[a-z0-9]+)*" required>
+              </label>
+              <label class="field">
+                <span>RSS output path</span>
+                <input id="showOutputPath" type="text" placeholder="feeds/show.xml">
+              </label>
+              <label class="field">
+                <span>Default AI provider</span>
+                <input id="showModelProvider" type="text" value="openai" required>
+              </label>
+              <label class="field">
+                <span>Default model</span>
+                <input id="showModelName" type="text" value="gpt-5.5" required>
+              </label>
+              <label class="field">
+                <span>Reasoning setting</span>
+                <input id="showReasoningEffort" type="text" value="high">
+              </label>
+            </div>
+          </details>
 
           <div class="actions">
             <button id="cancelShowSetup" class="secondary" type="button">Cancel</button>
@@ -170,24 +173,24 @@
             <div>
               <h2 id="settingsTitle">Settings</h2>
               <p id="settingsMeta">Choose a show to edit show-scoped settings.</p>
-              <p class="help">Configure shows, feeds, story sources, AI roles, agent instructions, publishing, and scheduled runs without exposing secrets or local credential paths.</p>
+              <p class="help">Review routine show, source, publishing, automation, and AI settings first. Operator fields stay behind Advanced details and never expose secrets or local credential paths.</p>
             </div>
           </div>
           <div class="settings-tabs" role="tablist" aria-label="Settings sections">
-            <button class="settings-tab" data-settings-tab="shows" type="button">Shows &amp; Feeds</button>
-            <button class="settings-tab" data-settings-tab="sources" type="button">Story Sources</button>
-            <button class="settings-tab" data-settings-tab="models" type="button">Model Roles</button>
-            <button class="settings-tab" data-settings-tab="prompts" type="button">Prompt Templates</button>
-            <button class="settings-tab" data-settings-tab="publishing" type="button">Publishing</button>
-            <button class="settings-tab" data-settings-tab="schedules" type="button">Scheduled Pipelines</button>
+            <button id="settingsTabBasic" class="settings-tab" data-settings-tab="basic" role="tab" aria-controls="settingsShows" type="button">Basic Show Settings</button>
+            <button id="settingsTabSources" class="settings-tab" data-settings-tab="sources" role="tab" aria-controls="settingsSources" type="button">Content Sources</button>
+            <button id="settingsTabPublishing" class="settings-tab" data-settings-tab="publishing" role="tab" aria-controls="settingsPublishing" type="button">Publishing</button>
+            <button id="settingsTabAutomation" class="settings-tab" data-settings-tab="automation" role="tab" aria-controls="settingsSchedules" type="button">Automation</button>
+            <button id="settingsTabAi" class="settings-tab" data-settings-tab="ai" role="tab" aria-controls="settingsModels" type="button">AI Configuration</button>
+            <button id="settingsTabAdvanced" class="settings-tab" data-settings-tab="advanced" role="tab" aria-controls="settingsPrompts" type="button">Advanced/Internal</button>
           </div>
 
-          <div id="settingsShows" class="settings-section"></div>
-          <div id="settingsSources" class="settings-section" hidden></div>
-          <div id="settingsModels" class="settings-section" hidden></div>
-          <div id="settingsPrompts" class="settings-section" hidden></div>
-          <div id="settingsPublishing" class="settings-section" hidden></div>
-          <div id="settingsSchedules" class="settings-section" hidden></div>
+          <div id="settingsShows" class="settings-section" role="tabpanel" aria-labelledby="settingsTabBasic"></div>
+          <div id="settingsSources" class="settings-section" role="tabpanel" aria-labelledby="settingsTabSources" hidden></div>
+          <div id="settingsPublishing" class="settings-section" role="tabpanel" aria-labelledby="settingsTabPublishing" hidden></div>
+          <div id="settingsSchedules" class="settings-section" role="tabpanel" aria-labelledby="settingsTabAutomation" hidden></div>
+          <div id="settingsModels" class="settings-section" role="tabpanel" aria-labelledby="settingsTabAi" hidden></div>
+          <div id="settingsPrompts" class="settings-section" role="tabpanel" aria-labelledby="settingsTabAdvanced" hidden></div>
         </section>
 
         <form id="profileForm" class="panel admin-panel surface-hidden" data-surface="settings" hidden>
@@ -280,7 +283,7 @@
           </form>
         </section>
 
-        <section id="modelRolesPanel" class="panel admin-panel surface-hidden" data-surface="settings">
+        <section id="modelRolesPanel" class="panel admin-panel surface-hidden" data-surface="settings" hidden>
           <div class="panel-heading">
             <div>
               <h2>AI Role Settings</h2>
@@ -395,7 +398,7 @@
           <div id="researchBriefList" class="record-list"></div>
         </section>
 
-        <section id="schedulerPanel" class="panel admin-panel surface-hidden" data-surface="settings">
+        <section id="schedulerPanel" class="panel admin-panel surface-hidden" data-surface="settings" hidden>
           <div class="panel-heading">
             <div>
               <h2>Scheduled Pipelines</h2>

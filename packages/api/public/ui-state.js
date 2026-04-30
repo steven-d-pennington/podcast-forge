@@ -53,7 +53,7 @@ export const state = {
   selectedShowSlug: '',
   selectedProfileId: '',
   activeSurface: 'workflow',
-  activeSettingsTab: 'shows',
+  activeSettingsTab: 'basic',
   expandedPipelineStageIds: [],
   currentPipelineStageId: '',
   contextDisclosureOpen: {},

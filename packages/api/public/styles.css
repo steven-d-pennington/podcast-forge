@@ -247,6 +247,26 @@ textarea:focus-visible {
   padding: 1rem;
 }
 
+.sidebar.sidebar-admin-mode section {
+  border-top: 1px solid #e3e8ef;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+}
+
+.sidebar.sidebar-admin-mode section .section-title p,
+.sidebar.sidebar-admin-mode #profileList {
+  display: none;
+}
+
+.sidebar.sidebar-admin-mode #workspaceSidebarTitle::after {
+  color: #586575;
+  content: " collapsed while Settings/Admin is active";
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 500;
+  margin-top: 0.25rem;
+}
+
 .section-title {
   margin: 1.25rem 0 0.75rem;
 }
@@ -2471,6 +2491,27 @@ textarea {
   gap: 0.85rem;
 }
 
+.settings-section[hidden] {
+  display: none;
+}
+
+.settings-overview {
+  background: #eef6ff;
+  border: 1px solid #9ec4ed;
+  border-radius: 8px;
+  color: #1f4d7a;
+  padding: 0.85rem 0.95rem;
+}
+
+.settings-overview h3,
+.settings-overview p {
+  margin: 0;
+}
+
+.settings-overview p {
+  margin-top: 0.25rem;
+}
+
 .settings-card {
   background: #f8fafc;
   border: 1px solid #d8dde5;
@@ -2515,6 +2556,31 @@ textarea {
   gap: 0.75rem;
   margin: -0.25rem 0 0.5rem;
   padding-left: 0.85rem;
+}
+
+.settings-advanced {
+  background: #ffffff;
+  border: 1px solid #d8dde5;
+  border-radius: 6px;
+  padding: 0.65rem 0.75rem;
+}
+
+.settings-advanced > summary {
+  color: #27303b;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.settings-advanced > summary + * {
+  margin-top: 0.75rem;
+}
+
+.settings-advanced .grid {
+  margin-top: 0.75rem;
+}
+
+.settings-query-disclosure {
+  margin-top: -0.25rem;
 }
 
 .settings-note {

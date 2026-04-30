@@ -36,6 +36,15 @@ import {
   validHttpUrl,
 } from './ui-formatters.js';
 
+const SETTINGS_TAB_PANELS = {
+  basic: () => els.settingsShows,
+  sources: () => els.settingsSources,
+  publishing: () => els.settingsPublishing,
+  automation: () => els.settingsSchedules,
+  ai: () => els.settingsModels,
+  advanced: () => els.settingsPrompts,
+};
+
 function setStatus(message, debugDetails = '', status = debugDetails ? 'warning' : 'info') {
   state.latestActionResult = {
     status,
@@ -1381,11 +1390,11 @@ function renderShowSetup() {
 
 function renderProfileForm() {
   const profile = selectedProfile();
-  els.profileForm.hidden = !profile;
-  els.queriesPanel.hidden = !profile;
+  els.profileForm.hidden = true;
+  els.queriesPanel.hidden = true;
+  els.ingestProfile.hidden = true;
 
   if (!profile) {
-    els.ingestProfile.hidden = true;
     return;
   }
 
@@ -1400,7 +1409,6 @@ function renderProfileForm() {
   els.profileIncludeDomains.value = listToLines(profile.includeDomains);
   els.profileExcludeDomains.value = listToLines(profile.excludeDomains);
   applySourceControlState(els.profileForm, profile.type);
-  els.ingestProfile.hidden = profile.type !== 'rss';
 }
 
 function statusClass(status) {
@@ -1497,6 +1505,9 @@ function isHiddenForNavigation(target) {
 }
 
 function renderSurfaceVisibility() {
+  document.body.dataset.activeSurface = state.activeSurface;
+  document.querySelector('.sidebar')?.classList.toggle('sidebar-admin-mode', state.activeSurface === 'settings');
+
   for (const button of els.surfaceTabs) {
     const active = button.dataset.surfaceTab === state.activeSurface;
     button.classList.toggle('active', active);
@@ -3343,9 +3354,49 @@ function settingsEmpty(message) {
   return empty;
 }
 
+function settingsOverview(title, message) {
+  const overview = document.createElement('div');
+  overview.className = 'settings-overview';
+  const heading = document.createElement('h3');
+  heading.textContent = title;
+  const body = document.createElement('p');
+  body.className = 'help';
+  body.textContent = message;
+  overview.append(heading, body);
+  return overview;
+}
+
+function appendSettingsChip(container, label, value) {
+  const item = document.createElement('span');
+  item.textContent = `${label}: ${value || 'not configured'}`;
+  container.append(item);
+}
+
 function setActiveSettingsTab(tab) {
+  if (!SETTINGS_TAB_PANELS[tab]) {
+    return;
+  }
+
   state.activeSettingsTab = tab;
   renderSettings();
+}
+
+function moveSettingsTabFocus(currentButton, direction) {
+  const tabs = Array.from(els.settingsTabs);
+  const currentIndex = tabs.indexOf(currentButton);
+
+  if (currentIndex < 0) {
+    return;
+  }
+
+  const nextIndex = direction === 'home'
+    ? 0
+    : direction === 'end'
+      ? tabs.length - 1
+      : (currentIndex + direction + tabs.length) % tabs.length;
+  const nextButton = tabs[nextIndex];
+  setActiveSettingsTab(nextButton.dataset.settingsTab);
+  nextButton.focus();
 }
 
 function renderSettingsTabs() {
@@ -3353,18 +3404,11 @@ function renderSettingsTabs() {
     const active = button.dataset.settingsTab === state.activeSettingsTab;
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', active ? 'true' : 'false');
+    button.tabIndex = active ? 0 : -1;
   }
 
-  const sections = {
-    shows: els.settingsShows,
-    sources: els.settingsSources,
-    models: els.settingsModels,
-    prompts: els.settingsPrompts,
-    publishing: els.settingsPublishing,
-    schedules: els.settingsSchedules,
-  };
-
-  for (const [key, section] of Object.entries(sections)) {
+  for (const [key, panelForKey] of Object.entries(SETTINGS_TAB_PANELS)) {
+    const section = panelForKey();
     section.hidden = key !== state.activeSettingsTab;
   }
 }
@@ -3378,30 +3422,41 @@ function renderSettingsShows() {
     return;
   }
 
+  els.settingsShows.append(settingsOverview(
+    'Basic admin overview',
+    'Use this default view for routine show, editorial voice, and public feed review. Slugs, storage labels, paths, and sanitized debug metadata stay collapsed unless an operator opens them.',
+  ));
+
   const form = document.createElement('form');
   form.className = 'settings-card settings-form';
   form.innerHTML = `
     <div class="settings-card-heading">
       <div>
         <h3></h3>
-        <p class="help">Slug changes can affect feed URLs, scheduled runs, and external references. Confirm downstream links after saving.</p>
+        <p class="help">Routine show identity, editorial format, and publishing mode. Internal IDs and low-level formatting details stay collapsed below.</p>
       </div>
       <button type="submit">Save Show</button>
     </div>
     <div class="grid">
       <label class="field"><span>Show title</span><input name="title" type="text" required></label>
-      <label class="field"><span>Slug</span><input name="slug" type="text" pattern="[a-z0-9]+(-[a-z0-9]+)*" required></label>
       <label class="field"><span>Setup status</span><select name="setupStatus"><option value="draft">draft</option><option value="active">active</option></select></label>
-      <label class="field"><span>Format</span><input name="format" type="text" placeholder="daily-briefing"></label>
       <label class="field"><span>Runtime minutes</span><input name="defaultRuntimeMinutes" type="number" min="1" step="1"></label>
       <label class="field"><span>Publishing mode</span><select name="publishingMode"><option value="approval-gated">Approval required</option><option value="autopublish-later">Autopublish later</option></select></label>
     </div>
     <label class="field"><span>Description</span><textarea name="description" rows="2"></textarea></label>
     <div class="grid two">
-      <label class="field"><span>Cast basics</span><textarea name="cast" rows="3"></textarea><small>One per line: Name | role | voice.</small></label>
       <label class="field"><span>Tone and style</span><textarea name="toneStyleNotes" rows="3"></textarea></label>
       <label class="field"><span>Script format notes</span><textarea name="scriptFormatNotes" rows="3"></textarea></label>
     </div>
+    <details class="settings-advanced">
+      <summary>Advanced show internals</summary>
+      <div class="grid">
+        <label class="field"><span>Slug</span><input name="slug" type="text" pattern="[a-z0-9]+(-[a-z0-9]+)*" required></label>
+        <label class="field"><span>Format slug</span><input name="format" type="text" placeholder="daily-briefing"></label>
+        <label class="field wide"><span>Cast basics</span><textarea name="cast" rows="3"></textarea><small>One per line: Name | role | voice.</small></label>
+      </div>
+      <p class="settings-note">Slug changes can affect feed URLs, scheduled runs, and external references. Confirm downstream links after saving.</p>
+    </details>
   `;
   form.querySelector('h3').textContent = 'Show identity and format';
   form.elements.title.value = show.title;
@@ -3422,7 +3477,7 @@ function renderSettingsShows() {
 
   const feedHeading = document.createElement('div');
   feedHeading.className = 'settings-subhead';
-  feedHeading.innerHTML = '<h3>Feeds</h3><p class="help">Public URLs and storage targets are shown without secrets or local credential paths.</p>';
+  feedHeading.innerHTML = '<h3>Publishing feeds</h3><p class="help">Public URLs are visible for routine review. Storage labels and path details are collapsed without exposing secrets or local credential paths.</p>';
   els.settingsShows.append(feedHeading);
 
   if (state.feeds.length === 0) {
@@ -3442,23 +3497,29 @@ function feedSettingsForm(feed) {
     <div class="settings-card-heading">
       <div>
         <h3></h3>
-        <p class="help">Storage credentials, keys, and local credential paths are intentionally hidden.</p>
+        <p class="help">Public feed metadata for review. Storage labels, slugs, and generated paths are available in advanced details.</p>
       </div>
       <button type="submit">Save Feed</button>
     </div>
     <div class="grid">
       <label class="field"><span>Feed title</span><input name="title" type="text" required></label>
-      <label class="field"><span>Feed slug</span><input name="slug" type="text" required></label>
-      <label class="field"><span>Storage target</span><input name="storageType" type="text" required></label>
       <label class="field"><span>Public feed URL</span><input name="publicFeedUrl" type="url"></label>
       <label class="field"><span>Public asset base URL</span><input name="publicBaseUrl" type="url"></label>
-      <label class="field"><span>RSS path</span><input name="rssFeedPath" type="text"></label>
-      <label class="field"><span>RSS output path</span><input name="outputPath" type="text"></label>
-      <label class="field"><span>Episode numbering</span><input name="episodeNumberPolicy" type="text"></label>
       <label class="toggle admin-toggle"><input name="op3Wrap" type="checkbox"><span>OP3 wrapping enabled</span></label>
     </div>
     <label class="field"><span>Description</span><textarea name="description" rows="2"></textarea></label>
-    <details class="debug-details">
+    <details class="settings-advanced">
+      <summary>Advanced feed routing and storage labels</summary>
+      <div class="grid">
+        <label class="field"><span>Feed slug</span><input name="slug" type="text" required></label>
+        <label class="field"><span>Storage target</span><input name="storageType" type="text" required></label>
+        <label class="field"><span>RSS path</span><input name="rssFeedPath" type="text"></label>
+        <label class="field"><span>RSS output path</span><input name="outputPath" type="text"></label>
+        <label class="field"><span>Episode numbering</span><input name="episodeNumberPolicy" type="text"></label>
+      </div>
+      <p class="settings-note">Storage credentials, keys, and local credential paths are intentionally hidden.</p>
+    </details>
+    <details class="debug-details settings-advanced">
       <summary>Sanitized feed metadata</summary>
       <pre></pre>
     </details>
@@ -3493,6 +3554,11 @@ function renderSettingsSources() {
     return;
   }
 
+  els.settingsSources.append(settingsOverview(
+    'Content sources',
+    'Review which discovery sources are enabled and which domains they prefer or block. Query management, source scoring, and internal IDs are collapsed by default.',
+  ));
+
   if (state.profiles.length === 0) {
     els.settingsSources.append(settingsEmpty('No story sources/search recipes yet. Use Create New Show to seed one, or create a story source through the API.'));
     return;
@@ -3511,9 +3577,7 @@ function renderSettingsSources() {
       </div>
       <div class="grid">
         <label class="field"><span>Name</span><input name="name" type="text" required></label>
-        <label class="field"><span>Slug</span><input name="slug" type="text" required></label>
         <label class="field"><span>Type</span><select name="type"><option value="brave">Brave</option><option value="zai-web">Z.AI Web Search</option><option value="rss">RSS</option><option value="manual">Manual URL</option><option value="local-json">Local JSON</option></select></label>
-        <label class="field"><span>Weight</span><input name="weight" type="number" min="0" step="0.001" required></label>
         <label class="field"><span>Freshness window</span><input name="freshness" type="text" placeholder="pd, pw, pm"></label>
         <label class="toggle admin-toggle"><input name="enabled" type="checkbox"><span>Enabled</span></label>
       </div>
@@ -3521,6 +3585,13 @@ function renderSettingsSources() {
         <label class="field"><span>Include domains</span><textarea name="includeDomains" rows="2"></textarea></label>
         <label class="field"><span>Exclude domains</span><textarea name="excludeDomains" rows="2"></textarea></label>
       </div>
+      <details class="settings-advanced">
+        <summary>Advanced source scoring and internal ID</summary>
+        <div class="grid">
+          <label class="field"><span>Slug</span><input name="slug" type="text" required></label>
+          <label class="field"><span>Weight</span><input name="weight" type="number" min="0" step="0.001" required></label>
+        </div>
+      </details>
     `;
     form.querySelector('h3').textContent = profile.name;
     form.elements.name.value = profile.name;
@@ -3547,18 +3618,22 @@ function renderSettingsSources() {
     els.settingsSources.append(form);
 
     const queries = state.selectedProfileId === profile.id ? state.queries : [];
-    const queryPanel = document.createElement('div');
-    queryPanel.className = 'settings-nested';
+    const queryPanel = document.createElement('details');
+    queryPanel.className = 'settings-nested settings-advanced settings-query-disclosure';
+    const querySummary = document.createElement('summary');
+    querySummary.textContent = state.selectedProfileId === profile.id
+      ? `Search query management (${queries.length} loaded)`
+      : 'Search query management';
     const choose = document.createElement('button');
     choose.type = 'button';
     choose.className = 'secondary';
-    choose.textContent = state.selectedProfileId === profile.id ? 'Selected Source' : 'Edit Search Queries';
+    choose.textContent = state.selectedProfileId === profile.id ? 'Selected Source' : 'Load Search Queries';
     choose.addEventListener('click', async () => {
       state.selectedProfileId = profile.id;
       await loadQueries();
       render();
     });
-    queryPanel.append(choose);
+    queryPanel.append(querySummary, choose);
 
     if (state.selectedProfileId === profile.id) {
       queryPanel.append(adminNewQueryForm(profile.id));
@@ -3627,6 +3702,11 @@ function renderSettingsModels() {
     return;
   }
 
+  els.settingsModels.append(settingsOverview(
+    'AI configuration',
+    'Routine review shows each AI role and its editorial responsibility. Provider, model, prompt key, budget, and fallback internals are collapsed by default.',
+  ));
+
   if (state.modelProfiles.length === 0) {
     els.settingsModels.append(settingsEmpty('No AI role settings configured. Use New Show to seed defaults or create model profiles through the API.'));
     return;
@@ -3643,21 +3723,28 @@ function renderSettingsModels() {
           <h3></h3>
           <p class="help"></p>
         </div>
-        <button type="submit">Save Model Role</button>
       </div>
-      <div class="grid">
-        <label class="field"><span>Provider</span><input name="provider" type="text" required></label>
-        <label class="field"><span>Model</span><input name="model" type="text" required></label>
-        <label class="field"><span>Prompt template key</span><input name="promptTemplateKey" type="text"></label>
-        <label class="field"><span>Temperature</span><input name="temperature" type="number" step="0.01"></label>
-        <label class="field"><span>Max tokens</span><input name="maxTokens" type="number" min="1" step="1"></label>
-        <label class="field"><span>Budget USD</span><input name="budgetUsd" type="number" min="0" step="0.01"></label>
-        <label class="field"><span>Reasoning setting</span><input name="reasoningEffort" type="text"></label>
-        <label class="field wide"><span>Fallback models</span><textarea name="fallbacks" rows="2"></textarea><small>One fallback per line. Use provider/model only when provider changes.</small></label>
-      </div>
+      <div class="settings-kv"></div>
+      <details class="settings-advanced">
+        <summary>Advanced model/provider routing</summary>
+        <div class="grid">
+          <label class="field"><span>Provider</span><input name="provider" type="text" required></label>
+          <label class="field"><span>Model</span><input name="model" type="text" required></label>
+          <label class="field"><span>Prompt template key</span><input name="promptTemplateKey" type="text"></label>
+          <label class="field"><span>Temperature</span><input name="temperature" type="number" step="0.01"></label>
+          <label class="field"><span>Max tokens</span><input name="maxTokens" type="number" min="1" step="1"></label>
+          <label class="field"><span>Budget USD</span><input name="budgetUsd" type="number" min="0" step="0.01"></label>
+          <label class="field"><span>Reasoning setting</span><input name="reasoningEffort" type="text"></label>
+          <label class="field wide"><span>Fallback models</span><textarea name="fallbacks" rows="2"></textarea><small>One fallback per line. Use provider/model only when provider changes.</small></label>
+        </div>
+        <div class="actions"><button type="submit">Save Model Role</button></div>
+      </details>
     `;
     form.querySelector('h3').textContent = info.title;
     form.querySelector('.help').textContent = info.description;
+    const kv = form.querySelector('.settings-kv');
+    appendSettingsChip(kv, 'Role key', formatRole(profile.role));
+    appendSettingsChip(kv, 'Routing', 'collapsed in Advanced model/provider routing');
     form.elements.provider.value = profile.provider;
     form.elements.model.value = profile.model;
     form.elements.promptTemplateKey.value = profile.promptTemplateKey || '';
@@ -3678,18 +3765,23 @@ function renderSettingsPrompts() {
   els.settingsPrompts.innerHTML = '';
 
   if (!state.selectedShowSlug) {
-    els.settingsPrompts.append(settingsEmpty('Select a show before reviewing prompt templates.'));
+    els.settingsPrompts.append(settingsEmpty('Select a show before reviewing advanced/internal settings.'));
     return;
   }
 
+  els.settingsPrompts.append(settingsOverview(
+    'Advanced/internal',
+    'Operator-only prompt internals, output schema hints, and debug summaries are available here and closed by default.',
+  ));
+
   if (state.promptTemplates.length === 0) {
-    els.settingsPrompts.append(settingsEmpty('Prompt template endpoints are available, but no templates were returned. Prompt editing remains pending backend write endpoints.'));
+    els.settingsPrompts.append(settingsEmpty('No prompt internals were returned. Prompt editing remains pending backend write endpoints.'));
     return;
   }
 
   const note = document.createElement('div');
   note.className = 'settings-note';
-  note.textContent = 'Prompt templates are read-only in this UI because the backend currently exposes list/detail/render endpoints, not create/update endpoints.';
+  note.textContent = 'Advanced/internal details are collapsed by default. Prompt templates are read-only because the backend currently exposes list/detail/render endpoints, not create/update endpoints.';
   els.settingsPrompts.append(note);
 
   for (const template of state.promptTemplates) {
@@ -3703,9 +3795,12 @@ function renderSettingsPrompts() {
         </div>
         <span class="status-pill ready"></span>
       </div>
-      <div class="settings-kv"></div>
-      <label class="field"><span>Agent instructions</span><textarea rows="8" readonly></textarea></label>
-      <details class="debug-details"><summary>Output schema summary</summary><pre></pre></details>
+      <details class="settings-advanced">
+        <summary>Prompt internals and output schema</summary>
+        <div class="settings-kv"></div>
+        <label class="field"><span>Agent instructions</span><textarea rows="8" readonly></textarea></label>
+        <details class="debug-details"><summary>Output schema summary</summary><pre></pre></details>
+      </details>
     `;
     card.querySelector('h3').textContent = template.title || template.key;
     card.querySelector('.help').textContent = template.description || 'No description recorded.';
@@ -3740,6 +3835,11 @@ function renderSettingsPublishing() {
     return;
   }
 
+  els.settingsPublishing.append(settingsOverview(
+    'Publishing',
+    'Review approval posture and public destinations without exposing storage internals. Publishing remains blocked by review gates outside this settings screen.',
+  ));
+
   const safety = document.createElement('article');
   safety.className = 'settings-card';
   safety.innerHTML = `
@@ -3756,7 +3856,7 @@ function renderSettingsPublishing() {
   safety.querySelector('.help').textContent = publishingMode === 'approval-gated'
     ? 'Public RSS publishing requires an explicit review decision before the publish action.'
     : 'Autopublish intent is recorded, but publishing still depends on configured schedule and backend gates.';
-  safety.querySelector('button').addEventListener('click', () => setActiveSettingsTab('shows'));
+  safety.querySelector('button').addEventListener('click', () => setActiveSettingsTab('basic'));
   const safetyKv = safety.querySelector('.settings-kv');
   for (const [label, value] of [
     ['Show', show.title],
@@ -3781,10 +3881,14 @@ function renderSettingsPublishing() {
       <div class="settings-card-heading">
         <div>
           <h3></h3>
-          <p class="help">Only public URLs and non-secret storage labels are shown here.</p>
+          <p class="help">Public publishing destinations are visible by default. Storage labels and path details are collapsed.</p>
         </div>
       </div>
       <div class="settings-kv"></div>
+      <details class="settings-advanced">
+        <summary>Advanced publishing paths and storage labels</summary>
+        <div class="settings-kv"></div>
+      </details>
     `;
     card.querySelector('h3').textContent = feed.title;
     const kv = card.querySelector('.settings-kv');
@@ -3792,6 +3896,13 @@ function renderSettingsPublishing() {
     for (const [label, value] of [
       ['Public feed URL', feed.publicFeedUrl || 'not configured'],
       ['Public asset base URL', publicAssetBaseForFeed(feed) || 'not configured'],
+    ]) {
+      const item = document.createElement('span');
+      item.textContent = `${label}: ${value}`;
+      kv.append(item);
+    }
+    const advancedKv = card.querySelector('details .settings-kv');
+    for (const [label, value] of [
       ['RSS path', feed.rssFeedPath || outputPath || 'not configured'],
       ['Storage target', feed.storageType],
       ['OP3 wrapping', feed.op3Wrap ? 'enabled' : 'disabled'],
@@ -3799,7 +3910,7 @@ function renderSettingsPublishing() {
     ]) {
       const item = document.createElement('span');
       item.textContent = `${label}: ${value}`;
-      kv.append(item);
+      advancedKv.append(item);
     }
     els.settingsPublishing.append(card);
   }
@@ -3813,6 +3924,11 @@ function renderSettingsSchedules() {
     return;
   }
 
+  els.settingsSchedules.append(settingsOverview(
+    'Automation',
+    'Review whether scheduled work is enabled and whether publishing is allowed unattended. Cron, workflow, and manual run controls are collapsed by default.',
+  ));
+
   if (state.scheduledPipelines.length === 0) {
     els.settingsSchedules.append(settingsEmpty('No scheduled pipelines yet. Create one through the API, then edit cadence and safety settings here.'));
   }
@@ -3824,22 +3940,28 @@ function renderSettingsSchedules() {
       <div class="settings-card-heading">
         <div>
           <h3></h3>
-          <p class="help">Autopublish should stay off unless the show is explicitly approved for unattended publishing.</p>
+          <p class="help">Routine automation review shows whether the run is enabled. Cron, workflow, manual run, and autopublish controls are advanced.</p>
         </div>
-        <div class="actions inline">
-          <button class="secondary" name="run" type="button">Run Now</button>
-          <button type="submit">Save Schedule</button>
-        </div>
+        <button type="submit">Save Schedule</button>
       </div>
       <div class="grid">
         <label class="field"><span>Name</span><input name="name" type="text" required></label>
-        <label class="field"><span>Slug</span><input name="slug" type="text" required></label>
-        <label class="field"><span>Cron</span><input name="cron" type="text" required></label>
-        <label class="field"><span>Timezone</span><input name="timezone" type="text" required></label>
-        <label class="field"><span>Workflow</span><input name="workflow" type="text" required></label>
         <label class="toggle admin-toggle"><input name="enabled" type="checkbox"><span>Enabled</span></label>
-        <label class="toggle admin-toggle"><input name="autopublish" type="checkbox"><span>Autopublish</span></label>
       </div>
+      <details class="settings-advanced">
+        <summary>Advanced schedule workflow and publish controls</summary>
+        <div class="grid">
+          <label class="field"><span>Slug</span><input name="slug" type="text" required></label>
+          <label class="field"><span>Cron</span><input name="cron" type="text" required></label>
+          <label class="field"><span>Timezone</span><input name="timezone" type="text" required></label>
+          <label class="field"><span>Workflow</span><input name="workflow" type="text" required></label>
+          <label class="toggle admin-toggle"><input name="autopublish" type="checkbox"><span>Autopublish</span></label>
+        </div>
+        <p class="settings-note">Autopublish should stay off unless the show is explicitly approved for unattended publishing.</p>
+        <div class="actions inline">
+          <button class="secondary" name="run" type="button">Run Now</button>
+        </div>
+      </details>
     `;
     const nextRun = pipeline.nextRunAt ? new Date(pipeline.nextRunAt).toLocaleString() : 'not scheduled';
     form.querySelector('h3').textContent = `${pipeline.name} | next ${nextRun}`;
@@ -6812,6 +6934,21 @@ els.cancelShowSetup.addEventListener('click', () => {
 for (const button of els.settingsTabs) {
   button.addEventListener('click', () => {
     setActiveSettingsTab(button.dataset.settingsTab);
+  });
+  button.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      moveSettingsTabFocus(button, 1);
+    } else if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      moveSettingsTabFocus(button, -1);
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      moveSettingsTabFocus(button, 'home');
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      moveSettingsTabFocus(button, 'end');
+    }
   });
 }
 els.showName.addEventListener('input', () => {

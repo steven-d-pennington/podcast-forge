@@ -42,12 +42,12 @@ export const MODEL_ROLE_LABELS = {
 };
 
 export const SETTINGS_SECTIONS = {
-  shows: 'Shows & feeds',
-  sources: 'Story sources/search recipes',
-  models: 'Model roles',
-  prompts: 'Prompt templates',
-  publishing: 'Publishing/storage',
-  schedules: 'Scheduled pipelines',
+  basic: 'Basic show settings',
+  sources: 'Content sources',
+  publishing: 'Publishing',
+  automation: 'Automation',
+  ai: 'AI configuration',
+  advanced: 'Advanced/internal',
 };
 
 export const SURFACES = new Set(['workflow', 'settings', 'debug']);
