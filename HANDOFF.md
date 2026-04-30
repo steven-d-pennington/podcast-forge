@@ -499,3 +499,5 @@ Recommended order/status:
 8. #109 — PFI-07 Impeccable polish pass for responsive layout, states, and anti-patterns ✅ merged (#118)
 
 PFI Impeccable UI sprint status: complete. Final issue #109 merged via PR #118 (`3c366af`) after local verification (`npm run check`, `git diff --check`, `npx impeccable --json` returning `[]`, static route smoke) and clean local Gemini review fallback. Sprint state files were updated at `/home/steven/clawd/data/podcast-forge-impeccable-sprint-2026-04-29/sprint-state.json` and `~/clawd/data/podcast-forge-sprint-state.json`.
+
+Follow-up active: #119 — PFI follow-up: scope production warnings in publish checklist. Watchdog found a post-sprint publish-checklist edge case where current production warnings should remain visible review context without blocking approval, while archived/unselected production-job warnings should not count against the active production path. Branch: `issue-119-pfi-followup-production-warning-scope`; verify with `npm run check` and review before merge.
