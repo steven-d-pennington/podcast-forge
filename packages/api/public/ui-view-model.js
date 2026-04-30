@@ -735,17 +735,6 @@ function jobMatchesProductionPath(job, episode, assets) {
     return false;
   }
 
-  const jobEpisodeId = firstPresent(
-    job?.episodeId,
-    job?.summary?.episodeId,
-    job?.input?.episodeId,
-    job?.output?.episodeId,
-    job?.metadata?.episodeId,
-  );
-  if (episodeId && jobEpisodeId === episodeId) {
-    return true;
-  }
-
   const jobAssetId = firstPresent(
     job?.assetId,
     job?.summary?.assetId,
@@ -753,7 +742,18 @@ function jobMatchesProductionPath(job, episode, assets) {
     job?.output?.assetId,
     job?.metadata?.assetId,
   );
-  return Boolean(jobAssetId && assetIds.has(jobAssetId));
+  if (jobAssetId && assetIds.size > 0) {
+    return assetIds.has(jobAssetId);
+  }
+
+  const jobEpisodeId = firstPresent(
+    job?.episodeId,
+    job?.summary?.episodeId,
+    job?.input?.episodeId,
+    job?.output?.episodeId,
+    job?.metadata?.episodeId,
+  );
+  return Boolean(episodeId && jobEpisodeId === episodeId);
 }
 
 function productionWarnings(episode, assets, jobs) {
