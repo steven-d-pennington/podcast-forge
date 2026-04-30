@@ -5,6 +5,7 @@ export interface ShowCastMember {
   name: string;
   role?: string;
   voice: string;
+  persona?: string;
 }
 
 export interface ShowRecord {

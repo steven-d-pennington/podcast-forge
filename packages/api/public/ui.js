@@ -246,6 +246,37 @@ function selectedShow() {
   return state.shows.find((show) => show.slug === state.selectedShowSlug);
 }
 
+function sourceSearchProfileForMoreSources() {
+  const searchTypes = ['brave', 'zai-web', 'openrouter-perplexity'];
+  const active = selectedProfile();
+  if (active?.enabled && searchTypes.includes(active.type)) {
+    return active;
+  }
+
+  const show = selectedShow();
+  return state.profiles.find((profile) => profile.enabled && searchTypes.includes(profile.type) && (!show || profile.showId === show.id)) || null;
+}
+
+function selectedStorySubject() {
+  return selectedCandidates().map((candidate) => candidate.title).filter(Boolean).join(' ');
+}
+
+function selectedStorySourceDomains() {
+  return [...new Set(selectedCandidateAnalysis().domains.filter(Boolean))];
+}
+
+function corroborationQueryForPacket(packet) {
+  const corroboration = asObject(asObject(packet?.content).corroboration);
+  const queries = asArray(corroboration.queries).filter((query) => typeof query === 'string' && query.trim());
+  return queries[0]?.trim() || selectedStorySubject() || packet?.title || '';
+}
+
+function corroborationExcludedDomains(packet) {
+  const corroboration = asObject(asObject(packet?.content).corroboration);
+  const hosts = asArray(corroboration.excludedHosts).filter((host) => typeof host === 'string' && host.trim());
+  return [...new Set([...hosts, ...selectedStorySourceDomains()].map((host) => host.trim().toLowerCase()).filter(Boolean))];
+}
+
 function selectedCandidates() {
   const selected = new Set(state.selectedCandidateIds);
   return state.storyCandidates.filter((candidate) => selected.has(candidate.id));
@@ -391,6 +422,237 @@ function candidateStatusWarnings(candidate) {
   }
 
   return warnings;
+}
+
+function looksLikeRawValidationMessage(message) {
+  return typeof message === 'string' && (
+    message.includes('invalid_type')
+    || message.includes('unrecognized_keys')
+    || message.includes('Invalid input: expected')
+    || message.includes('Unrecognized keys')
+    || message.includes('source_urls')
+    || message.includes('source_document_ids')
+    || message.includes('uncertainty_label')
+  );
+}
+
+function researchWarningMessage(warning) {
+  if (warning?.code === 'MODEL_CLAIM_EXTRACTION_FAILED') {
+    return 'Claim extraction failed for this source. Claims and citations may be incomplete; regenerate the research brief after the model/schema fix.';
+  }
+
+  if (warning?.code === 'MODEL_RESEARCH_SYNTHESIS_FAILED') {
+    return 'Research synthesis failed or returned an unexpected format. Review the claim list before drafting, or regenerate with a different model.';
+  }
+
+  const message = warning?.message || warning?.code || 'Research warning requires review.';
+  if (looksLikeRawValidationMessage(message)) {
+    return 'Model output did not match the expected research-claim format. Claims and citations may be incomplete; regenerate the research brief after the model/schema fix.';
+  }
+
+  return message;
+}
+
+function researchWarningSeverity(warning) {
+  if (warning?.override) {
+    return { level: 'resolved', label: 'Resolved', className: 'info' };
+  }
+  if (warning?.code === 'DUPLICATE_SOURCE_URL') {
+    return { level: 'info', label: 'Info', className: 'info' };
+  }
+  if (warning?.code === 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE' || warning?.severity === 'error') {
+    return { level: 'high', label: 'High impact', className: 'error' };
+  }
+  if (warning?.code === 'MODEL_CLAIM_EXTRACTION_FAILED' || warning?.code === 'MODEL_RESEARCH_SYNTHESIS_FAILED') {
+    return { level: 'medium', label: 'Model failure', className: 'error' };
+  }
+  return { level: 'warning', label: 'Warning', className: '' };
+}
+
+function researchWarningRemediation(warning) {
+  switch (warning?.code) {
+    case 'DUPLICATE_SOURCE_URL':
+      return {
+        title: 'Duplicate source skipped',
+        impact: 'Duplicate source URL warnings are source hygiene notes and do not reduce generated claim quality.',
+        recommendedFix: 'Dismiss the source hygiene note if the remaining independent source count is still acceptable.',
+        overrideImpact: 'This only acknowledges duplicate source cleanup. It does not affect generated claims or script quality.',
+        primaryAction: 'Dismiss source hygiene note',
+      };
+    case 'MODEL_CLAIM_EXTRACTION_FAILED':
+      return {
+        title: 'Claim extraction failed',
+        impact: 'Script generation may use incomplete claim/citation coverage for this source.',
+        recommendedFix: 'Retry extraction by regenerating the brief, preferably with a different claim extraction model.',
+        overrideImpact: 'Proceeding may allow script generation with incomplete evidence coverage or missing citations for one or more sources.',
+        primaryAction: 'Override with reason',
+      };
+    case 'MODEL_RESEARCH_SYNTHESIS_FAILED':
+      return {
+        title: 'Research synthesis failed',
+        impact: 'Generated script framing may be weaker because synthesis failed or was degraded.',
+        recommendedFix: 'Retry synthesis by regenerating the brief, preferably with a different synthesis model.',
+        overrideImpact: 'Proceeding may use a degraded research brief. Source balance, framing, and script structure may be weaker.',
+        primaryAction: 'Override with reason',
+      };
+    case 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE':
+      return {
+        title: 'High-stakes claim needs primary source',
+        impact: 'Generated script may include high-stakes claims that require extra human fact-checking before publication.',
+        recommendedFix: 'Add or mark a primary source, rewrite/remove the affected claim, or verify the claim manually before overriding.',
+        overrideImpact: 'Proceeding allows high-stakes claims without primary-source support. Human fact-checking remains required before publication.',
+        primaryAction: 'Override with reason',
+      };
+    default:
+      return {
+        title: 'Research warning needs review',
+        impact: 'This warning may affect research quality or approval readiness.',
+        recommendedFix: 'Review the warning details, regenerate the brief if the evidence looks incomplete, or override with a clear editorial reason.',
+        overrideImpact: 'Proceeding acknowledges the warning without changing the underlying research packet.',
+        primaryAction: 'Override with reason',
+      };
+  }
+}
+
+function researchWarningModelRole(warning) {
+  if (warning?.code === 'MODEL_CLAIM_EXTRACTION_FAILED') {
+    return 'claim_extractor';
+  }
+  if (warning?.code === 'MODEL_RESEARCH_SYNTHESIS_FAILED') {
+    return 'research_synthesizer';
+  }
+  return '';
+}
+
+function researchWarningErrorPayload(warning) {
+  if (!researchWarningModelRole(warning)) {
+    return null;
+  }
+  const metadata = warning?.metadata && typeof warning.metadata === 'object' ? warning.metadata : {};
+  const attempts = Array.isArray(metadata.attempts) ? metadata.attempts : [];
+  const payload = {
+    stage: metadata.modelStage || researchWarningModelRole(warning),
+    sourceDocumentId: metadata.sourceDocumentId || warning?.sourceDocumentId || null,
+    failureType: metadata.failureType || null,
+    message: metadata.originalMessage || warning?.message || warning?.code || 'Model invocation failed.',
+    attempts,
+    selected: metadata.selected || null,
+    responseFormat: metadata.responseFormat || null,
+    rawOutputPreview: metadata.rawOutputPreview || null,
+    validationDetails: metadata.validationDetails || null,
+  };
+  if (!payload.message && attempts.length === 0) {
+    return null;
+  }
+  return payload;
+}
+
+function renderResearchWarningErrorDetails(warning) {
+  const payload = researchWarningErrorPayload(warning);
+  if (!payload) {
+    return null;
+  }
+
+  const details = document.createElement('details');
+  details.className = 'warning-error-details';
+  const summary = document.createElement('summary');
+  summary.textContent = 'Error details';
+  const pre = document.createElement('pre');
+  pre.textContent = JSON.stringify(payload, null, 2);
+  details.append(summary, pre);
+  return details;
+}
+
+function warningTextPreview(value, maxLength = 360) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength - 1).trim()}…`;
+}
+
+function renderWarningTriggerRow(label, value) {
+  if (!value) {
+    return null;
+  }
+  const row = document.createElement('p');
+  const labelEl = document.createElement('strong');
+  labelEl.textContent = label;
+  row.append(labelEl, ` ${value}`);
+  return row;
+}
+
+function renderResearchWarningTriggerDetails(packet, warning) {
+  const metadata = warning?.metadata && typeof warning.metadata === 'object' ? warning.metadata : {};
+  const rows = [];
+
+  if (warning?.code === 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE') {
+    const claimId = metadata.claimId || '';
+    const claim = asArray(packet?.claims).find((item) => item?.id === claimId);
+    const sourceDocumentIds = Array.isArray(metadata.sourceDocumentIds)
+      ? metadata.sourceDocumentIds.filter(Boolean)
+      : asArray(claim?.sourceDocumentIds).filter(Boolean);
+    const citations = asArray(packet?.citations).filter((citation) => sourceDocumentIds.includes(citation?.sourceDocumentId));
+
+    rows.push(renderWarningTriggerRow('Affected claim:', warningTextPreview(claim?.text || claimId || 'Unknown claim')));
+    for (const citation of citations.slice(0, 3)) {
+      const title = warningTextPreview(citation.title || citation.url || citation.sourceDocumentId, 180);
+      const url = citation.url ? ` — ${citation.url}` : '';
+      rows.push(renderWarningTriggerRow('Cited source:', `${title}${url}`));
+    }
+    if (citations.length === 0 && sourceDocumentIds.length > 0) {
+      rows.push(renderWarningTriggerRow('Cited source:', `source document ${sourceDocumentIds.join(', ')}`));
+    }
+    rows.push(renderWarningTriggerRow('Claim/source ids:', [claimId, ...sourceDocumentIds].filter(Boolean).join(' / ')));
+  } else if (warning?.code === 'DUPLICATE_SOURCE_URL') {
+    rows.push(renderWarningTriggerRow('Source URL:', metadata.url || warning.url || 'Duplicate URL recorded in packet metadata'));
+  } else if (researchWarningModelRole(warning)) {
+    rows.push(renderWarningTriggerRow('Model stage:', researchWarningModelRole(warning)));
+    rows.push(renderWarningTriggerRow('Source document:', metadata.sourceDocumentId || warning.sourceDocumentId || 'See Error details'));
+  }
+
+  const visibleRows = rows.filter(Boolean);
+  if (visibleRows.length === 0) {
+    return null;
+  }
+
+  const box = document.createElement('div');
+  box.className = 'warning-trigger-details';
+  const heading = document.createElement('p');
+  const headingLabel = document.createElement('strong');
+  headingLabel.textContent = 'Triggered by:';
+  heading.append(headingLabel, ' Specific packet data behind this warning.');
+  box.append(heading, ...visibleRows);
+  return box;
+}
+
+const RESEARCH_RETRY_MODEL_PRESETS = [
+  {
+    label: 'GLM 5.1 (Z.AI / OpenAI-compatible)',
+    provider: 'openai-compatible',
+    model: 'glm-5.1',
+    params: { thinking: { type: 'disabled' } },
+  },
+  {
+    label: 'GPT-5.5 (OpenAI)',
+    provider: 'openai',
+    model: 'gpt-5.5',
+    params: { reasoningEffort: 'high' },
+  },
+  {
+    label: 'Gemini 2.5 Pro (Vertex)',
+    provider: 'google-vertex',
+    model: 'gemini-2.5-pro',
+    params: {},
+  },
+];
+
+function researchRetryPresetValue(preset) {
+  return `${preset.provider}::${preset.model}`;
+}
+
+function selectedResearchRetryPreset(value) {
+  return RESEARCH_RETRY_MODEL_PRESETS.find((preset) => researchRetryPresetValue(preset) === value) || RESEARCH_RETRY_MODEL_PRESETS[0];
 }
 
 function normalizedTitleKeywords(title) {
@@ -1079,6 +1341,117 @@ function coverageClaimText(item) {
   return `${coverageStatusLabel(item.status)}: ${item.text || item.claimId} | ${sourceCount} | ${mapped}`;
 }
 
+function renderCoverageClaimMap(summary) {
+  const claims = asArray(summary?.claims).filter((claim) => claim.claimId || claim.id);
+  const findings = [
+    ...asArray(summary?.needsAttention),
+    ...asArray(summary?.blockers),
+    ...asArray(summary?.unknowns),
+  ].filter((finding) => finding.claimId || finding.claim?.id);
+  const map = document.createElement('div');
+  map.className = 'coverage-claim-map';
+  map.setAttribute('aria-label', 'Claim to coverage finding map');
+
+  const claimColumn = document.createElement('div');
+  claimColumn.className = 'coverage-claim-column';
+  const claimHeading = document.createElement('h5');
+  claimHeading.textContent = 'Claims';
+  claimColumn.append(claimHeading);
+
+  if (claims.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'empty';
+    empty.textContent = 'No extracted claims available for visual mapping yet.';
+    claimColumn.append(empty);
+  }
+
+  for (const claim of claims) {
+    const claimId = claim.claimId || claim.id;
+    const card = document.createElement('article');
+    card.className = `coverage-claim-card ${claim.status || 'unknown'}`;
+    card.dataset.coverageClaimId = claimId;
+    const label = document.createElement('strong');
+    label.textContent = coverageStatusLabel(claim.status);
+    const text = document.createElement('p');
+    text.textContent = claim.text || claimId;
+    const meta = document.createElement('span');
+    meta.textContent = coverageClaimText(claim);
+    card.append(label, text, meta);
+    claimColumn.append(card);
+  }
+
+  const findingColumn = document.createElement('div');
+  findingColumn.className = 'coverage-finding-column';
+  const findingHeading = document.createElement('h5');
+  findingHeading.textContent = 'Needs attention';
+  findingColumn.append(findingHeading);
+
+  if (findings.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'empty';
+    empty.textContent = 'No claim-specific coverage findings to connect.';
+    findingColumn.append(empty);
+  }
+
+  for (const finding of findings) {
+    const claimId = finding.claimId || finding.claim?.id;
+    const card = document.createElement('article');
+    card.className = `coverage-finding-card ${finding.severity || finding.status || 'needs_attention'}`;
+    card.dataset.coverageFindingClaimId = claimId;
+    const label = document.createElement('strong');
+    label.textContent = finding.severity || coverageStatusLabel(finding.status || 'needs_attention');
+    const text = document.createElement('p');
+    text.textContent = coverageFindingText(finding);
+    card.append(label, text);
+    findingColumn.append(card);
+  }
+
+  const overlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  overlay.classList.add('coverage-connector-overlay');
+  overlay.setAttribute('aria-hidden', 'true');
+  overlay.setAttribute('focusable', 'false');
+  map.append(claimColumn, findingColumn, overlay);
+  renderCoverageFindingConnectors(map);
+  return map;
+}
+
+function renderCoverageFindingConnectors(panel) {
+  const overlay = panel.querySelector('.coverage-connector-overlay');
+  if (!overlay) {
+    return;
+  }
+  const draw = () => {
+    overlay.replaceChildren();
+    const panelBox = panel.getBoundingClientRect();
+    if (!panelBox.width || !panelBox.height) {
+      return;
+    }
+    overlay.setAttribute('viewBox', `0 0 ${panelBox.width} ${panelBox.height}`);
+    overlay.setAttribute('width', String(panelBox.width));
+    overlay.setAttribute('height', String(panelBox.height));
+    const findings = panel.querySelectorAll('[data-coverage-finding-claim-id]');
+    for (const finding of findings) {
+      const claimId = finding.dataset.coverageFindingClaimId;
+      const claim = claimId ? panel.querySelector(`[data-coverage-claim-id="${CSS.escape(claimId)}"]`) : null;
+      if (!claim) {
+        continue;
+      }
+      const claimBox = claim.getBoundingClientRect();
+      const findingBox = finding.getBoundingClientRect();
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      const startX = claimBox.right - panelBox.left;
+      const startY = claimBox.top + claimBox.height / 2 - panelBox.top;
+      const endX = findingBox.left - panelBox.left;
+      const endY = findingBox.top + findingBox.height / 2 - panelBox.top;
+      const midX = startX + Math.max(24, (endX - startX) / 2);
+      line.setAttribute('d', `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`);
+      line.setAttribute('class', 'coverage-connector-line');
+      overlay.append(line);
+    }
+  };
+  window.requestAnimationFrame(draw);
+}
+
 function renderCoverageSummary(summary) {
   const section = document.createElement('section');
   section.className = `coverage-panel ${summary?.status || 'unknown'}`;
@@ -1108,6 +1481,8 @@ function renderCoverageSummary(summary) {
     ['Blocking findings', counts.blockingFindings ?? 0],
     ['Integrity findings', counts.integrityFindings ?? 0],
   ]));
+
+  section.append(renderCoverageClaimMap(summary));
 
   section.append(
     reviewList('Blocking coverage findings', asArray(summary.blockers), 'No blocking coverage findings recorded.', coverageFindingText),
@@ -3153,6 +3528,94 @@ function renderStoryCandidates() {
   }
 }
 
+function renderResearchBriefRow(packet) {
+  const scope = artifactScope('brief', packet.id);
+  const row = document.createElement('article');
+  const isActiveBrief = currentProductionViewModel().activeArtifacts?.brief?.id === packet.id;
+  row.className = `record-row ${scope.className}-artifact${isActiveBrief ? ' selected' : ''}`;
+
+  const title = document.createElement('strong');
+  title.textContent = packet.title;
+  appendScopePill(title, scope);
+
+  const warningCount = packet.warnings?.length || 0;
+  const meta = document.createElement('span');
+  const readiness = asObject(asObject(packet.content).readiness);
+  const corroboration = asObject(asObject(packet.content).corroboration);
+  const evidenceLabel = readiness.status === 'single_source_breaking'
+    ? 'Developing single-source report'
+    : typeof corroboration.classification === 'string'
+      ? corroboration.classification.replace(/_/g, ' ')
+      : packet.status;
+  meta.textContent = `${packet.status} | Evidence state: ${evidenceLabel} | Source evidence: ${packet.citations?.length || 0} citation${packet.citations?.length === 1 ? '' : 's'} | Unresolved warnings: ${unresolvedResearchWarnings(packet).length}`;
+
+  const summary = document.createElement('p');
+  summary.textContent = scope.className === 'archive'
+    ? 'History/archive research brief. Kept for audit, comparison, and rollback; not part of current production for the selected candidate story.'
+    : warningCount > 0
+      ? 'Active/current research brief. Review warnings before drafting or approving production.'
+      : 'Active/current research brief. Ready for script drafting when the editor is comfortable with the source mix.';
+
+  const actions = document.createElement('div');
+  actions.className = 'actions inline row-actions';
+  const useForScript = document.createElement('button');
+  useForScript.type = 'button';
+  useForScript.className = 'secondary';
+  useForScript.textContent = isActiveBrief
+    ? 'Active for Script'
+    : scope.className === 'archive'
+      ? 'Select for Audit Only'
+      : 'Use for Script';
+  useForScript.addEventListener('click', () => {
+    selectResearchPacket(packet);
+  });
+  actions.append(useForScript);
+
+  const needsMoreSources = packet.status === 'blocked' && readiness.status === 'needs_more_sources';
+  if (needsMoreSources && scope.className !== 'archive') {
+    const searchMoreSources = document.createElement('button');
+    searchMoreSources.type = 'button';
+    searchMoreSources.className = 'secondary';
+    searchMoreSources.textContent = 'Search for other sources';
+    searchMoreSources.disabled = isActionRunning('discover');
+    searchMoreSources.title = 'Run a subject-specific search and exclude the current story source domains.';
+    searchMoreSources.addEventListener('click', () => runMoreSourcesForResearchPacket(packet));
+    actions.append(searchMoreSources);
+  }
+
+  if (warningCount > 0) {
+    const details = document.createElement('details');
+    details.className = 'debug-details row-debug';
+    details.innerHTML = '<summary>Audit detail: warning records</summary><pre></pre>';
+    details.querySelector('pre').textContent = JSON.stringify(packet.warnings, null, 2);
+    row.append(title, meta, summary, actions, details);
+  } else {
+    row.append(title, meta, summary, actions);
+  }
+
+  return row;
+}
+
+function renderResearchBriefHistory(archivedPackets) {
+  const details = document.createElement('details');
+  details.className = 'audit-history-disclosure research-brief-history';
+
+  const summary = document.createElement('summary');
+  summary.textContent = `History/archive research briefs (${archivedPackets.length})`;
+
+  const explanation = document.createElement('p');
+  explanation.textContent = 'Research brief history is retained for audit, comparison, and rollback. It is not part of the current production path unless selected for audit.';
+
+  const body = document.createElement('div');
+  body.className = 'research-brief-history-list';
+  for (const packet of archivedPackets) {
+    body.append(renderResearchBriefRow(packet));
+  }
+
+  details.append(summary, explanation, body);
+  return details;
+}
+
 function renderResearchBriefs() {
   els.researchBriefList.innerHTML = '';
   els.researchBriefMeta.textContent = `${state.researchPackets.length} research brief${state.researchPackets.length === 1 ? '' : 's'} for this show`;
@@ -3165,53 +3628,23 @@ function renderResearchBriefs() {
     return;
   }
 
+  const activePackets = [];
+  const archivedPackets = [];
   for (const packet of state.researchPackets) {
     const scope = artifactScope('brief', packet.id);
-    const row = document.createElement('article');
-    const isActiveBrief = currentProductionViewModel().activeArtifacts?.brief?.id === packet.id;
-    row.className = `record-row ${scope.className}-artifact${isActiveBrief ? ' selected' : ''}`;
-
-    const title = document.createElement('strong');
-    title.textContent = packet.title;
-    appendScopePill(title, scope);
-
-    const warningCount = packet.warnings?.length || 0;
-    const meta = document.createElement('span');
-    meta.textContent = `${packet.status} | Source evidence: ${packet.citations?.length || 0} citation${packet.citations?.length === 1 ? '' : 's'} | Unresolved warnings: ${unresolvedResearchWarnings(packet).length}`;
-
-    const summary = document.createElement('p');
-    summary.textContent = scope.className === 'archive'
-      ? 'History/archive research brief. Not part of current production for the selected candidate story.'
-      : warningCount > 0
-        ? 'Active/current research brief. Review warnings before drafting or approving production.'
-        : 'Active/current research brief. Ready for script drafting when the editor is comfortable with the source mix.';
-
-    const actions = document.createElement('div');
-    actions.className = 'actions inline row-actions';
-    const useForScript = document.createElement('button');
-    useForScript.type = 'button';
-    useForScript.className = 'secondary';
-    useForScript.textContent = isActiveBrief
-      ? 'Active for Script'
-      : scope.className === 'archive'
-        ? 'Select for Audit Only'
-        : 'Use for Script';
-    useForScript.addEventListener('click', () => {
-      selectResearchPacket(packet);
-    });
-    actions.append(useForScript);
-
-    if (warningCount > 0) {
-      const details = document.createElement('details');
-      details.className = 'debug-details row-debug';
-      details.innerHTML = '<summary>Audit detail: warning records</summary><pre></pre>';
-      details.querySelector('pre').textContent = JSON.stringify(packet.warnings, null, 2);
-      row.append(title, meta, summary, actions, details);
+    if (scope.className === 'archive') {
+      archivedPackets.push(packet);
     } else {
-      row.append(title, meta, summary, actions);
+      activePackets.push(packet);
     }
+  }
 
-    els.researchBriefList.append(row);
+  for (const packet of activePackets) {
+    els.researchBriefList.append(renderResearchBriefRow(packet));
+  }
+
+  if (archivedPackets.length > 0) {
+    els.researchBriefList.append(renderResearchBriefHistory(archivedPackets));
   }
 }
 
@@ -3443,7 +3876,7 @@ function renderSettingsShows() {
       <div class="grid">
         <label class="field"><span>Slug</span><input name="slug" type="text" pattern="[a-z0-9]+(-[a-z0-9]+)*" required></label>
         <label class="field"><span>Format slug</span><input name="format" type="text" placeholder="daily-briefing"></label>
-        <label class="field wide"><span>Cast basics</span><textarea name="cast" rows="3"></textarea><small>One per line: Name | role | voice.</small></label>
+        <label class="field wide"><span>Cast personas</span><textarea name="cast" rows="5" placeholder="David | anchor | Orus | Concise anchor; plain-language transitions.\nMarcus | legal analyst | Puck | Legal framing, but less stiff.\nIngrid | ethics/social impact | Kore | Emotionally grounded social impact."></textarea><small>One per line: Name | role | voice | persona. Persona guides tone, handoffs, pacing, and TTS direction; evidence rules still win.</small></label>
       </div>
       <p class="settings-note">Slug changes can affect feed URLs, scheduled runs, and external references. Confirm downstream links after saving.</p>
     </details>
@@ -3567,7 +4000,7 @@ function renderSettingsSources() {
       </div>
       <div class="grid">
         <label class="field"><span>Name</span><input name="name" type="text" required></label>
-        <label class="field"><span>Type</span><select name="type"><option value="brave">Brave</option><option value="zai-web">Z.AI Web Search</option><option value="rss">RSS</option><option value="manual">Manual URL</option><option value="local-json">Local JSON</option></select></label>
+        <label class="field"><span>Type</span><select name="type"><option value="brave">Brave</option><option value="zai-web">Z.AI Web Search</option><option value="openrouter-perplexity">OpenRouter Perplexity/Sonar</option><option value="rss">RSS</option><option value="manual">Manual URL</option><option value="local-json">Local JSON</option></select></label>
         <label class="field"><span>Freshness window</span><input name="freshness" type="text" placeholder="pd, pw, pm"></label>
         <label class="toggle admin-toggle"><input name="enabled" type="checkbox"><span>Enabled</span></label>
       </div>
@@ -4621,7 +5054,7 @@ function renderScriptCoachingActions() {
     return;
   }
 
-  els.scriptCoachingActions.append(heading, scriptCoachingActionGrid());
+  els.scriptCoachingActions.append(heading, scriptCoachingActionGrid(), renderCustomScriptCoachingForm());
 }
 
 function reviewSectionHeading(title, status, detail) {
@@ -4698,6 +5131,41 @@ function scriptCoachingActionGrid() {
   return actions;
 }
 
+function renderCustomScriptCoachingForm() {
+  const form = document.createElement('form');
+  form.className = 'custom-coaching-form';
+  form.noValidate = true;
+
+  const label = document.createElement('label');
+  label.className = 'field';
+  const title = document.createElement('span');
+  title.textContent = 'Custom AI feedback';
+  const help = document.createElement('small');
+  help.textContent = 'Describe exactly how you want the next draft revised. This creates a new unapproved revision; it does not edit approved audio or carry review decisions forward.';
+  const textarea = document.createElement('textarea');
+  textarea.name = 'customInstruction';
+  textarea.rows = 4;
+  textarea.placeholder = 'Example: Keep the legal caveats, shorten the intro by 30 seconds, and make Ingrid ask one skeptical question before Marcus explains the allegation.';
+  textarea.disabled = isActionRunning('script');
+  label.append(title, help, textarea);
+
+  const actions = document.createElement('div');
+  actions.className = 'actions inline';
+  const submit = document.createElement('button');
+  submit.type = 'submit';
+  submit.className = 'secondary';
+  submit.textContent = 'Iterate with Custom Feedback';
+  submit.disabled = isActionRunning('script');
+  actions.append(submit);
+
+  form.append(label, actions);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await runCustomScriptCoachingAction(form);
+  });
+  return form;
+}
+
 function reviewList(title, items, emptyText, mapper = (item) => item) {
   const section = document.createElement('section');
   section.className = 'review-subsection';
@@ -4732,6 +5200,168 @@ function actionBlockerNote(message, blocked = true) {
   return note;
 }
 
+function renderModelRetryControls(packet, warning) {
+  const role = researchWarningModelRole(warning);
+  if (!role || warning.override) {
+    return null;
+  }
+
+  const currentProfile = state.modelProfiles.find((profile) => profile.role === role);
+  const controls = document.createElement('div');
+  controls.className = 'model-retry-controls';
+
+  const label = document.createElement('label');
+  label.textContent = `Retry ${formatRole(role)} with model`;
+  const select = document.createElement('select');
+  select.setAttribute('aria-label', `Retry ${formatRole(role)} with model`);
+  for (const preset of RESEARCH_RETRY_MODEL_PRESETS) {
+    const option = document.createElement('option');
+    option.value = researchRetryPresetValue(preset);
+    option.textContent = preset.label;
+    option.selected = currentProfile?.provider === preset.provider && currentProfile?.model === preset.model;
+    select.append(option);
+  }
+  label.append(select);
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'secondary compact-action';
+  button.textContent = 'Try a different model and regenerate';
+  button.disabled = !currentProfile || isActionRunning('research');
+  button.title = currentProfile ? 'Updates this AI role setting, then regenerates the research brief for the selected story.' : `No ${formatRole(role)} model profile is configured for this show.`;
+  button.addEventListener('click', () => applyResearchRetryModelAndRegenerate(packet, warning, select.value));
+
+  const help = document.createElement('p');
+  help.className = 'help';
+  help.textContent = currentProfile
+    ? `Current ${formatRole(role)}: ${currentProfile.provider}/${currentProfile.model}. This changes the role setting and creates a new research packet; old packets remain in history.`
+    : `No ${formatRole(role)} profile is available to update.`;
+
+  controls.append(label, button, help);
+  return controls;
+}
+
+function renderResearchWarningCard(packet, warning) {
+  const row = document.createElement('div');
+  const severity = researchWarningSeverity(warning);
+  const remediation = researchWarningRemediation(warning);
+  row.className = `warning-item ${severity.className}`.trim();
+
+  const header = document.createElement('div');
+  header.className = 'warning-remediation-header';
+  const title = document.createElement('strong');
+  title.textContent = `${severity.label}: ${remediation.title}`;
+  const code = document.createElement('span');
+  code.className = 'warning-code';
+  code.textContent = warning.code || 'warning';
+  header.append(title, code);
+
+  const message = document.createElement('p');
+  const messageText = researchWarningMessage(warning);
+  message.textContent = `${messageText}${warning.override ? ` | overridden by ${warning.override.actor}` : ''}`;
+
+  const details = document.createElement('div');
+  details.className = 'warning-remediation';
+  for (const [label, value] of [
+    ['Impact:', remediation.impact],
+    ['Recommended fix:', remediation.recommendedFix],
+    ['Override impact:', remediation.overrideImpact],
+  ]) {
+    const item = document.createElement('p');
+    const labelEl = document.createElement('strong');
+    labelEl.textContent = label;
+    item.append(labelEl, ` ${value}`);
+    details.append(item);
+  }
+
+  row.append(header, message, details);
+  const triggerDetails = renderResearchWarningTriggerDetails(packet, warning);
+  if (triggerDetails) {
+    row.append(triggerDetails);
+  }
+  const errorDetails = renderResearchWarningErrorDetails(warning);
+  if (errorDetails) {
+    row.append(errorDetails);
+  }
+
+  if (!warning.override) {
+    const modelControls = renderModelRetryControls(packet, warning);
+    const actions = document.createElement('div');
+    actions.className = 'actions inline warning-actions';
+    if (warning.code === 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE') {
+      const removeClaim = document.createElement('button');
+      removeClaim.type = 'button';
+      removeClaim.className = 'secondary compact-action';
+      removeClaim.textContent = 'Remove affected claim';
+      removeClaim.addEventListener('click', () => excludeResearchClaim(packet.id, warning));
+      actions.append(removeClaim);
+
+      const sourceDocumentIds = warning.metadata && Array.isArray(warning.metadata.sourceDocumentIds)
+        ? warning.metadata.sourceDocumentIds.filter(Boolean)
+        : [];
+      for (const sourceDocumentId of sourceDocumentIds) {
+        const markPrimary = document.createElement('button');
+        markPrimary.type = 'button';
+        markPrimary.className = 'secondary compact-action';
+        markPrimary.textContent = 'Mark cited source primary';
+        markPrimary.title = `Mark ${sourceDocumentId} as a primary source for this warning.`;
+        markPrimary.addEventListener('click', () => markResearchSourcePrimary(packet.id, warning, sourceDocumentId));
+        actions.append(markPrimary);
+      }
+    }
+    const override = document.createElement('button');
+    override.type = 'button';
+    override.className = 'secondary compact-action';
+    override.textContent = remediation.primaryAction;
+    override.addEventListener('click', () => overrideResearchWarning(packet.id, warning));
+    actions.append(override);
+    if (modelControls) {
+      row.append(modelControls);
+    }
+    row.append(actions);
+  }
+
+  return row;
+}
+
+function corroborationSearchStatusText(search) {
+  const status = String(search?.status || 'not_run');
+  if (status === 'succeeded') {
+    return `Automatic corroboration search ran: ${search.inserted ?? 0} inserted, ${search.skipped ?? 0} skipped.`;
+  }
+  if (status === 'failed') {
+    return `Automatic corroboration search failed${search.error ? `: ${search.error}` : '.'}`;
+  }
+  if (status === 'skipped') {
+    return `Automatic corroboration search skipped${search.error ? `: ${search.error}` : '.'}`;
+  }
+  return 'Automatic corroboration search not run.';
+}
+
+function renderCorroborationSearchSummary(packet) {
+  const corroboration = asObject(asObject(packet?.content).corroboration);
+  const search = asObject(corroboration.search);
+  const section = document.createElement('section');
+  section.className = 'review-subsection';
+  const heading = document.createElement('h4');
+  heading.textContent = 'Automatic corroboration search';
+  appendTrustBadge(heading, search.status === 'succeeded' ? 'sourceEvidence' : search.status === 'failed' ? 'unresolvedWarning' : 'auditDetail');
+  const message = document.createElement('p');
+  message.textContent = corroborationSearchStatusText(search);
+  section.append(heading, message);
+
+  const details = [
+    ['Evidence classification', corroboration.classification || 'unknown'],
+    ['Generated corroboration queries', asArray(corroboration.queries).length || 0],
+    ['Search query', search.query || asArray(corroboration.queries)[0] || 'not recorded'],
+    ['Excluded domains', asArray(search.excludeDomains).join(', ') || asArray(corroboration.excludedHosts).join(', ') || 'none recorded'],
+    ['Search source', search.sourceProfileId ? `${search.sourceProfileType || 'source'} ${search.sourceProfileId}` : 'not recorded'],
+    ['Search job', search.jobId || 'not recorded'],
+  ];
+  section.append(reviewFacts(details));
+  return section;
+}
+
 function renderResearchReview() {
   const packet = selectedResearchPacket();
   els.reviewResearch.innerHTML = '';
@@ -4750,6 +5380,8 @@ function renderResearchReview() {
   const status = approved && unresolved.length === 0 ? 'done' : unresolved.length > 0 || readiness !== 'ready' ? 'needs review' : 'ready';
   const candidateIds = asArray(packet.content?.candidateIds).filter((id) => typeof id === 'string');
   const sourceUrls = asArray(packet.citations).map((citation) => citation.url).filter(Boolean);
+  const corroboration = asObject(packet.content?.corroboration);
+  const automaticSearch = asObject(corroboration.automatedSearch || corroboration.search);
 
   els.reviewResearch.append(
     reviewSectionHeading('Research Brief', status, packet.title),
@@ -4776,7 +5408,10 @@ function renderResearchReview() {
       ['Independent sources', packet.content?.independentSourceCount ?? 'unknown'],
       ['Usable sources', packet.content?.usableSourceCount ?? 'unknown'],
       ['Selected candidates', packet.content?.selectedCandidateCount ?? (candidateIds.length || 'unknown')],
+      ['Evidence classification', corroboration.classification || 'unknown'],
+      ['Automatic corroboration search', automaticSearch.status || 'not_run'],
     ]),
+    renderCorroborationSearchSummary(packet),
     reviewList('Selected candidates', candidateIds, 'No selected candidate IDs were recorded.', (id) => id),
     reviewList('Source URLs', sourceUrls, 'No citation URLs were recorded.', (url) => url),
     reviewList('Claims and citations', asArray(packet.claims), 'No claims were recorded for this brief.', (claim) => {
@@ -4798,20 +5433,7 @@ function renderResearchReview() {
     warnings.append(empty);
   } else {
     for (const warning of asArray(packet.warnings)) {
-      const row = document.createElement('div');
-      row.className = `warning-item ${warning.severity === 'error' ? 'error' : ''}`;
-      const message = document.createElement('span');
-      message.textContent = `${warning.override ? 'Review decision override' : 'Unresolved warning'} | ${warning.code || 'warning'}: ${warning.message || 'No message recorded.'}${warning.override ? ` | overridden by ${warning.override.actor}` : ''}`;
-      row.append(message);
-      if (!warning.override) {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'secondary compact-action';
-        button.textContent = 'Override';
-        button.addEventListener('click', () => overrideResearchWarning(packet.id, warning));
-        row.append(button);
-      }
-      warnings.append(row);
+      warnings.append(renderResearchWarningCard(packet, warning));
     }
   }
 
@@ -4966,7 +5588,7 @@ function renderScriptReview() {
   if (state.scriptCoachingActions.length === 0) {
     coachingSection.append(settingsEmpty('No AI coaching actions are available. Recovery: refresh the workspace or check the script coaching actions endpoint before relying on AI rewrite help.'));
   } else {
-    coachingSection.append(scriptCoachingActionGrid());
+    coachingSection.append(scriptCoachingActionGrid(), renderCustomScriptCoachingForm());
   }
   els.reviewScript.append(coachingSection);
 
@@ -5294,6 +5916,14 @@ function render() {
   renderSurfaceVisibility();
 }
 
+function renderJobPollingUpdate() {
+  state.productionViewModel = deriveProductionViewModel(state);
+  refreshProductionCommandBar();
+  renderJobRuns();
+  renderProductionReview();
+  renderPublishChecklist();
+}
+
 async function loadShows() {
   const body = await api('/shows');
   state.shows = body.shows;
@@ -5473,7 +6103,7 @@ function updateJobPolling() {
   state.jobPoll = window.setInterval(async () => {
     try {
       await loadJobs();
-      render();
+      renderJobPollingUpdate();
     } catch (error) {
       stopJobPolling();
       reportError(error);
@@ -5691,6 +6321,23 @@ async function clearCandidateQueue() {
   }
 }
 
+function startNewEpisode() {
+  clearPipelineSelections();
+  resetCandidateFilters();
+
+  for (const input of [els.clusterAngle, els.clusterNotes, els.clusterFormat, els.clusterRuntime, els.scriptResearchPacketId]) {
+    if (input) {
+      input.value = '';
+    }
+  }
+
+  savePipelineState();
+  setActiveSurface('workflow');
+  render();
+  scrollToPanel('candidatePanel');
+  setStatus('Started a new episode path. Choose a candidate story to begin the next production run.');
+}
+
 function clearCandidateSelection() {
   state.selectedCandidateIds = [];
   state.episodePlan = null;
@@ -5738,6 +6385,53 @@ async function runSelectedProfileDiscovery() {
     const warningText = warnings.length > 0 ? `, ${warnings.length} warning${warnings.length === 1 ? '' : 's'}` : '';
     setStatus(`${sourceActionLabel(profile.type)} complete: ${body.inserted} inserted, ${body.skipped} skipped${warningText}.`);
   } catch (error) {
+    reportError(error);
+  } finally {
+    setActionRunning('discover', false);
+  }
+}
+
+async function runMoreSourcesForResearchPacket(packet) {
+  const profile = sourceSearchProfileForMoreSources();
+  const query = corroborationQueryForPacket(packet);
+  const excludeDomains = corroborationExcludedDomains(packet);
+
+  if (!profile) {
+    setStatus('Search for other sources blocked: choose an enabled Brave, Z.AI Web Search, or OpenRouter Perplexity/Sonar story source.', '', 'warning');
+    return;
+  }
+
+  if (!query.trim()) {
+    setStatus('Search for other sources blocked: select the story first so the search has a subject.', '', 'warning');
+    return;
+  }
+
+  const sourceQueries = state.queries.filter((queryItem) => queryItem.sourceProfileId === profile.id);
+  const blocker = sourceDiscoveryBlocker(profile, sourceQueries);
+  if (blocker) {
+    setStatus(`Search for other sources blocked: ${blocker}`, '', 'warning');
+    return;
+  }
+
+  setActionRunning('discover', true);
+  setStatus(`Searching ${sourceProviderLabel(profile.type)} for other sources on this story...`);
+
+  try {
+    const body = await api(`/source-profiles/${profile.id}/search`, {
+      method: 'POST',
+      body: JSON.stringify({
+        query,
+        excludeDomains,
+        purpose: 'research-more-sources',
+      }),
+    });
+    await loadStoryCandidates();
+    await loadJobs();
+    render();
+    setStatus(`Other-source search complete: ${body.inserted} inserted, ${body.skipped} skipped. Select independent results, then rebuild the research brief.`);
+  } catch (error) {
+    await loadJobs();
+    render();
     reportError(error);
   } finally {
     setActionRunning('discover', false);
@@ -6662,7 +7356,7 @@ async function saveScriptRevision(event) {
   }
 }
 
-async function runScriptCoachingAction(action) {
+async function runScriptCoachingRequest(payload) {
   const script = activeSelectedScript();
   const revision = activeSelectedRevision();
   if (!script || !revision) {
@@ -6676,7 +7370,7 @@ async function runScriptCoachingAction(action) {
     const body = await api(`/scripts/${script.id}/revisions/${revision.id}/coach`, {
       method: 'POST',
       body: JSON.stringify({
-        action,
+        ...payload,
         actor: 'local-user',
       }),
     });
@@ -6695,6 +7389,20 @@ async function runScriptCoachingAction(action) {
   } finally {
     setActionRunning('script', false);
   }
+}
+
+async function runScriptCoachingAction(action) {
+  await runScriptCoachingRequest({ action });
+}
+
+async function runCustomScriptCoachingAction(form) {
+  const customInstruction = form.elements.customInstruction.value.trim();
+  if (!customInstruction) {
+    setStatus('Enter custom AI feedback before asking for a new draft.', '', 'warning');
+    form.elements.customInstruction.focus();
+    return;
+  }
+  await runScriptCoachingRequest({ action: 'custom_feedback', customInstruction });
 }
 
 async function approveSelectedScript() {
@@ -6808,13 +7516,158 @@ async function overrideSelectedIntegrityReview() {
   }
 }
 
-async function overrideResearchWarning(packetId, warning) {
+async function applyResearchRetryModelAndRegenerate(packet, warning, presetValue) {
+  const role = researchWarningModelRole(warning);
+  const profile = state.modelProfiles.find((candidate) => candidate.role === role);
+  const preset = selectedResearchRetryPreset(presetValue);
+
+  if (!packet || !role || !profile) {
+    setStatus('Model retry unavailable: no matching AI role setting exists for this warning.');
+    return;
+  }
+
+  const candidateIds = asArray(packet.content?.candidateIds).filter((id) => typeof id === 'string');
+  if (candidateIds.length === 0 && state.selectedCandidateIds.filter(Boolean).length === 0) {
+    setStatus('Model retry unavailable: this research packet has no recorded candidate selection to regenerate.');
+    return;
+  }
+
+  setActionRunning('research', true);
+  setStatus(`Updating ${formatRole(role)} to ${preset.label} and regenerating research brief...`);
+
+  try {
+    const params = {
+      ...asObject(profile.config?.params),
+      ...preset.params,
+    };
+    const body = await api(`/model-profiles/${profile.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        provider: preset.provider,
+        model: preset.model,
+        temperature: profile.temperature ?? null,
+        maxTokens: profile.maxTokens ?? null,
+        budgetUsd: profile.budgetUsd ?? null,
+        fallbacks: asArray(profile.fallbacks),
+        promptTemplateKey: profile.promptTemplateKey || null,
+        params,
+      }),
+    });
+    state.modelProfiles = state.modelProfiles.map((candidate) => candidate.id === profile.id ? body.modelProfile : candidate);
+    if (candidateIds.length > 0) {
+      state.selectedCandidateIds = candidateIds;
+    }
+    savePipelineState();
+    await buildResearchBriefFromSelected();
+    setStatus(`Research retry launched with ${preset.label}. Review the newest packet before approving.`);
+  } catch (error) {
+    reportError(error);
+  } finally {
+    setActionRunning('research', false);
+  }
+}
+
+async function excludeResearchClaim(packetId, warning) {
+  const claimId = warning.metadata?.claimId;
   const reason = await openConfirmationDialog({
-    title: 'Override Research Warning',
-    description: 'This records an editorial override for a warning and allows the brief to proceed despite that warning. It does not remove the original warning or audit trail.',
-    consequence: `${warning.code || 'warning'}: ${warning.message || 'No warning message recorded.'}`,
-    confirmLabel: 'Override Warning',
+    title: 'Remove affected claim',
+    description: 'Remove this high-stakes claim from the active research brief instead of overriding the primary-source warning.',
+    consequence: `${warning.code || 'warning'}: ${researchWarningMessage(warning)} The claim will be excluded from script-generation context, while the removed claim and reason remain in the research packet audit trail.`,
+    confirmLabel: 'Remove affected claim',
     danger: true,
+    reasonLabel: 'Removal reason',
+    reasonPlaceholder: 'Explain why this claim should be excluded from the brief.',
+    requireReason: true,
+    emptyReasonMessage: 'Enter a reason before removing the claim from the brief.',
+  });
+
+  if (reason === null) {
+    setStatus('Claim removal cancelled.');
+    return;
+  }
+
+  setActionRunning('approval', true);
+  setStatus('Removing unsupported claim from research brief...');
+
+  try {
+    const body = await api(`/research-packets/${packetId}/exclude-claim`, {
+      method: 'POST',
+      body: JSON.stringify({
+        warningId: warning.id,
+        claimId,
+        actor: 'local-user',
+        reason,
+      }),
+    });
+    state.researchPackets = state.researchPackets.map((packet) => packet.id === body.researchPacket.id ? body.researchPacket : packet);
+    state.selectedResearchPacketId = body.researchPacket.id;
+    await loadJobs();
+    savePipelineState();
+    render();
+    setStatus('Review decision saved: affected claim removed from the active research brief.');
+  } catch (error) {
+    reportError(error);
+  } finally {
+    setActionRunning('approval', false);
+  }
+}
+
+async function markResearchSourcePrimary(packetId, warning, sourceDocumentId) {
+  if (!sourceDocumentId) {
+    setStatus('Primary source marking cancelled.');
+    return;
+  }
+
+  const reason = await openConfirmationDialog({
+    title: 'Mark cited source primary',
+    description: 'Mark the selected cited source as a primary source for this research packet.',
+    consequence: `${warning.code || 'warning'}: ${researchWarningMessage(warning)} This clears matching high-stakes primary-source warnings for claims citing that source and records the mark in the audit trail.`,
+    confirmLabel: 'Mark cited source primary',
+    reasonLabel: 'Primary-source reason',
+    reasonPlaceholder: 'Explain why this source is primary for the affected claim.',
+    requireReason: true,
+    emptyReasonMessage: 'Enter a reason before marking the source as primary.',
+  });
+
+  if (reason === null) {
+    setStatus('Primary source marking cancelled.');
+    return;
+  }
+
+  setActionRunning('approval', true);
+  setStatus('Marking cited source as primary...');
+
+  try {
+    const body = await api(`/research-packets/${packetId}/mark-primary-source`, {
+      method: 'POST',
+      body: JSON.stringify({
+        warningId: warning.id,
+        sourceDocumentId,
+        actor: 'local-user',
+        reason,
+      }),
+    });
+    state.researchPackets = state.researchPackets.map((packet) => packet.id === body.researchPacket.id ? body.researchPacket : packet);
+    state.selectedResearchPacketId = body.researchPacket.id;
+    await loadJobs();
+    savePipelineState();
+    render();
+    setStatus('Review decision saved: cited source marked primary and matching warnings resolved.');
+  } catch (error) {
+    reportError(error);
+  } finally {
+    setActionRunning('approval', false);
+  }
+}
+
+async function overrideResearchWarning(packetId, warning) {
+  const remediation = researchWarningRemediation(warning);
+  const reason = await openConfirmationDialog({
+    title: remediation.primaryAction,
+    description: 'This records an editorial override for a warning and allows the brief to proceed despite that warning. It does not remove the original warning or audit trail.',
+    consequence: `${warning.code || 'warning'}: ${researchWarningMessage(warning)} Override impact: ${remediation.overrideImpact}`,
+    confirmLabel: remediation.primaryAction,
+    danger: warning.code !== 'DUPLICATE_SOURCE_URL',
     reasonLabel: 'Override reason',
     reasonPlaceholder: 'Explain the editorial basis for overriding this warning.',
     requireReason: true,
@@ -7117,6 +7970,7 @@ els.candidateClusterForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   await buildResearchBriefFromSelected();
 });
+els.startNewEpisode.addEventListener('click', startNewEpisode);
 els.clearCandidateSelection.addEventListener('click', clearCandidateSelection);
 els.clearCandidateQueue.addEventListener('click', clearCandidateQueue);
 for (const input of [els.candidatePublishedFilter, els.candidateStatusFilter, els.candidateQualityFilter, els.candidateSourceFilter, els.candidateDomainFilter]) {

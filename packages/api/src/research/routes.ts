@@ -5,12 +5,13 @@ import { canonicalizeUrl } from '../search/candidate.js';
 import { modelProfileMap, hasModelProfileStore, resolveModelProfile } from '../models/resolver.js';
 import type { ModelProfileStore } from '../models/store.js';
 import type { LlmRuntime } from '../llm/types.js';
+import { LlmJsonOutputError, LlmRuntimeError } from '../llm/types.js';
 import { createPromptRegistry } from '../prompts/registry.js';
 import type { PromptTemplateStore } from '../prompts/types.js';
 import type { CreateJobInput, JobRecord, SearchJobStore, UpdateJobInput } from '../search/store.js';
 import type { ResearchFetch } from './fetch.js';
 import { fetchSourceSnapshot } from './fetch.js';
-import { buildResearchPacketInputFromCandidates } from './builder.js';
+import { buildResearchPacketInputFromCandidates, type ResearchCorroborationSearchAttempt } from './builder.js';
 import { createLlmResearchModelServices, type ResearchModelServices } from './models.js';
 import type { ResearchStore, ResearchWarning } from './store.js';
 
@@ -24,11 +25,23 @@ class ApiError extends Error {
   }
 }
 
+export interface ResearchCorroborationSearchRequest {
+  showId: string;
+  query: string;
+  excludeDomains: string[];
+  purpose: 'research-corroboration';
+}
+
+export type ResearchCorroborationSearchRunner = (
+  request: ResearchCorroborationSearchRequest,
+) => Promise<ResearchCorroborationSearchAttempt>;
+
 export interface ResearchRoutesOptions {
   getStore(): Partial<ResearchStore> & Partial<SearchJobStore> & Partial<ModelProfileStore> & Partial<PromptTemplateStore>;
   fetchImpl?: ResearchFetch;
   llmRuntime?: LlmRuntime;
   researchModelServices?: ResearchModelServices;
+  corroborationSearchRunner?: ResearchCorroborationSearchRunner;
 }
 
 const createPacketSchema = z.object({
@@ -52,6 +65,20 @@ const overrideWarningSchema = z.object({
 }).refine((value) => value.warningId || value.warningCode, {
   message: 'Provide warningId or warningCode.',
   path: ['warningId'],
+});
+
+const excludeResearchClaimSchema = z.object({
+  warningId: z.string().trim().min(1),
+  claimId: z.string().trim().min(1).optional(),
+  actor: z.string().trim().min(1).default('local-user'),
+  reason: z.string().trim().min(1),
+});
+
+const markResearchSourcePrimarySchema = z.object({
+  warningId: z.string().trim().min(1),
+  sourceDocumentId: z.string().trim().min(1),
+  actor: z.string().trim().min(1).default('local-user'),
+  reason: z.string().trim().min(1),
 });
 
 const approveResearchSchema = z.object({
@@ -88,6 +115,8 @@ function requireResearchStore(store: Partial<ResearchStore>): ResearchStore {
     'getResearchPacket',
     'listResearchPackets',
     'overrideResearchWarning',
+    'excludeResearchClaim',
+    'markResearchSourcePrimary',
     'approveResearchPacket',
   ];
 
@@ -100,17 +129,35 @@ function requireResearchStore(store: Partial<ResearchStore>): ResearchStore {
   return store as ResearchStore;
 }
 
-function readinessStatus(packet: { status: string; content: Record<string, unknown> }) {
+function readinessStatus(packet: { status: string; content: Record<string, unknown>; warnings?: ResearchWarning[] }) {
   const readiness = packet.content.readiness;
-  const contentStatus = readiness && typeof readiness === 'object' && !Array.isArray(readiness)
-    ? (readiness as Record<string, unknown>).status
+  const readinessRecord = readiness && typeof readiness === 'object' && !Array.isArray(readiness)
+    ? readiness as Record<string, unknown>
     : undefined;
+  const contentStatus = readinessRecord?.status;
+
+  if (contentStatus === 'blocked' && warningReviewOnlyBlock(readinessRecord, packet.warnings ?? [])) {
+    return 'ready';
+  }
 
   return typeof contentStatus === 'string' ? contentStatus : packet.status;
 }
 
 function unresolvedWarnings(packet: { warnings: ResearchWarning[] }) {
   return packet.warnings.filter((warning) => !warning.override);
+}
+
+function warningReviewOnlyBlock(readiness: Record<string, unknown> | undefined, warnings: ResearchWarning[]) {
+  const reasons = Array.isArray(readiness?.reasons)
+    ? readiness.reasons.filter((reason): reason is string => typeof reason === 'string')
+    : [];
+
+  return (
+    warnings.length > 0
+    && unresolvedWarnings({ warnings }).length === 0
+    && reasons.length > 0
+    && reasons.every((reason) => /warning requires editorial review/i.test(reason))
+  );
 }
 
 function hasResearchJobStore(store: object): store is Pick<SearchJobStore, 'createJob' | 'updateJob'> {
@@ -250,13 +297,121 @@ function researchModelsFor(options: ResearchRoutesOptions, store: Partial<Prompt
   });
 }
 
-function modelFailureWarning(code: string, message: string): ResearchWarning {
+function looksLikeRawValidationMessage(message: string): boolean {
+  return message.includes('invalid_type')
+    || message.includes('unrecognized_keys')
+    || message.includes('Invalid input: expected')
+    || message.includes('Unrecognized keys')
+    || message.includes('source_urls')
+    || message.includes('source_document_ids')
+    || message.includes('uncertainty_label');
+}
+
+function sanitizedModelFailureMessage(code: string, message: string): string {
+  if (!looksLikeRawValidationMessage(message)) {
+    return message;
+  }
+  if (code === 'MODEL_CLAIM_EXTRACTION_FAILED') {
+    return 'Claim extraction failed for one or more sources because model output did not match the expected claim format. Claims and citations may be incomplete.';
+  }
+  if (code === 'MODEL_RESEARCH_SYNTHESIS_FAILED') {
+    return 'Research synthesis failed because model output did not match the expected synthesis format. Review the generated claims and citations before drafting.';
+  }
+  return 'Model output did not match the expected research format. Review the generated evidence before drafting.';
+}
+
+function sanitizeErrorMessage(message: string): string {
+  return message.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]');
+}
+
+function safeModelFailureDetails(error: unknown, stage: 'claim_extractor' | 'research_synthesizer'): Record<string, unknown> {
+  const metadata = error instanceof LlmRuntimeError || error instanceof LlmJsonOutputError ? error.metadata : undefined;
+  const attempts = metadata?.attempts.map((attempt) => ({
+    provider: attempt.provider,
+    model: attempt.model,
+    status: attempt.status,
+    errorCode: attempt.error?.code,
+    errorMessage: attempt.error?.message ? sanitizeErrorMessage(attempt.error.message) : undefined,
+    retryable: attempt.error?.retryable,
+  })) ?? [];
+  return {
+    modelStage: stage,
+    failureType: error instanceof LlmJsonOutputError ? error.code : error instanceof LlmRuntimeError ? 'runtime_error' : 'model_error',
+    originalMessage: sanitizeErrorMessage(error instanceof Error ? error.message : 'Model invocation failed.'),
+    attempts,
+    selected: metadata?.selected ?? null,
+    responseFormat: metadata?.responseFormat,
+    rawOutputPreview: metadata?.rawOutputPreview,
+    validationDetails: error instanceof LlmJsonOutputError ? error.details : undefined,
+  };
+}
+
+function modelFailureWarning(code: string, message: string, metadata?: Record<string, unknown>): ResearchWarning {
   return {
     id: `${code}:research.packet`,
     code,
     severity: 'warning',
-    message,
+    message: sanitizedModelFailureMessage(code, message),
+    metadata,
   };
+}
+
+function firstCorroborationQuery(packetInput: ReturnType<typeof buildResearchPacketInputFromCandidates>): string | undefined {
+  const corroboration = packetInput.content.corroboration;
+  if (!corroboration || typeof corroboration !== 'object' || Array.isArray(corroboration)) {
+    return undefined;
+  }
+  const queries = (corroboration as Record<string, unknown>).queries;
+  return Array.isArray(queries) ? queries.find((query): query is string => typeof query === 'string' && query.trim().length > 0) : undefined;
+}
+
+function corroborationExcludedHosts(packetInput: ReturnType<typeof buildResearchPacketInputFromCandidates>): string[] {
+  const corroboration = packetInput.content.corroboration;
+  if (!corroboration || typeof corroboration !== 'object' || Array.isArray(corroboration)) {
+    return [];
+  }
+  const hosts = (corroboration as Record<string, unknown>).excludedHosts;
+  return Array.isArray(hosts) ? [...new Set(hosts.filter((host): host is string => typeof host === 'string' && host.trim().length > 0))] : [];
+}
+
+function shouldAutoSearchCorroboration(packetInput: ReturnType<typeof buildResearchPacketInputFromCandidates>): boolean {
+  const corroboration = packetInput.content.corroboration;
+  if (!corroboration || typeof corroboration !== 'object' || Array.isArray(corroboration)) {
+    return false;
+  }
+  return ['single_source_breaking', 'uncorroborated_single_source', 'uncorroborated'].includes(String((corroboration as Record<string, unknown>).classification ?? ''));
+}
+
+async function runAutomaticCorroborationSearch(
+  runner: ResearchCorroborationSearchRunner | undefined,
+  showId: string,
+  packetInput: ReturnType<typeof buildResearchPacketInputFromCandidates>,
+): Promise<ResearchCorroborationSearchAttempt | undefined> {
+  if (!runner || !shouldAutoSearchCorroboration(packetInput)) {
+    return undefined;
+  }
+
+  const query = firstCorroborationQuery(packetInput);
+  if (!query) {
+    return { status: 'skipped', error: 'No corroboration query was available.' };
+  }
+
+  const excludeDomains = corroborationExcludedHosts(packetInput);
+  try {
+    return await runner({
+      showId,
+      query,
+      excludeDomains,
+      purpose: 'research-corroboration',
+    });
+  } catch (error) {
+    return {
+      status: 'failed',
+      query,
+      excludeDomains,
+      error: sanitizeErrorMessage(error instanceof Error ? error.message : 'Automatic corroboration source search failed.'),
+    };
+  }
 }
 
 export function registerResearchRoutes(app: FastifyInstance, options: ResearchRoutesOptions) {
@@ -351,6 +506,7 @@ export function registerResearchRoutes(app: FastifyInstance, options: ResearchRo
             warnings: [modelFailureWarning(
               'MODEL_CLAIM_EXTRACTION_FAILED',
               error instanceof Error ? error.message : 'Claim extraction model failed.',
+              safeModelFailureDetails(error, 'claim_extractor'),
             )],
             invocations: [],
           };
@@ -376,12 +532,13 @@ export function registerResearchRoutes(app: FastifyInstance, options: ResearchRo
             warnings: [modelFailureWarning(
               'MODEL_RESEARCH_SYNTHESIS_FAILED',
               error instanceof Error ? error.message : 'Research synthesis model failed.',
+              safeModelFailureDetails(error, 'research_synthesizer'),
             )],
             invocations: [],
           };
         }
       }
-      const packetInput = buildResearchPacketInputFromCandidates({
+      let packetInput = buildResearchPacketInputFromCandidates({
         candidates,
         documents,
         angle: input.angle,
@@ -396,6 +553,38 @@ export function registerResearchRoutes(app: FastifyInstance, options: ResearchRo
           return invocation as unknown as Record<string, unknown>;
         }),
       });
+      const corroborationSearchAttempt = await runAutomaticCorroborationSearch(
+        options.corroborationSearchRunner,
+        showId,
+        packetInput,
+      );
+      if (corroborationSearchAttempt) {
+        const corroborationWarnings = corroborationSearchAttempt.status === 'failed'
+          ? [{
+            id: 'CORROBORATION_SEARCH_FAILED',
+            code: 'CORROBORATION_SEARCH_FAILED',
+            severity: 'warning' as const,
+            message: 'Automatic corroboration source search failed. Editors can still use Search for other sources or add independent sources manually.',
+            metadata: corroborationSearchAttempt as unknown as Record<string, unknown>,
+          }]
+          : [];
+        packetInput = buildResearchPacketInputFromCandidates({
+          candidates,
+          documents,
+          angle: input.angle,
+          notes: input.notes,
+          targetFormat: input.targetFormat,
+          targetRuntime: input.targetRuntime,
+          warnings: [...warnings, ...extracted.warnings, ...synthesized.warnings, ...corroborationWarnings],
+          claims: [...extracted.claims, ...synthesized.claims],
+          synthesis: synthesized.synthesis,
+          modelProfiles,
+          modelInvocations: [...extracted.invocations, ...synthesized.invocations].map((invocation) => {
+            return invocation as unknown as Record<string, unknown>;
+          }),
+          corroborationSearchAttempt,
+        });
+      }
       const packet = await store.createResearchPacket(packetInput);
       const failedDocuments = documents.filter((document) => document.fetchStatus !== 'fetched');
 
@@ -525,6 +714,38 @@ export function registerResearchRoutes(app: FastifyInstance, options: ResearchRo
     }
   });
 
+  app.post<{ Params: { id: string } }>('/research-packets/:id/exclude-claim', async (request, reply) => {
+    try {
+      const store = requireResearchStore(options.getStore());
+      const body = excludeResearchClaimSchema.parse(request.body);
+      const packet = await store.excludeResearchClaim(request.params.id, body);
+
+      if (!packet) {
+        throw new ApiError(404, 'RESEARCH_PACKET_CLAIM_OR_WARNING_NOT_FOUND', `Research packet claim or warning not found: ${request.params.id}`);
+      }
+
+      return { ok: true, researchPacket: packet };
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post<{ Params: { id: string } }>('/research-packets/:id/mark-primary-source', async (request, reply) => {
+    try {
+      const store = requireResearchStore(options.getStore());
+      const body = markResearchSourcePrimarySchema.parse(request.body);
+      const packet = await store.markResearchSourcePrimary(request.params.id, body);
+
+      if (!packet) {
+        throw new ApiError(404, 'RESEARCH_PACKET_SOURCE_OR_WARNING_NOT_FOUND', `Research packet source or warning not found: ${request.params.id}`);
+      }
+
+      return { ok: true, researchPacket: packet };
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
   app.post<{ Params: { id: string } }>('/research-packets/:id/approve', async (request, reply) => {
     try {
       const store = requireResearchStore(options.getStore());
@@ -538,7 +759,7 @@ export function registerResearchRoutes(app: FastifyInstance, options: ResearchRo
       const status = readinessStatus(packet);
       const unresolved = unresolvedWarnings(packet);
 
-      if (!['ready', 'approved', 'research-ready'].includes(status) || unresolved.length > 0) {
+      if (!['ready', 'approved', 'research-ready', 'single_source_breaking'].includes(status) || unresolved.length > 0) {
         throw new ApiError(
           409,
           'RESEARCH_APPROVAL_BLOCKED',

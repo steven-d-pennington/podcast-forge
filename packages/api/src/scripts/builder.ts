@@ -177,7 +177,12 @@ function showContext(show: ShowRecord) {
     description: show.description,
     format: show.format,
     defaultRuntimeMinutes: show.defaultRuntimeMinutes,
-    cast: show.cast.map((member) => ({ name: member.name, role: member.role })),
+    cast: show.cast.map((member) => ({
+      name: member.name,
+      role: member.role,
+      ...(member.voice ? { voice: member.voice } : {}),
+      ...(member.persona ? { persona: member.persona } : {}),
+    })),
     settings: show.settings,
   };
 }
@@ -231,9 +236,16 @@ export function extractSpeakerLabels(body: string): string[] {
   return [...labels];
 }
 
+function isStructuralScriptCue(label: string): boolean {
+  const normalized = label.trim().toLowerCase().replace(/\s+/g, ' ');
+  return /^(intro|introduction|opening|cold open|segment( [a-z0-9-]+)?|closing|outro)$/.test(normalized)
+    || /^(first|second|third|fourth|fifth|next|then|finally|and finally)$/.test(normalized)
+    || /^(the key insight|key insight|takeaway|practical takeaway|source note|editor note)$/.test(normalized);
+}
+
 export function invalidSpeakerLabels(body: string, cast: ShowRecord['cast']): string[] {
   const allowed = new Set(cast.map((member) => member.name));
-  return extractSpeakerLabels(body).filter((speaker) => !allowed.has(speaker));
+  return extractSpeakerLabels(body).filter((speaker) => !allowed.has(speaker) && !isStructuralScriptCue(speaker));
 }
 
 export function invalidSpeakers(speakers: string[], cast: ShowRecord['cast']): string[] {

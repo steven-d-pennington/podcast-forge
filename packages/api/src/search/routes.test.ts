@@ -359,6 +359,57 @@ describe('search routes candidate scoring', () => {
     }
   });
 
+  it('runs an ad hoc source.search query for a selected story subject', async () => {
+    const store = new FakeSearchStore();
+    const requestedUrls: string[] = [];
+    const app = buildApp({
+      sourceStore: store,
+      braveApiKey: 'test-key',
+      fetchImpl: async (url) => {
+        requestedUrls.push(url);
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              results: [{
+                title: 'High value independent coverage',
+                url: 'https://independent.example/anthropic-valuation',
+                description: 'Independent reporting on the same subject.',
+                age: '2026-04-26T00:00:00Z',
+                meta_url: { hostname: 'independent.example' },
+              }],
+            };
+          },
+        };
+      },
+    });
+
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/source-profiles/22222222-2222-4222-8222-222222222222/search',
+        payload: {
+          query: 'Anthropic potential $900B valuation round',
+          excludeDomains: ['techcrunch.com'],
+          purpose: 'research-more-sources',
+        },
+      });
+      const body = response.json();
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(body.inserted, 1);
+      assert.equal(body.candidates[0].url, 'https://independent.example/anthropic-valuation');
+      assert.match(requestedUrls[0], /q=Anthropic\+potential\+%24900B\+valuation\+round/);
+      assert.equal(body.job.input.queryIds[0], 'ad-hoc-research-more-sources');
+      assert.equal(body.job.input.adHocQuery, 'Anthropic potential $900B valuation round');
+      assert.deepEqual(body.job.input.excludeDomains, ['techcrunch.com']);
+      assert.match(JSON.stringify(body.job.logs), /Running Brave news query/);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('enforces Brave include and exclude domains without substring overmatching', async () => {
     const store = new FakeSearchStore();
     store.profiles[0].includeDomains = ['https://AI.com/news'];

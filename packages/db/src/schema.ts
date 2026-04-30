@@ -44,7 +44,7 @@ export const shows = pgTable('shows', {
   setupStatus: showSetupStatus('setup_status').notNull().default('draft'),
   format: text('format'),
   defaultRuntimeMinutes: integer('default_runtime_minutes'),
-  cast: jsonb('cast').$type<Array<{ name: string; role?: string; voice: string }>>().notNull().default([]),
+  cast: jsonb('cast').$type<Array<{ name: string; role?: string; voice: string; persona?: string }>>().notNull().default([]),
   defaultModelProfile: jsonb('default_model_profile').$type<Record<string, string>>().notNull().default({}),
   settings: jsonb('settings').$type<Record<string, unknown>>().notNull().default({}),
   ...timestamps

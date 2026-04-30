@@ -297,6 +297,41 @@ describe('show onboarding routes', () => {
     assert.ok(roles.includes('candidate_scorer'));
   });
 
+  it('updates show cast persona guidance', async () => {
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/shows/the-synthetic-lens',
+      payload: {
+        cast: [
+          {
+            name: 'DAVID',
+            role: 'host',
+            voice: 'Orus',
+            persona: 'Concise anchor; plain-language transitions.',
+          },
+          {
+            name: 'MARCUS',
+            role: 'analyst',
+            voice: 'Charon',
+            persona: 'Legal framing, but less stiff.',
+          },
+          {
+            name: 'INGRID',
+            role: 'correspondent',
+            voice: 'Leda',
+            persona: 'Ethical/social impact, emotionally grounded.',
+          },
+        ],
+      },
+    });
+    const body = response.json();
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(body.show.cast[0].persona, 'Concise anchor; plain-language transitions.');
+    assert.equal(body.show.cast[1].persona, 'Legal framing, but less stiff.');
+    assert.equal(body.show.cast[2].persona, 'Ethical/social impact, emotionally grounded.');
+  });
+
   it('clears unsupported starter source controls during show onboarding', async () => {
     const response = await app.inject({
       method: 'POST',

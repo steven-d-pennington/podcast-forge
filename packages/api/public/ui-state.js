@@ -100,6 +100,7 @@ export const els = {
   settingsPublishing: document.querySelector('#settingsPublishing'),
   settingsSchedules: document.querySelector('#settingsSchedules'),
   productionCommandBar: document.querySelector('#productionCommandBar'),
+  startNewEpisode: document.querySelector('#startNewEpisode'),
   pipelineMeta: document.querySelector('#pipelineMeta'),
   workflowContext: document.querySelector('#workflowContext'),
   pipelineStages: document.querySelector('#pipelineStages'),

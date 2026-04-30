@@ -4,14 +4,26 @@ import type { PromptOutputSchemaDefinition, PromptOutputSchemaName } from './typ
 
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 
-const citationReferenceSchema = z.object({
+const citationReferenceSchema = z.preprocess((value) => {
+  const object = objectValue(value);
+  if (!object) {
+    return value;
+  }
+
+  return {
+    ...object,
+    ...(typeof object.source_document_id === 'string' && typeof object.sourceDocumentId !== 'string'
+      ? { sourceDocumentId: object.source_document_id }
+      : {}),
+  };
+}, z.object({
   sourceDocumentId: z.string().min(1).optional(),
   url: z.string().url().optional(),
   title: z.string().min(1).optional(),
   quote: z.string().min(1).optional(),
 }).strict().refine((value) => Boolean(value.sourceDocumentId || value.url), {
   message: 'Citation references must include sourceDocumentId or url.',
-});
+}));
 
 const warningObjectSchema = z.object({
   code: z.string().min(1),
@@ -71,7 +83,7 @@ const scriptSpeakerSchema = z.preprocess((value) => {
 const scriptCitationMapEntrySchema = z.preprocess((value) => {
   const object = objectValue(value);
 
-  if (!object || typeof object.line === 'string') {
+  if (!object) {
     return value;
   }
 
@@ -81,11 +93,17 @@ const scriptCitationMapEntrySchema = z.preprocess((value) => {
   const fallbackLine = claims.join(' ')
     || (typeof object.title === 'string' ? object.title : '')
     || (typeof object.url === 'string' ? object.url : '');
+  const line = typeof object.line === 'string' && object.line.trim() ? object.line : fallbackLine;
+  const sourceDocumentIds = Array.isArray(object.sourceDocumentIds)
+    ? object.sourceDocumentIds
+    : Array.isArray(object.source_document_ids)
+      ? object.source_document_ids
+      : [];
 
   return {
-    line: fallbackLine,
-    ...(typeof object.claimId === 'string' ? { claimId: object.claimId } : {}),
-    sourceDocumentIds: Array.isArray(object.sourceDocumentIds) ? object.sourceDocumentIds : [],
+    line,
+    ...(typeof object.claimId === 'string' && object.claimId.trim() ? { claimId: object.claimId } : {}),
+    sourceDocumentIds,
   };
 }, z.object({
   line: z.string().min(1),
@@ -127,7 +145,90 @@ export const sourceSummarySchema = z.object({
   warnings: z.array(warningSchema).default([]),
 }).strict();
 
-export const extractedClaimSchema = z.object({
+function normalizeClaimType(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  const normalized = value.trim().toLowerCase().replace(/[-\s]+/g, '_');
+  if (['fact', 'factual', 'factual_claim'].includes(normalized)) {
+    return 'fact';
+  }
+  if (['quote', 'quoted'].includes(normalized)) {
+    return 'quote';
+  }
+  if (['analysis', 'analytical', 'opinion', 'interpretation'].includes(normalized)) {
+    return 'interpretation';
+  }
+  if (['uncertain', 'unknown', 'uncertainty'].includes(normalized)) {
+    return 'uncertain';
+  }
+  return value;
+}
+
+function normalizeConfidence(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  const normalized = value.trim().toLowerCase().replace(/[-\s]+/g, '_');
+  if (normalized.includes('high')) {
+    return 'high';
+  }
+  if (normalized.includes('medium') || normalized.includes('moderate')) {
+    return 'medium';
+  }
+  if (normalized.includes('low') || normalized.includes('uncertain')) {
+    return 'low';
+  }
+  return value;
+}
+
+function stringArray(...values: unknown[]): string[] {
+  const out: string[] = [];
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      out.push(value.trim());
+    } else if (Array.isArray(value)) {
+      out.push(...value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim()));
+    }
+  }
+  return [...new Set(out)];
+}
+
+function normalizeExtractedClaim(value: unknown, index: number): unknown {
+  const object = objectValue(value);
+  if (!object) {
+    return value;
+  }
+
+  const sourceDocumentIds = stringArray(object.sourceDocumentIds, object.sourceDocumentId, object.source_document_ids, object.source_document_id);
+  const sourceUrls = stringArray(object.source_urls, object.sourceUrls, object.url);
+  const citations = Array.isArray(object.citations)
+    ? object.citations
+    : sourceUrls.length > 0
+      ? sourceUrls.map((url, citationIndex) => ({
+        url,
+        ...(sourceDocumentIds[citationIndex] || sourceDocumentIds[0] ? { sourceDocumentId: sourceDocumentIds[citationIndex] || sourceDocumentIds[0] } : {}),
+      }))
+      : sourceDocumentIds.map((sourceDocumentId) => ({ sourceDocumentId }));
+
+  return {
+    id: typeof object.id === 'string' && object.id.trim() ? object.id : `claim-${index + 1}`,
+    text: typeof object.text === 'string' && object.text.trim()
+      ? object.text
+      : typeof object.claim === 'string' ? object.claim : object.statement,
+    claimType: normalizeClaimType(object.claimType ?? object.claim_type ?? object.type),
+    confidence: normalizeConfidence(object.confidence ?? object.uncertainty_label ?? object.uncertaintyLabel ?? object.supportLevel),
+    sourceDocumentIds,
+    citations,
+    ...(typeof object.caveat === 'string' && object.caveat.trim() ? { caveat: object.caveat } : {}),
+  };
+}
+
+function normalizeStringArrayField(...values: unknown[]): string[] {
+  return stringArray(...values);
+}
+
+const extractedClaimSchema = z.object({
   id: z.string().min(1),
   text: z.string().min(1),
   claimType: z.enum(['fact', 'quote', 'interpretation', 'uncertain']),
@@ -137,12 +238,37 @@ export const extractedClaimSchema = z.object({
   caveat: z.string().min(1).optional(),
 }).strict();
 
-export const extractedClaimsSchema = z.object({
+export const extractedClaimsSchema = z.preprocess((value) => {
+  const object = objectValue(value);
+  if (!object || !Array.isArray(object.claims)) {
+    return value;
+  }
+
+  return {
+    ...object,
+    claims: object.claims.map((claim, index) => normalizeExtractedClaim(claim, index)),
+  };
+}, z.object({
   claims: z.array(extractedClaimSchema),
   warnings: z.array(warningSchema).default([]),
-}).strict();
+}).strict());
 
-export const researchSynthesisSchema = z.object({
+export const researchSynthesisSchema = z.preprocess((value) => {
+  const object = objectValue(value);
+  if (!object) {
+    return value;
+  }
+
+  return {
+    ...object,
+    knownFacts: normalizeStringArrayField(object.knownFacts, object.known_facts, object.facts),
+    openQuestions: normalizeStringArrayField(object.openQuestions, object.open_questions, object.questions, object.sourceGaps, object.source_gaps),
+    sourceDocumentIds: normalizeStringArrayField(object.sourceDocumentIds, object.source_document_ids, object.sourceDocumentId, object.source_document_id),
+    claims: Array.isArray(object.claims)
+      ? object.claims.map((claim, index) => normalizeExtractedClaim(claim, index))
+      : [],
+  };
+}, z.object({
   title: z.string().min(1),
   summary: z.string().min(1),
   knownFacts: z.array(z.string().min(1)),
@@ -151,7 +277,7 @@ export const researchSynthesisSchema = z.object({
   claims: z.array(extractedClaimSchema),
   warnings: z.array(warningSchema).default([]),
   editorialAngle: z.string().min(1).optional(),
-}).strict();
+}).strict());
 
 export const scriptGenerationResultSchema = z.object({
   title: z.string().min(1),
@@ -420,8 +546,50 @@ export const PROMPT_OUTPUT_SCHEMAS: Record<PromptOutputSchemaName, PromptOutputS
     name: 'extracted_claims',
     description: 'Extracts factual claims and citation references from sources.',
     schemaHint: jsonSchemaHint('extracted_claims', {
-      claims: { type: 'array' },
-      warnings: { type: 'array' },
+      claims: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['id', 'text', 'claimType', 'confidence', 'sourceDocumentIds', 'citations'],
+          properties: {
+            id: { type: 'string' },
+            text: { type: 'string' },
+            claimType: { enum: ['fact', 'quote', 'interpretation', 'uncertain'] },
+            confidence: { enum: ['low', 'medium', 'high'] },
+            sourceDocumentIds: { type: 'array', items: { type: 'string' } },
+            citations: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  sourceDocumentId: { type: 'string' },
+                  url: { type: 'string' },
+                  title: { type: 'string' },
+                  quote: { type: 'string' },
+                },
+              },
+            },
+            caveat: { type: 'string' },
+          },
+        },
+      },
+      warnings: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['code', 'severity', 'message'],
+          properties: {
+            code: { type: 'string' },
+            severity: { enum: ['info', 'warning', 'critical'] },
+            message: { type: 'string' },
+            sourceDocumentId: { type: 'string' },
+            metadata: { type: 'object' },
+          },
+        },
+      },
     }, ['claims']),
     validate: extractedClaimsSchema.parse,
   },
@@ -431,11 +599,53 @@ export const PROMPT_OUTPUT_SCHEMAS: Record<PromptOutputSchemaName, PromptOutputS
     schemaHint: jsonSchemaHint('research_synthesis', {
       title: { type: 'string' },
       summary: { type: 'string' },
-      knownFacts: { type: 'array' },
-      openQuestions: { type: 'array' },
-      sourceDocumentIds: { type: 'array' },
-      claims: { type: 'array' },
-      warnings: { type: 'array' },
+      knownFacts: { type: 'array', items: { type: 'string' } },
+      openQuestions: { type: 'array', items: { type: 'string' } },
+      sourceDocumentIds: { type: 'array', items: { type: 'string' } },
+      claims: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['id', 'text', 'claimType', 'confidence', 'sourceDocumentIds', 'citations'],
+          properties: {
+            id: { type: 'string' },
+            text: { type: 'string' },
+            claimType: { enum: ['fact', 'quote', 'interpretation', 'uncertain'] },
+            confidence: { enum: ['low', 'medium', 'high'] },
+            sourceDocumentIds: { type: 'array', items: { type: 'string' } },
+            citations: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  sourceDocumentId: { type: 'string' },
+                  url: { type: 'string' },
+                  title: { type: 'string' },
+                  quote: { type: 'string' },
+                },
+              },
+            },
+            caveat: { type: 'string' },
+          },
+        },
+      },
+      warnings: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['code', 'severity', 'message'],
+          properties: {
+            code: { type: 'string' },
+            severity: { enum: ['info', 'warning', 'critical'] },
+            message: { type: 'string' },
+            sourceDocumentId: { type: 'string' },
+            metadata: { type: 'object' },
+          },
+        },
+      },
       editorialAngle: { type: 'string' },
     }, ['title', 'summary', 'knownFacts', 'openQuestions', 'sourceDocumentIds', 'claims']),
     validate: researchSynthesisSchema.parse,

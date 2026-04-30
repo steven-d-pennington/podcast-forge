@@ -63,7 +63,12 @@ function showContext(show: ShowRecord) {
     description: show.description,
     format: show.format,
     defaultRuntimeMinutes: show.defaultRuntimeMinutes,
-    cast: show.cast.map((member) => ({ name: member.name, role: member.role })),
+    cast: show.cast.map((member) => ({
+      name: member.name,
+      role: member.role,
+      ...(member.voice ? { voice: member.voice } : {}),
+      ...(member.persona ? { persona: member.persona } : {}),
+    })),
     settings: show.settings,
   };
 }

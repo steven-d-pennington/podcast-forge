@@ -822,7 +822,7 @@ function researchBlockers(episode: EpisodeRecord, researchPacket: ResearchPacket
   const readiness = researchReadinessStatus(researchPacket);
   const unresolvedWarnings = unresolvedResearchWarnings(researchPacket);
 
-  if (!['ready', 'approved', 'research-ready'].includes(readiness)) {
+  if (!['ready', 'approved', 'research-ready', 'single_source_breaking'].includes(readiness)) {
     blockers.push({
       code: 'RESEARCH_BRIEF_NOT_READY',
       message: 'Research brief is not ready for publishing review.',

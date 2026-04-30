@@ -6,29 +6,203 @@
     "format": "feature-analysis",
     "defaultRuntimeMinutes": 8,
     "cast": [
-      { "name": "DAVID", "role": "host", "voice": "Orus" },
-      { "name": "MARCUS", "role": "analyst", "voice": "Charon" },
-      { "name": "INGRID", "role": "correspondent", "voice": "Leda" }
+      {
+        "name": "DAVID",
+        "role": "host / concise anchor",
+        "voice": "Orus",
+        "persona": "Concise anchor; plain-language transitions; keeps the episode moving."
+      },
+      {
+        "name": "MARCUS",
+        "role": "legal analyst",
+        "voice": "Charon",
+        "persona": "Explains legal framing conversationally; less stiff; avoid courtroom language unless needed."
+      },
+      {
+        "name": "INGRID",
+        "role": "ethics and social impact correspondent",
+        "voice": "Leda",
+        "persona": "Grounds ethical and social impact in human consequences; emotionally grounded, not melodramatic."
+      }
     ]
   },
   "sources": [
     {
-      "id": "ai-news-brave",
-      "type": "brave",
+      "id": "ai-news-zai",
+      "name": "AI News",
+      "category": "ai-news",
+      "type": "zai-web",
       "enabled": true,
-      "weight": 1,
+      "weight": 1.0,
       "freshness": "pd",
       "queries": [
-        "artificial intelligence AI news today 2026",
-        "OpenAI announcement product news 2026",
-        "Anthropic Claude news 2026",
-        "Google DeepMind Gemini news 2026",
-        "Meta AI Llama news 2026",
-        "new AI model release launch 2026",
+        "OpenAI Anthropic Google DeepMind major release announcement 2026",
+        "GPT Claude Gemini new model launched 2026",
+        "AI industry funding investment 2026",
         "AI regulation policy government 2026",
-        "AI startup funding acquisition 2026",
         "AI research paper breakthrough 2026",
         "artificial intelligence controversy criticism safety 2026"
+      ],
+      "includeDomains": [
+        "reuters.com",
+        "apnews.com",
+        "axios.com",
+        "cnbc.com",
+        "wired.com",
+        "techcrunch.com",
+        "venturebeat.com",
+        "theregister.co.uk",
+        "technologyreview.com",
+        "whitehouse.gov",
+        "federalregister.gov"
+      ]
+    },
+    {
+      "id": "politics-policy-zai",
+      "name": "Politics & Policy",
+      "category": "politics-policy",
+      "type": "zai-web",
+      "enabled": true,
+      "weight": 0.9,
+      "freshness": "pd",
+      "queries": [
+        "White House executive order policy statement 2026",
+        "Congress technology AI regulation hearing 2026",
+        "DOJ technology antitrust AI lawsuit 2026",
+        "Federal Register AI rule notice 2026",
+        "US administration officials technology policy quotes 2026"
+      ],
+      "includeDomains": [
+        "whitehouse.gov",
+        "federalregister.gov",
+        "justice.gov",
+        "reuters.com",
+        "apnews.com",
+        "npr.org",
+        "politico.com",
+        "cnn.com",
+        "nbcnews.com",
+        "cbsnews.com",
+        "pbs.org",
+        "axios.com",
+        "foxnews.com"
+      ]
+    },
+    {
+      "id": "world-affairs-zai",
+      "name": "World Affairs",
+      "category": "world-affairs",
+      "type": "zai-web",
+      "enabled": true,
+      "weight": 0.9,
+      "freshness": "pd",
+      "queries": [
+        "global AI geopolitics regulation latest 2026",
+        "US China AI chip export controls latest 2026",
+        "Europe AI Act enforcement latest 2026",
+        "Middle East technology conflict latest 2026",
+        "international AI safety summit agreement 2026"
+      ],
+      "includeDomains": [
+        "reuters.com",
+        "apnews.com",
+        "bbc.com",
+        "aljazeera.com",
+        "theguardian.com",
+        "dw.com",
+        "npr.org",
+        "politico.com"
+      ]
+    },
+    {
+      "id": "markets-finance-zai",
+      "name": "Markets & Finance",
+      "category": "markets-finance",
+      "type": "zai-web",
+      "enabled": true,
+      "weight": 0.85,
+      "freshness": "pd",
+      "queries": [
+        "AI company earnings investment 2026",
+        "semiconductor stock market AI demand 2026",
+        "Federal Reserve rate decision markets 2026",
+        "AI startup funding acquisition 2026",
+        "oil energy data center AI demand markets 2026"
+      ],
+      "includeDomains": [
+        "reuters.com",
+        "apnews.com",
+        "cnbc.com",
+        "bloomberg.com",
+        "wsj.com",
+        "fortune.com",
+        "benzinga.com",
+        "think.ing.com",
+        "federalreserve.gov",
+        "axios.com"
+      ]
+    },
+    {
+      "id": "data-research-zai",
+      "name": "Data & Research",
+      "category": "data-research",
+      "type": "zai-web",
+      "enabled": true,
+      "weight": 0.8,
+      "freshness": "pw",
+      "queries": [
+        "AI public opinion poll 2026",
+        "site:pewresearch.org AI public opinion",
+        "site:ipsos.com AI public opinion",
+        "AI adoption survey research 2026",
+        "AI model benchmarks pricing 2026"
+      ],
+      "includeDomains": [
+        "pewresearch.org",
+        "ipsos.com",
+        "reuters.com",
+        "apnews.com",
+        "technologyreview.com",
+        "wired.com",
+        "cnbc.com"
+      ]
+    },
+    {
+      "id": "breaking-news-zai",
+      "name": "Breaking News",
+      "category": "breaking-news",
+      "type": "zai-web",
+      "enabled": true,
+      "weight": 0.75,
+      "freshness": "pd",
+      "queries": [
+        "breaking news United States major event today 2026",
+        "US military action strike Congress emergency 2026",
+        "president resign impeach assassination coup 2026",
+        "nuclear weapon launch attack 2026",
+        "major disaster earthquake hurricane US 2026",
+        "stock market crash financial crisis 2026",
+        "OpenAI Anthropic Google DeepMind major release announcement 2026",
+        "GPT Claude Gemini new model launched 2026"
+      ],
+      "includeDomains": [
+        "reuters.com",
+        "apnews.com",
+        "whitehouse.gov",
+        "justice.gov",
+        "federalregister.gov",
+        "federalreserve.gov",
+        "npr.org",
+        "cnn.com",
+        "nbcnews.com",
+        "cbsnews.com",
+        "bbc.com",
+        "aljazeera.com",
+        "theguardian.com",
+        "cnbc.com",
+        "politico.com",
+        "pbs.org",
+        "dw.com"
       ]
     }
   ],
@@ -62,7 +236,9 @@
       "model": "gemini-3-pro-preview",
       "temperature": 0.3,
       "maxTokens": 8000,
-      "fallbacks": ["gemini-2.5-pro"],
+      "fallbacks": [
+        "gemini-2.5-pro"
+      ],
       "promptTemplate": "research_synthesizer.default",
       "budgetUsd": 2.5
     },
