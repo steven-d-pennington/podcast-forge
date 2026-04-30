@@ -19,9 +19,9 @@ const NORMAL_PRODUCE_COMPLEXITY_LIMITS = Object.freeze({
   maxExpandedStageCards: 1,
   maxCollapsedStageCards: 7,
   maxCommandBarControls: 3,
-  maxStageTrackerControls: 12,
-  maxVisibleControls: 15,
-  maxElementNodes: 110,
+  maxStageTrackerControls: 8,
+  maxVisibleControls: 10,
+  maxElementNodes: 115,
 });
 
 const AMBIGUOUS_NORMAL_CONTROL_LABELS = [
@@ -123,12 +123,6 @@ function expandedStageControls(stageId, viewModel) {
     controls.push(`Review ${TRACKER_STAGES.find((stage) => stage.id === stageId)?.label || 'current stage'}`);
   }
 
-  controls.push(stageId === 'discover' ? 'Edit story source settings' : `Review ${TRACKER_STAGES.find((stage) => stage.id === stageId)?.label || 'stage'}`);
-
-  if (['discover', 'brief', 'script', 'production', 'publishing'].includes(stageId)) {
-    controls.push('View Latest Run');
-  }
-
   return controls;
 }
 
@@ -170,10 +164,18 @@ function renderNormalProduceSnapshot(viewModel) {
       </div>
     </section>`;
 
+  const sourceDisclosureOpen = Boolean(viewModel.contextDisclosures?.storySource?.defaultOpen);
+  const sourceDisclosureHtml = `
+    <details class="context-disclosure storySource${sourceDisclosureOpen ? ' prominent' : ''}"${sourceDisclosureOpen ? ' open' : ''}>
+      <summary><span>${escapeHtml(viewModel.contextDisclosures.storySource.label)}</span><strong>${escapeHtml(viewModel.contextDisclosures.storySource.summary)}</strong></summary>
+      <div class="context-disclosure-body">Story-source/search-recipe detail</div>
+    </details>`;
+
   const stageCards = TRACKER_STAGES.map((stage, index) => {
     const expanded = stage.id === currentStageId;
     const controls = expanded ? expandedStageControls(stage.id, viewModel) : ['Expand stage'];
-    labels.push(stage.label, trackerStatus(stage.id, viewModel), ...controls);
+    const secondaryDisclosure = expanded ? ['More stage options'] : [];
+    labels.push(stage.label, trackerStatus(stage.id, viewModel), ...controls, ...secondaryDisclosure);
     return {
       ...stage,
       number: index + 1,
@@ -182,6 +184,7 @@ function renderNormalProduceSnapshot(viewModel) {
       collapsed: !expanded,
       status: trackerStatus(stage.id, viewModel),
       controls,
+      secondaryDisclosure,
     };
   });
 
@@ -191,12 +194,12 @@ function renderNormalProduceSnapshot(viewModel) {
         <article class="pipeline-card ${stage.expanded ? 'expanded current' : 'collapsed'}" data-stage="${stage.number}" data-stage-id="${stage.id}" data-stage-status="${escapeHtml(stage.status)}">
           <div class="pipeline-top"><div><div>Stage ${stage.number}</div><h3>${escapeHtml(stage.label)}</h3></div><span>${escapeHtml(stage.status)}</span>${stage.current ? '<span>current</span>' : ''}</div>
           <div class="pipeline-summary"><p>${escapeHtml(stage.label)}</p><p>${stage.expanded ? 'Next step' : 'Collapsed until current'}</p></div>
-          ${stage.expanded ? `<div class="pipeline-card-body">${stage.controls.map((label) => `<button type="button">${escapeHtml(label)}</button>`).join('')}</div>` : `<button type="button" aria-expanded="false">Expand stage</button>`}
+          ${stage.expanded ? `<div class="pipeline-card-body">${stage.controls.map((label) => `<button type="button">${escapeHtml(label)}</button>`).join('')}<details><summary>More stage options</summary></details></div>` : `<button type="button" aria-expanded="false">Expand stage</button>`}
         </article>
       `).join('')}
     </div>`;
 
-  const html = `${commandBarHtml}${stageHtml}`;
+  const html = `${commandBarHtml}${sourceDisclosureHtml}${stageHtml}`;
   const commandBarControlCount = commandBarControls.length;
   const stageTrackerControlCount = stageCards.reduce((total, stage) => total + stage.controls.length, 0);
   const elementNodes = html.match(/<[a-z][a-z0-9-]*(?:\s|>)/gi)?.length ?? 0;
@@ -206,6 +209,7 @@ function renderNormalProduceSnapshot(viewModel) {
     labels,
     commandBarControls,
     stageCards,
+    sourceDisclosureOpen,
     metrics: {
       commandBarControlCount,
       stageTrackerControlCount,
@@ -229,6 +233,7 @@ test('normal Produce view-model snapshot has command bar and one expanded curren
   assert.match(snapshot.html, /id="pipelineStages"/);
   assert.equal(snapshot.metrics.stageCards, NORMAL_PRODUCE_COMPLEXITY_LIMITS.stageCards);
   assert.equal(snapshot.metrics.expandedStageCards, 1);
+  assert.equal(snapshot.sourceDisclosureOpen, true, 'source/search detail should default open while discovery is current');
   assert.equal(currentStage?.id, 'discover');
   assert.deepEqual(
     snapshot.stageCards.filter((stage) => stage.collapsed).map((stage) => stage.id),
@@ -252,12 +257,50 @@ test('normal Produce workflow controls avoid ambiguous button soup copy', () => 
     snapshot.stageCards.filter((stage) => stage.collapsed).every((stage) => stage.controls.length === 1),
     'collapsed stages should expose one disclosure control each',
   );
+  assert.deepEqual(
+    snapshot.stageCards.find((stage) => stage.current)?.controls,
+    [viewModel.primaryNextAction.label],
+    'current stage card should expose one primary button by default',
+  );
+  assert.deepEqual(
+    snapshot.stageCards.find((stage) => stage.current)?.secondaryDisclosure,
+    ['More stage options'],
+    'current stage secondary controls should be disclosed instead of rendered as peer buttons',
+  );
 
   for (const pattern of AMBIGUOUS_NORMAL_CONTROL_LABELS) {
     for (const label of controlLabels) {
       assert.doesNotMatch(label, pattern, `normal Produce control label should not include ${pattern}`);
     }
   }
+});
+
+test('non-discovery Produce states keep story-source detail collapsed by default', () => {
+  const viewModel = deriveProductionViewModel({
+    ...normalInitialProduceInput(),
+    storyCandidates: [{
+      id: 'candidate-1',
+      title: 'Regulators publish new AI safety guidance',
+      status: 'new',
+      canonicalUrl: 'https://example.com/story',
+    }],
+    selectedCandidateIds: ['candidate-1'],
+    researchPackets: [{
+      id: 'brief-1',
+      title: 'AI safety guidance brief',
+      status: 'ready',
+      warnings: [],
+      citations: [{ url: 'https://example.com/story' }],
+      content: { candidateIds: ['candidate-1'] },
+      updatedAt: '2026-04-28T10:00:00.000Z',
+    }],
+    selectedResearchPacketId: 'brief-1',
+  });
+  const snapshot = renderNormalProduceSnapshot(viewModel);
+
+  assert.equal(viewModel.currentStage.id, 'script');
+  assert.equal(snapshot.sourceDisclosureOpen, false, 'source/search detail should be collapsed after discovery is no longer current');
+  assert.match(snapshot.html, /Story-source details/);
 });
 
 test('normal Produce DOM/control complexity stays below the documented guardrail', () => {

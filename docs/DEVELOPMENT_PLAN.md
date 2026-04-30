@@ -65,3 +65,8 @@ current stage, and collapsed non-current stages. When a feature intentionally
 adds controls, group or collapse them in the relevant stage first, then update
 the threshold in that test with the reason in the PR. Do not raise the threshold
 to hide unrelated button growth.
+
+Produce context that is not part of the current stage, including story-source
+detail, task-run details, and audit/history counts, should stay behind
+view-model-driven disclosures. Source/search-recipe detail may default open only
+while source discovery is the active workspace.

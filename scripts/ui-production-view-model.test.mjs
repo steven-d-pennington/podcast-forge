@@ -255,6 +255,10 @@ test('view model covers source selected with no candidate stories', () => {
   assert.equal(model.currentStage.status, 'ready');
   assert.equal(model.primaryNextAction.label, 'Search Brave');
   assert.equal(model.primaryNextAction.enabled, true);
+  assert.equal(model.contextDisclosures.storySource.defaultOpen, true);
+  assert.equal(model.contextDisclosures.storySource.prominent, true);
+  assert.match(model.contextDisclosures.storySource.reason, /current-stage work/);
+  assert.equal(model.contextDisclosures.actionResult.defaultOpen, false);
 });
 
 test('view model covers candidates loaded but no story selected', () => {
@@ -319,6 +323,9 @@ test('view model exposes Produce Episode cockpit header context', () => {
   assert.match(model.cockpitHeader.latestResult.message, /Source search succeeded/);
   assert.equal(model.cockpitHeader.primaryNextAction.label, 'Build research brief');
   assert.equal(model.cockpitHeader.primaryNextAction.disabledReason, '');
+  assert.equal(model.contextDisclosures.actionResult.visible, true);
+  assert.equal(model.contextDisclosures.actionResult.defaultOpen, false);
+  assert.match(model.contextDisclosures.actionResult.reason, /without adding another default status surface/);
 });
 
 test('view model blocks drafting while research warnings are unresolved', () => {
@@ -367,6 +374,9 @@ test('view model covers research brief ready with no script', () => {
   assert.equal(model.currentStage.status, 'ready');
   assert.equal(model.primaryNextAction.label, 'Generate script draft');
   assert.equal(model.primaryNextAction.enabled, true);
+  assert.equal(model.contextDisclosures.storySource.defaultOpen, false);
+  assert.equal(model.contextDisclosures.storySource.prominent, false);
+  assert.match(model.contextDisclosures.storySource.summary, /Demo Story Sources/);
 });
 
 test('view model recovers downstream workflow when candidate selection is stale', () => {

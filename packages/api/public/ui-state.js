@@ -56,6 +56,7 @@ export const state = {
   activeSettingsTab: 'shows',
   expandedPipelineStageIds: [],
   currentPipelineStageId: '',
+  contextDisclosureOpen: {},
   auditHistoryOpen: false,
   showSetupOpen: false,
   runningActions: {},

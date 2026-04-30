@@ -228,13 +228,17 @@ test('stage tracker progressively discloses only the current stage by default', 
   assertContains(uiJs, "status.setAttribute('aria-label', `Status: ${statusLabel}`)", 'stage status pills should expose explicit status labels');
   assertContains(uiJs, "card.className = `pipeline-card ${statusClass(statusLabel)}${expanded ? ' expanded' : ' collapsed'}${stage.id === currentStageId ? ' current' : ''}`", 'stage cards should mark collapsed/current state');
   assertContains(uiJs, "button.textContent = stage.actionLabel", 'existing stage action remains available when expanded');
+  assertContains(uiJs, "button.className = stage.id === currentStageId || stage.primary ? 'pipeline-primary-action' : 'secondary'", 'current stage action should be visually primary');
   assertContains(uiJs, 'body.append(artifacts, next, button, actionReason)', 'expanded stage body keeps action context');
+  assertContains(uiJs, "secondarySummary.textContent = 'More stage options'", 'secondary stage controls should be disclosed behind one affordance');
+  assertContains(uiJs, "secondaryDisclosure.className = 'pipeline-secondary-actions'", 'stage secondary actions should use subordinate disclosure styling');
   assertContains(uiJs, 'els.pipelineStages.append(stageCard(stage, currentStageId))', 'render should pass the current stage into each card');
   assertContains(uiJs, "currentBadge.textContent = 'current'", 'current stage should be called out separately from status');
   assertContains(uiJs, "artifactLabel.textContent = 'Active/current artifact'", 'expanded stages should not call archived records latest active artifacts');
   assertContains(uiJs, 'function pruneExpandedPipelineStages(stages)', 'expanded stage state should be pruned during render');
   assertContains(uiJs, 'function syncCurrentPipelineStage(currentStageId)', 'current stage changes should reset manual expansions');
   assertContains(uiJs, 'state.expandedPipelineStageIds = []', 'changing workflow context should reset expanded stage state');
+  assertContains(uiJs, 'state.contextDisclosureOpen = {}', 'changing current stage should restore focused disclosure defaults');
 
   for (const status of ['not started', 'blocked', 'ready', 'complete', 'warning']) {
     assertContains(uiJs, `return '${status}'`, `stage tracker status ${status}`);
@@ -242,6 +246,8 @@ test('stage tracker progressively discloses only the current stage by default', 
 
   assertContains(stylesCss, '.pipeline-card.collapsed .pipeline-expand', 'collapsed tracker styles');
   assertContains(stylesCss, '.pipeline-card-body', 'expanded tracker body styles');
+  assertContains(stylesCss, '.pipeline-secondary-actions', 'secondary stage action disclosure styles');
+  assertContains(stylesCss, '.pipeline-card .pipeline-primary-action', 'current stage primary action style');
   assertContains(stylesCss, '.status-pill.current', 'current status style');
   assertContains(stylesCss, '.status-pill.complete', 'complete status style');
 });
@@ -254,7 +260,7 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(uiJs, 'viewModel.primaryNextAction', 'command bar primary action from view model');
   assertContains(uiJs, 'viewModel.latestActionResult', 'command bar latest result from view model');
   assertContains(uiJs, 'viewModel.workflowActionFeedback', 'command bar workflow feedback from view model');
-  assertContains(uiJs, "viewModel.workflowActionFeedback.status !== 'idle'", 'idle workflow feedback should not render as a persistent panel');
+  assertContains(uiJs, "feedback.status === 'idle'", 'idle workflow feedback should not render as a persistent panel');
   assertContains(uiJs, 'viewModel.warnings.length', 'command bar warning count from view model');
   assertContains(uiJs, 'action: legacyStage?.disabled ? null : legacyStage?.action || null', 'command bar primary action should invoke available stage actions');
   assertContains(uiJs, "appendCommandBarMetric(metrics, 'Active stage'", 'cockpit header should show active stage');
@@ -271,6 +277,7 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(uiJs, 'Latest failure', 'command bar failure summary label');
   assertContains(uiJs, 'Review current stage', 'command bar stage details button');
   assertContains(uiJs, 'function renderWorkflowFeedbackPanel(feedback', 'workflow feedback panel renderer');
+  assertContains(uiJs, 'function renderWorkflowFeedbackDisclosure(viewModel)', 'workflow feedback should be behind contextual disclosure outside the command bar');
   assertContains(uiJs, 'function attachWorkflowFeedback(stages, viewModel, currentStageId)', 'stage feedback attachment helper');
   assertContains(uiJs, "label.textContent = compact ? 'Current stage result' : 'Action result'", 'current stage result label');
   assertContains(uiJs, 'workflowFeedbackDetailText(feedback)', 'feedback details keep warning/debug data available');
@@ -281,13 +288,20 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(uiJs, 'function checklistBlockers(checklist', 'checklist blocker helper');
   assertContains(uiJs, 'command-bar-blocker', 'command bar blocker summary');
   assertContains(uiJs, 'function renderAuditHistoryDisclosure(viewModel)', 'archive warnings should render behind an audit/history disclosure');
+  assertContains(uiJs, 'function renderStorySourceDisclosure(viewModel)', 'story source detail should render through contextual disclosure');
+  assertContains(uiJs, 'viewModel.contextDisclosures?.storySource', 'story source disclosure should be view-model driven');
   assertContains(uiJs, "summaryLabel.textContent = 'Audit/history'", 'audit/history disclosure should be explicitly labeled');
   assertContains(uiStateJs, 'auditHistoryOpen: false', 'audit/history disclosure state should be tracked across renders');
+  assertContains(uiStateJs, 'contextDisclosureOpen: {}', 'context disclosures should be tracked across renders');
   assertContains(uiJs, 'details.open = Boolean(state.auditHistoryOpen)', 'audit/history disclosure should restore its open state');
   assertContains(uiJs, 'state.auditHistoryOpen = details.open', 'audit/history disclosure should persist user toggles');
+  assertContains(uiViewModelJs, 'function deriveContextDisclosures', 'Produce context disclosure policy should live in the view model');
+  assertContains(uiViewModelJs, "defaultOpen: sourceDiscoveryIsCurrent", 'source/search details should default open only while source discovery is current');
+  assertContains(uiViewModelJs, "defaultOpen: false", 'task result disclosure should stay closed by default');
   assertContains(uiJs, 'artifactScopeWarnings', 'view model archive warnings should stay accessible for audit');
   assertContains(uiJs, 'History/archive records remain available for audit, but production and publishing actions use active/current artifacts only.', 'workflow should explain active versus archive state');
   assertContains(stylesCss, '.audit-history-disclosure', 'audit/history disclosure styles');
+  assertContains(stylesCss, '.context-disclosure', 'contextual disclosure styles');
   assertContains(uiJs, 'const researchPacketId = selectedResearchPacket()?.id', 'script generation should use active/current research packet selection');
   assert.doesNotMatch(uiJs, /const researchPacketId = state\.selectedResearchPacketId/, 'script generation must not post archived saved packet ids');
   assert.doesNotMatch(uiJs, /latestArtifacts\?\.publishing\?\.title/, 'command bar must not present archived/latest episodes as active production context');
