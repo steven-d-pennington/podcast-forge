@@ -14,6 +14,7 @@ import {
   extractedClaimsSchema,
   integrityReviewResultSchema,
   PROMPT_OUTPUT_SCHEMAS,
+  researchSynthesisSchema,
   scriptGenerationResultSchema,
   scriptRevisionResultSchema,
 } from './schemas.js';
@@ -185,6 +186,10 @@ describe('prompt output schemas', () => {
           'DeepSeek released V4 large language model.',
           'The release highlights U.S.-China AI competition.',
         ],
+      }, {
+        line: 'DAVID: This sourced line has no direct claim mapping.',
+        claimId: null,
+        sourceDocumentIds: ['source-1'],
       }],
       warnings: [],
     });
@@ -193,6 +198,9 @@ describe('prompt output schemas', () => {
     assert.deepEqual(result.citationMap, [{
       line: 'DeepSeek released V4 large language model. The release highlights U.S.-China AI competition.',
       sourceDocumentIds: [],
+    }, {
+      line: 'DAVID: This sourced line has no direct claim mapping.',
+      sourceDocumentIds: ['source-1'],
     }]);
   });
 
@@ -309,6 +317,85 @@ describe('prompt output schemas', () => {
         citations: [],
       }],
     }), ZodError);
+  });
+
+  it('normalizes model-emitted extracted claim aliases before strict validation', () => {
+    const result = extractedClaimsSchema.parse({
+      claims: [{
+        claim: 'Families of Canadian school shooting victims sued OpenAI.',
+        claimType: 'factual',
+        confidence: 'medium_confidence',
+        sourceDocumentId: 'doc-1',
+        url: 'https://example.com/lawsuit',
+        uncertainty_label: 'medium',
+        source_urls: ['https://example.com/lawsuit'],
+        source_document_ids: ['doc-1'],
+      }],
+      warnings: [],
+    });
+
+    assert.deepEqual(result.claims, [{
+      id: 'claim-1',
+      text: 'Families of Canadian school shooting victims sued OpenAI.',
+      claimType: 'fact',
+      confidence: 'medium',
+      sourceDocumentIds: ['doc-1'],
+      citations: [{ sourceDocumentId: 'doc-1', url: 'https://example.com/lawsuit' }],
+    }]);
+  });
+
+  it('describes nested extracted claim arrays so JSON-mode models avoid alias-only claims', () => {
+    const properties = PROMPT_OUTPUT_SCHEMAS.extracted_claims.schemaHint.properties as Record<string, unknown>;
+    const claims = properties.claims as { items?: { properties?: Record<string, unknown>; required?: string[] } };
+    const claimProperties = claims.items?.properties ?? {};
+    const citations = claimProperties.citations as { items?: { properties?: Record<string, unknown> } };
+
+    assert.deepEqual(claims.items?.required, ['id', 'text', 'claimType', 'confidence', 'sourceDocumentIds', 'citations']);
+    for (const expected of ['id', 'text', 'claimType', 'confidence', 'sourceDocumentIds', 'citations']) {
+      assert.ok(expected in claimProperties, `extracted claim schema hint should describe ${expected}`);
+    }
+    assert.ok(citations.items?.properties?.sourceDocumentId, 'citation item should describe sourceDocumentId');
+    assert.ok(citations.items?.properties?.url, 'citation item should describe url');
+  });
+
+  it('normalizes model-emitted research synthesis claims without citation arrays', () => {
+    const result = researchSynthesisSchema.parse({
+      title: 'AI Liability and the Duty to Warn',
+      summary: 'Families filed lawsuits after a school shooting, raising questions about AI safety duties.',
+      editorialAngle: 'Legal accountability for AI systems in real-world violence.',
+      knownFacts: ['Families filed lawsuits against OpenAI.'],
+      openQuestions: ['What duty-to-warn standard applies?'],
+      sourceDocumentIds: ['doc-1', 'doc-2'],
+      claims: [{
+        text: 'Families of Canadian school shooting victims sued OpenAI.',
+        claimType: 'factual',
+        supportLevel: 'high',
+        sourceDocumentIds: ['doc-1'],
+      }],
+      warnings: [],
+    });
+
+    assert.deepEqual(result.claims, [{
+      id: 'claim-1',
+      text: 'Families of Canadian school shooting victims sued OpenAI.',
+      claimType: 'fact',
+      confidence: 'high',
+      sourceDocumentIds: ['doc-1'],
+      citations: [{ sourceDocumentId: 'doc-1' }],
+    }]);
+  });
+
+  it('describes nested research synthesis arrays so JSON-mode models emit canonical claims', () => {
+    const properties = PROMPT_OUTPUT_SCHEMAS.research_synthesis.schemaHint.properties as Record<string, unknown>;
+    const knownFacts = properties.knownFacts as { items?: Record<string, unknown> };
+    const claims = properties.claims as { items?: { properties?: Record<string, unknown>; required?: string[] } };
+    const claimProperties = claims.items?.properties ?? {};
+    const citations = claimProperties.citations as { items?: { properties?: Record<string, unknown> } };
+
+    assert.deepEqual(knownFacts.items, { type: 'string' });
+    assert.deepEqual(claims.items?.required, ['id', 'text', 'claimType', 'confidence', 'sourceDocumentIds', 'citations']);
+    assert.ok(citations.items?.properties?.sourceDocumentId, 'synthesis citation item should describe sourceDocumentId');
+    assert.ok(citations.items?.properties?.url, 'synthesis citation item should describe url');
   });
 
   it('validates structured integrity review output', () => {

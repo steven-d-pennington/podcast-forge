@@ -166,6 +166,7 @@ export const DEFAULT_PROMPT_TEMPLATES: PromptTemplate[] = [
       'Write a podcast script using only the supplied research packet and show context.',
       'Keep factual claims traceable through the citation map. Distinguish confirmed facts, source claims, analysis, and unknowns.',
       'Avoid sensationalism, invented quotes, invented sourcing, and unsupported certainty.',
+      'Use each cast member persona from show context for speaker voice, framing, handoffs, pacing, and TTS-friendly direction, but never invent facts or weaken evidence boundaries.',
       '',
       'Show context:',
       '{{show_context}}',
@@ -186,6 +187,7 @@ export const DEFAULT_PROMPT_TEMPLATES: PromptTemplate[] = [
     [
       'Revise the script according to the instructions while preserving the research packet boundaries.',
       'Do not add unsourced factual claims. Keep speaker labels compatible with the show cast if provided in the packet or instructions.',
+      'Preserve cast personas where provided: revise tone, framing, handoffs, pacing, and TTS-friendly direction without changing evidence boundaries.',
       'Report what changed and which warnings remain unresolved.',
       '',
       'Script draft:',
@@ -210,6 +212,7 @@ export const DEFAULT_PROMPT_TEMPLATES: PromptTemplate[] = [
       'Return PASS only when production can proceed without unresolved factual, citation, attribution, balance, certainty, or sensationalism problems.',
       'Return PASS_WITH_NOTES for non-blocking warnings an editor should still see. Return FAIL for unsupported claims, missing citations on factual claims, overstated certainty, misleading attribution, one-sided framing, or sensationalism that must be fixed before production.',
       'Do not invent citations or source coverage. Suggested fixes must either remove the claim, soften certainty, add attribution, or point to a supplied citation/source id.',
+      'Cast personas are editorial constraints only: flag obvious speaker/persona drift as non-blocking notes unless it creates evidence, attribution, certainty, or balance risk.',
       '',
       'Show context:',
       '{{show_context}}',

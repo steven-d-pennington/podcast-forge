@@ -9,6 +9,9 @@ import type {
 
 const MIN_TEXT_LENGTH = 120;
 const MIN_INDEPENDENT_HOSTS = 2;
+const BREAKING_NEWS_MAX_AGE_HOURS = 48;
+const MAX_CORROBORATION_QUERIES = 8;
+const MAX_CORROBORATION_QUERY_LENGTH = 180;
 const HIGH_STAKES_PATTERN = /\b(lawsuit|court|criminal|security|breach|vulnerability|regulation|regulator|recall|death|injury|sanction|filing|investigation)\b/i;
 
 function hostnameFor(value: string): string | null {
@@ -32,6 +35,146 @@ function candidateSummary(candidates: StoryCandidateRecord[]): string {
   return candidates
     .map((candidate) => `${candidate.title}${candidate.summary ? `: ${candidate.summary}` : ''}`)
     .join(' | ');
+}
+
+function compactText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function clampQuery(value: string): string {
+  const normalized = compactText(value).replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+  if (normalized.length <= MAX_CORROBORATION_QUERY_LENGTH) {
+    return normalized;
+  }
+  return normalized.slice(0, MAX_CORROBORATION_QUERY_LENGTH).replace(/\s+\S*$/, '').trim();
+}
+
+function uniqueLimited(values: string[], limit: number): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+
+  for (const value of values) {
+    const normalized = clampQuery(value);
+    const key = normalized.toLowerCase();
+
+    if (normalized.length < 8 || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    output.push(normalized);
+
+    if (output.length >= limit) {
+      break;
+    }
+  }
+
+  return output;
+}
+
+function sourceHosts(documents: SourceDocumentRecord[], candidates: StoryCandidateRecord[] = []): string[] {
+  const hosts = [
+    ...documents.map((document) => hostnameFor(document.canonicalUrl ?? document.url)),
+    ...candidates.map((candidate) => hostnameFor(candidate.canonicalUrl ?? candidate.url ?? '')),
+  ];
+  return [...new Set(hosts.filter((host): host is string => typeof host === 'string' && host.length > 0))].sort();
+}
+
+function newestEvidenceDate(candidates: StoryCandidateRecord[], documents: SourceDocumentRecord[]): Date | null {
+  const dates = [
+    ...candidates.flatMap((candidate) => [candidate.publishedAt, candidate.discoveredAt]),
+    ...documents.map((document) => document.fetchedAt),
+  ].filter((value): value is Date => value instanceof Date && !Number.isNaN(value.getTime()));
+
+  if (dates.length === 0) {
+    return null;
+  }
+
+  return new Date(Math.max(...dates.map((date) => date.getTime())));
+}
+
+function looksLikeBreakingSingleSource(candidates: StoryCandidateRecord[], documents: SourceDocumentRecord[], independentHostCount: number): boolean {
+  if (independentHostCount !== 1) {
+    return false;
+  }
+
+  const newest = newestEvidenceDate(candidates, documents);
+  if (!newest) {
+    return false;
+  }
+
+  const ageHours = (Date.now() - newest.getTime()) / 3_600_000;
+  return ageHours >= 0 && ageHours <= BREAKING_NEWS_MAX_AGE_HOURS;
+}
+
+function corroborationQueriesFor(options: {
+  candidates: StoryCandidateRecord[];
+  documents: SourceDocumentRecord[];
+  claims: ResearchClaim[];
+}): string[] {
+  const candidateQueries = options.candidates.flatMap((candidate) => [
+    candidate.title,
+    candidate.summary ? `${candidate.title} ${candidate.summary}` : '',
+  ]);
+  const claimQueries = options.claims.map((claim) => claim.text);
+  const sourceTitleQueries = options.documents.map((document) => document.title ?? '').filter(Boolean);
+
+  return uniqueLimited([
+    ...claimQueries,
+    ...candidateQueries,
+    ...sourceTitleQueries,
+  ], MAX_CORROBORATION_QUERIES);
+}
+
+export interface ResearchCorroborationSearchAttempt {
+  status: 'not_run' | 'succeeded' | 'failed' | 'skipped';
+  query?: string;
+  excludeDomains?: string[];
+  inserted?: number;
+  skipped?: number;
+  jobId?: string;
+  sourceProfileId?: string;
+  sourceProfileType?: string;
+  error?: string;
+}
+
+function corroborationState(options: {
+  candidates: StoryCandidateRecord[];
+  usableDocuments: SourceDocumentRecord[];
+  claims: ResearchClaim[];
+  independentHostCount: number;
+  failedDocumentCount: number;
+  searchAttempt?: ResearchCorroborationSearchAttempt;
+}) {
+  const excludedHosts = sourceHosts(options.usableDocuments, options.candidates);
+  const breakingSingleSource = options.failedDocumentCount === 0 && looksLikeBreakingSingleSource(
+    options.candidates,
+    options.usableDocuments,
+    options.independentHostCount,
+  );
+  const classification = options.independentHostCount >= MIN_INDEPENDENT_HOSTS
+    ? 'corroborated'
+    : breakingSingleSource
+      ? 'single_source_breaking'
+      : options.independentHostCount === 1
+        ? 'uncorroborated_single_source'
+        : 'uncorroborated';
+
+  return {
+    classification,
+    requiresAttribution: classification === 'single_source_breaking' || classification === 'uncorroborated_single_source',
+    attempted: options.searchAttempt?.status === 'succeeded' || options.searchAttempt?.status === 'failed',
+    automatedSearch: options.searchAttempt ?? { status: 'not_run' },
+    queries: corroborationQueriesFor({
+      candidates: options.candidates,
+      documents: options.usableDocuments,
+      claims: options.claims,
+    }),
+    excludedHosts,
+    minimumIndependentHosts: MIN_INDEPENDENT_HOSTS,
+    independentHostCount: options.independentHostCount,
+    breakingNewsMaxAgeHours: BREAKING_NEWS_MAX_AGE_HOURS,
+  };
 }
 
 function synthesizedTitle(candidates: StoryCandidateRecord[], angle?: string | null): string {
@@ -142,6 +285,7 @@ function readinessFor(options: {
   usableSourceCount: number;
   independentHostCount: number;
   warnings: ResearchWarning[];
+  corroborationClassification?: string;
 }) {
   const reasons: string[] = [];
 
@@ -152,6 +296,10 @@ function readinessFor(options: {
 
   if (options.independentHostCount < MIN_INDEPENDENT_HOSTS) {
     reasons.push(`Only ${options.independentHostCount} independent source host(s) are available.`);
+    if (options.corroborationClassification === 'single_source_breaking') {
+      reasons.push('Story appears fresh enough to treat as a developing single-source report with explicit attribution.');
+      return { status: 'single_source_breaking', reasons };
+    }
     return { status: 'needs_more_sources', reasons };
   }
 
@@ -175,6 +323,7 @@ export interface BuildResearchPacketInputOptions {
   synthesis?: Record<string, unknown> | null;
   modelProfiles?: Record<string, unknown>;
   modelInvocations?: Record<string, unknown>[];
+  corroborationSearchAttempt?: ResearchCorroborationSearchAttempt;
 }
 
 export function buildResearchPacketInputFromCandidates(options: BuildResearchPacketInputOptions): CreateResearchPacketInput {
@@ -248,6 +397,31 @@ export function buildResearchPacketInputFromCandidates(options: BuildResearchPac
   }
 
   const claims = deterministicClaims(candidates, usableDocuments, options.claims ?? []);
+  const corroboration = corroborationState({
+    candidates,
+    usableDocuments,
+    claims,
+    independentHostCount: independentHosts.size,
+    failedDocumentCount: documents.filter((document) => document.fetchStatus !== 'fetched').length,
+    searchAttempt: options.corroborationSearchAttempt,
+  });
+
+  if (corroboration.classification === 'single_source_breaking') {
+    warnings.push({
+      id: 'SINGLE_SOURCE_BREAKING_NEWS',
+      code: 'SINGLE_SOURCE_BREAKING_NEWS',
+      severity: 'warning',
+      message: 'Only one independent source is currently available, but the evidence is fresh enough to treat as a developing single-source report with explicit attribution.',
+      metadata: {
+        independentHostCount: independentHosts.size,
+        minimumIndependentHosts: MIN_INDEPENDENT_HOSTS,
+        excludedHosts: corroboration.excludedHosts,
+        suggestedQueries: corroboration.queries,
+        requiresAttribution: true,
+      },
+    });
+  }
+
   const documentsById = new Map(usableDocuments.map((document) => [document.id, document]));
 
   for (const claim of claims) {
@@ -279,6 +453,7 @@ export function buildResearchPacketInputFromCandidates(options: BuildResearchPac
     usableSourceCount: usableDocuments.length,
     independentHostCount: independentHosts.size,
     warnings: finalWarnings,
+    corroborationClassification: corroboration.classification,
   });
   const sourceSummary = usableDocuments.length > 0
     ? usableDocuments.map(sourceLabel).join('; ')
@@ -317,6 +492,7 @@ export function buildResearchPacketInputFromCandidates(options: BuildResearchPac
       fetchedSourceCount: fetchedDocuments.length,
       selectedCandidateCount: candidates.length,
       readiness,
+      corroboration,
       modelProfiles: options.modelProfiles ?? {},
       modelInvocations: options.modelInvocations ?? [],
     },

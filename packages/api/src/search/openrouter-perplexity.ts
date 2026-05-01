@@ -79,10 +79,22 @@ function resolveTopN(query: SourceQueryRecord, profile: SourceProfileRecord): nu
 function recencyFor(query: SourceQueryRecord, profile: SourceProfileRecord): string | undefined {
   const value = asString(option(query, profile, 'search_recency_filter')) ?? query.freshness ?? profile.freshness ?? undefined;
   switch (value) {
-    case 'pd': return 'day';
-    case 'pw': return 'week';
-    case 'pm': return 'month';
-    case 'py': return 'year';
+    case 'pd':
+    case 'day':
+    case 'oneDay':
+      return 'day';
+    case 'pw':
+    case 'week':
+    case 'oneWeek':
+      return 'week';
+    case 'pm':
+    case 'month':
+    case 'oneMonth':
+      return 'month';
+    case 'py':
+    case 'year':
+    case 'oneYear':
+      return 'year';
     default: return value;
   }
 }

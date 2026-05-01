@@ -65,6 +65,110 @@ test('guided workflow shell stays primary on /ui', () => {
 });
 
 
+test('produce workspace exposes a non-destructive Start New Episode reset', () => {
+  assertContains(indexHtml, 'id="startNewEpisode"', 'start new episode button');
+  assertContains(indexHtml, 'Start New Episode', 'start new episode label');
+  assertContains(uiStateJs, "startNewEpisode: document.querySelector('#startNewEpisode')", 'start new episode state binding');
+  assertContains(uiJs, 'function startNewEpisode()', 'start new episode handler');
+  assertContains(uiJs, 'clearPipelineSelections();', 'start new episode should reuse pipeline reset');
+  assertContains(uiJs, 'savePipelineState();', 'start new episode should persist cleared selection');
+  assertContains(uiJs, "setStatus('Started a new episode path. Choose a candidate story to begin the next production run.');", 'start new episode status copy');
+  assertContains(uiJs, "els.startNewEpisode.addEventListener('click', startNewEpisode);", 'start new episode event binding');
+});
+
+
+test('research review warnings sanitize model validation dumps for humans', () => {
+  assertContains(uiJs, 'function researchWarningMessage(warning)', 'research warning message sanitizer');
+  assertContains(uiJs, "warning?.code === 'MODEL_CLAIM_EXTRACTION_FAILED'", 'claim extraction failure special case');
+  assertContains(uiJs, 'Claim extraction failed for this source. Claims and citations may be incomplete; regenerate the research brief after the model/schema fix.', 'human claim extraction warning copy');
+  assertContains(uiJs, 'looksLikeRawValidationMessage', 'raw validation detection helper');
+  assertContains(uiJs, 'researchWarningMessage(warning)', 'research review should use sanitized warning copy');
+  assertContains(uiViewModelJs, 'researchWarningSummary(warning)', 'view model warning summary sanitizer');
+  assertContains(uiViewModelJs, 'Claim extraction failed for this source. Claims and citations may be incomplete.', 'view model human warning copy');
+});
+
+
+test('research review warnings explain impact and remediation before override', () => {
+  assertContains(uiJs, 'function researchWarningRemediation(warning)', 'warning remediation helper');
+  assertContains(uiJs, 'Duplicate source URL warnings are source hygiene notes and do not reduce generated claim quality.', 'duplicate warning impact copy');
+  assertContains(uiJs, 'Script generation may use incomplete claim/citation coverage for this source.', 'claim extraction impact copy');
+  assertContains(uiJs, 'Generated script framing may be weaker because synthesis failed or was degraded.', 'synthesis failure impact copy');
+  assertContains(uiJs, 'Generated script may include high-stakes claims that require extra human fact-checking before publication.', 'high-stakes override impact copy');
+  assertContains(uiJs, 'Recommended fix:', 'recommended fix label');
+  assertContains(uiJs, 'Override impact:', 'override impact label');
+  assertContains(uiJs, 'excludeResearchClaim(packet.id, warning)', 'high-stakes warnings should let editors remove the unsupported claim instead of only overriding');
+  assertContains(uiJs, 'markResearchSourcePrimary(packet.id, warning', 'high-stakes warnings should let editors mark cited sources as primary');
+  assertContains(uiJs, '/exclude-claim', 'UI should call the claim-exclusion research packet endpoint');
+  assertContains(uiJs, '/mark-primary-source', 'UI should call the mark-primary-source research packet endpoint');
+  assertContains(uiJs, 'Remove affected claim', 'high-stakes warning card should expose a claim removal action');
+  assertContains(uiJs, 'Mark cited source primary', 'high-stakes warning card should expose a primary-source marking action');
+  assertContains(uiJs, 'function renderResearchWarningTriggerDetails(packet, warning)', 'warning cards should explain the specific data that triggered the warning');
+  assertContains(uiJs, 'Triggered by:', 'warning cards should label the trigger context');
+  assertContains(uiJs, 'Affected claim:', 'high-stakes warnings should show the claim text before removal/override');
+  assertContains(uiJs, 'Cited source:', 'high-stakes warnings should show cited source title/url before marking primary');
+  assertContains(uiJs, 'Claim/source ids:', 'warning cards should expose stable ids for audit/debug without making the user guess');
+  assertContains(uiJs, 'Dismiss source hygiene note', 'low-risk duplicate action copy');
+  assertContains(uiJs, 'Override with reason', 'override action should be explicit');
+  assertContains(stylesCss, '.warning-remediation', 'remediation card styling');
+});
+
+
+test('blocked research briefs expose claim-guided other-source search', () => {
+  assertContains(uiJs, 'Search for other sources', 'other-source action label');
+  assertContains(uiJs, 'function runMoreSourcesForResearchPacket(packet)', 'other-source search handler');
+  assertContains(uiJs, "readiness.status === 'needs_more_sources'", 'other-source action should target needs_more_sources blocker');
+  assertContains(uiJs, 'sourceSearchProfileForMoreSources', 'other-source action should choose a search-capable profile');
+  assertContains(uiJs, 'corroborationQueryForPacket(packet)', 'other-source action should prefer claim-derived corroboration queries');
+  assertContains(uiJs, 'corroborationExcludedDomains(packet)', 'other-source action should exclude current corroboration source hosts');
+  assertContains(uiJs, "purpose: 'research-more-sources'", 'other-source API purpose marker');
+  assertContains(uiJs, 'Select independent results, then rebuild the research brief.', 'other-source completion guidance');
+});
+
+test('research review surfaces automatic corroboration search metadata', () => {
+  assertContains(uiJs, 'Automatic corroboration search', 'automatic corroboration review heading');
+  assertContains(uiJs, 'corroborationSearchStatusText', 'automatic corroboration status formatter');
+  assertContains(uiJs, 'Automatic corroboration search ran', 'automatic corroboration success copy');
+  assertContains(uiJs, 'automaticSearch.status', 'research review should expose stored automatic search status');
+  assertContains(uiJs, 'corroboration.automatedSearch || corroboration.search', 'research review should read stored automated search metadata with legacy fallback');
+  assertContains(appTs, 'effectiveCorroborationSearchRunner', 'app wires default automatic corroboration search runner');
+  assertContains(appTs, "purpose: request.purpose", 'default runner records research-corroboration purpose on ad hoc search');
+});
+
+test('single-source breaking research briefs are shown as developing reports', () => {
+  assertContains(uiJs, "readiness.status === 'single_source_breaking'", 'single-source breaking readiness branch');
+  assertContains(uiJs, 'Developing single-source report', 'single-source breaking display copy');
+  assertContains(uiViewModelJs, "'single_source_breaking'", 'view model treats developing single-source brief as usable after review');
+});
+
+test('script draft format uses defined template choices instead of free text', () => {
+  assertContains(indexHtml, '<select id="scriptFormat"', 'script format should be a select list');
+  assertContains(indexHtml, '<option value="feature-analysis">Feature analysis</option>', 'feature-analysis script format option');
+  assertContains(indexHtml, '<option value="daily-briefing">Daily briefing</option>', 'daily briefing script format option');
+  assertContains(indexHtml, '<option value="interview">Interview</option>', 'interview script format option');
+  assertContains(indexHtml, '<option value="fiction-radio-play">Fiction / radio-play</option>', 'fiction/radio-play script format option');
+  assertContains(indexHtml, 'Controls the script template/style sent to the script writer.', 'script format help copy');
+  assert.ok(!indexHtml.includes('<input id="scriptFormat" type="text"'), 'script format should not be an unbounded free-text input');
+});
+
+
+test('model-failure research warnings expose model-specific retry affordance', () => {
+  assertContains(uiJs, 'function researchWarningModelRole(warning)', 'model role mapping helper');
+  assertContains(uiJs, "MODEL_CLAIM_EXTRACTION_FAILED", 'claim extraction model warning code');
+  assertContains(uiJs, "return 'claim_extractor';", 'claim extraction retry role');
+  assertContains(uiJs, "return 'research_synthesizer';", 'research synthesis retry role');
+  assertContains(uiJs, 'function renderModelRetryControls(packet, warning)', 'model retry controls renderer');
+  assertContains(uiJs, 'Try a different model and regenerate', 'retry with different model action');
+  assertContains(uiJs, 'function renderResearchWarningErrorDetails(warning)', 'model failure error details renderer');
+  assertContains(uiJs, 'Error details', 'model failure warnings should expose expandable details');
+  assertContains(uiJs, 'attempts', 'model failure details should include attempted providers/models when available');
+  assertContains(uiJs, 'applyResearchRetryModelAndRegenerate', 'model retry handler');
+  assertContains(uiJs, '/model-profiles/', 'model retry should update model profile through API');
+  assertContains(uiJs, 'await buildResearchBriefFromSelected();', 'model retry should rerun research generation');
+  assertContains(uiJs, 'GLM 5.1', 'Z.AI/GLM retry preset');
+  assertContains(uiJs, 'GPT-5.5', 'OpenAI retry preset');
+  assertContains(stylesCss, '.model-retry-controls', 'model retry controls styling');
+});
+
 test('candidate list exposes non-mutating filters for date and quality triage', () => {
   for (const id of [
     'candidateFilterSummary',
@@ -299,8 +403,12 @@ test('production command bar and concrete blocker copy remain present', () => {
   assertContains(uiViewModelJs, "defaultOpen: sourceDiscoveryIsCurrent", 'source/search details should default open only while source discovery is current');
   assertContains(uiViewModelJs, "defaultOpen: false", 'task result disclosure should stay closed by default');
   assertContains(uiJs, 'artifactScopeWarnings', 'view model archive warnings should stay accessible for audit');
+  assertContains(uiJs, 'function renderResearchBriefRow(packet)', 'research brief rows should be reusable for active and history sections');
+  assertContains(uiJs, "summary.textContent = `History/archive research briefs (${archivedPackets.length})`", 'historical research briefs should be collapsed behind a count summary');
+  assertContains(uiJs, 'Research brief history is retained for audit, comparison, and rollback. It is not part of the current production path unless selected for audit.', 'history disclosure should explain why archived briefs exist');
   assertContains(uiJs, 'History/archive records remain available for audit, but production and publishing actions use active/current artifacts only.', 'workflow should explain active versus archive state');
   assertContains(stylesCss, '.audit-history-disclosure', 'audit/history disclosure styles');
+  assertContains(stylesCss, '.research-brief-history', 'research brief history disclosure styles');
   assertContains(stylesCss, '.context-disclosure', 'contextual disclosure styles');
   assertContains(uiJs, 'const researchPacketId = selectedResearchPacket()?.id', 'script generation should use active/current research packet selection');
   assert.doesNotMatch(uiJs, /const researchPacketId = state\.selectedResearchPacketId/, 'script generation must not post archived saved packet ids');
@@ -622,6 +730,8 @@ test('story source summaries use editorial labels and hide credential values', (
   assertContains(uiJs, 'sourceProviderLabel(profile.type)', 'source selector provider labels');
   assertContains(uiJs, 'Credential/config', 'credential/config summary label');
   assertContains(uiJs, 'sourceActionDescription(profile, state.queries)', 'source action description');
+  assertContains(indexHtml, '<option value="openrouter-perplexity">OpenRouter Perplexity/Sonar</option>', 'create-source type option for OpenRouter Perplexity/Sonar');
+  assertContains(uiJs, '<option value="openrouter-perplexity">OpenRouter Perplexity/Sonar</option>', 'settings content-source type option for OpenRouter Perplexity/Sonar');
 
   const show = {
     id: 'show-1',
@@ -973,6 +1083,36 @@ test('integrity, source coverage, and confirmation safety affordances remain pre
   assertContains(uiJs, "publish.disabled = !episode || episode.status !== 'approved-for-publish' || !ready || isActionRunning('publish')", 'publish action remains approval-gated');
   assertContains(uiJs, "approve.disabled = !episode || episode.status !== 'audio-ready' || !canApprove || isActionRunning('approval')", 'publish approval remains checklist-gated');
   assert.doesNotMatch(uiJs, /window\.prompt\b/, 'ui.js must not use window.prompt for critical actions');
+});
+
+test('background job polling does not re-render the whole admin workspace', () => {
+  assertContains(uiJs, 'function renderJobPollingUpdate()', 'job polling should have a narrow render path');
+  assertContains(uiJs, 'await loadJobs();\n      renderJobPollingUpdate();', 'polling should update job surfaces only');
+  assert.doesNotMatch(
+    uiJs.match(/state\.jobPoll = window\.setInterval\([\s\S]*?}, 5000\);/)?.[0] || '',
+    /render\(\);/,
+    '5-second job polling must not call full render because it resets focused forms and disclosures',
+  );
+});
+
+test('claim coverage panel exposes connector hooks between claims and needs-attention findings', () => {
+  assertContains(uiJs, 'function renderCoverageClaimMap(summary)', 'claim map renderer');
+  assertContains(uiJs, 'function renderCoverageFindingConnectors(panel)', 'connector renderer');
+  assertContains(uiJs, 'data-coverage-claim-id', 'claim/finding data hook');
+  assertContains(uiJs, 'data-coverage-finding-claim-id', 'finding data hook');
+  assertContains(uiJs, 'coverage-connector-overlay', 'connector overlay class');
+  assertContains(stylesCss, '.coverage-claim-map', 'claim map layout style');
+  assertContains(stylesCss, '.coverage-connector-overlay', 'connector overlay style');
+});
+
+test('script coaching supports custom inline feedback prompts', () => {
+  assertContains(uiJs, 'function renderCustomScriptCoachingForm()', 'custom coaching form renderer');
+  assertContains(uiJs, 'function runCustomScriptCoachingAction(form)', 'custom coaching submit handler');
+  assertContains(uiJs, 'Custom AI feedback', 'custom coaching heading');
+  assertContains(uiJs, 'Describe exactly how you want the next draft revised', 'custom coaching helper copy');
+  assertContains(uiJs, 'customInstruction', 'custom coaching payload field');
+  assertContains(uiJs, '/coach', 'coaching endpoint remains used');
+  assertContains(stylesCss, '.custom-coaching-form', 'custom coaching form styles');
 });
 
 test('active artifacts and archive labels are guarded in static UI modules', () => {

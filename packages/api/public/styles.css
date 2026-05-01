@@ -672,6 +672,20 @@ textarea:focus-visible {
   margin: 0.55rem 0 0;
 }
 
+.research-brief-history {
+  margin-top: 0.75rem;
+}
+
+.research-brief-history-list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.research-brief-history .record-row {
+  background: #ffffff;
+}
+
 .artifact-scope-warning-list {
   display: grid;
   gap: 0.25rem;
@@ -1572,6 +1586,101 @@ textarea {
   color: #1f4d7a;
 }
 
+.warning-remediation-header {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.warning-code {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(63, 75, 90, 0.18);
+  border-radius: 999px;
+  color: #3f4b5a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.72rem;
+  padding: 0.12rem 0.45rem;
+}
+
+.warning-remediation {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.4rem;
+}
+
+.warning-remediation p,
+.warning-trigger-details p,
+.warning-item > p,
+.model-retry-controls p {
+  margin: 0;
+}
+
+.warning-trigger-details {
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid rgba(63, 75, 90, 0.16);
+  border-radius: 6px;
+  display: grid;
+  gap: 0.28rem;
+  margin-top: 0.5rem;
+  padding: 0.55rem 0.65rem;
+}
+
+.warning-trigger-details p {
+  overflow-wrap: anywhere;
+}
+
+.warning-actions {
+  margin-top: 0.5rem;
+}
+
+.model-retry-controls {
+  align-items: end;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(63, 75, 90, 0.16);
+  border-radius: 6px;
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+  padding: 0.55rem;
+}
+
+.model-retry-controls label {
+  display: grid;
+  gap: 0.25rem;
+  font-weight: 600;
+}
+
+.model-retry-controls select {
+  min-width: min(100%, 20rem);
+}
+
+.warning-error-details {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(63, 75, 90, 0.16);
+  border-radius: 6px;
+  color: #3f4b5a;
+  font-size: 0.84rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.6rem;
+}
+
+.warning-error-details summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.warning-error-details pre {
+  background: #111827;
+  border-radius: 6px;
+  color: #e5e7eb;
+  max-height: 18rem;
+  overflow: auto;
+  padding: 0.65rem;
+  white-space: pre-wrap;
+}
+
 .episode-plan-result {
   background: white;
   border: 1px solid #d8dde5;
@@ -1706,6 +1815,27 @@ textarea {
   font-size: 0.78rem;
   font-weight: 500;
   line-height: 1.35;
+}
+
+.custom-coaching-form {
+  background: #f8fafc;
+  border: 1px solid #d8dde5;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem;
+}
+
+.custom-coaching-form textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+.custom-coaching-form small {
+  color: #586575;
+  display: block;
+  font-size: 0.82rem;
+  margin-top: 0.2rem;
 }
 
 .production-panel {
@@ -1844,6 +1974,87 @@ textarea {
 .coverage-panel-heading h4,
 .coverage-panel p {
   margin: 0;
+}
+
+.coverage-claim-map {
+  background: #f8fafc;
+  border: 1px solid #d8dde5;
+  border-radius: 8px;
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  overflow: hidden;
+  padding: 0.75rem;
+  position: relative;
+}
+
+.coverage-claim-column,
+.coverage-finding-column {
+  display: grid;
+  gap: 0.5rem;
+  position: relative;
+  z-index: 1;
+}
+
+.coverage-claim-column h5,
+.coverage-finding-column h5 {
+  color: #364152;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.coverage-claim-card,
+.coverage-finding-card {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #d8dde5;
+  border-radius: 7px;
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.55rem;
+}
+
+.coverage-claim-card.covered {
+  border-color: #9ac8aa;
+}
+
+.coverage-claim-card.needs_attention,
+.coverage-finding-card.needs_attention {
+  border-color: #d8cf73;
+}
+
+.coverage-claim-card.blocking,
+.coverage-finding-card.blocking,
+.coverage-finding-card.high {
+  border-color: #e2c391;
+}
+
+.coverage-claim-card p,
+.coverage-finding-card p {
+  margin: 0;
+}
+
+.coverage-claim-card span {
+  color: #586575;
+  font-size: 0.78rem;
+}
+
+.coverage-connector-overlay {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+
+.coverage-connector-line {
+  fill: none;
+  opacity: 0.75;
+  stroke: #6b7280;
+  stroke-dasharray: 4 4;
+  stroke-linecap: round;
+  stroke-width: 1.5;
 }
 
 .review-list-item,

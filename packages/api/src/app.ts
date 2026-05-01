@@ -12,13 +12,13 @@ import {
 import { createDbSourceStore } from './sources/db-store.js';
 import { registerShowRoutes } from './shows/routes.js';
 import { registerSourceRoutes } from './sources/routes.js';
-import type { SourceStore } from './sources/store.js';
+import type { SourceProfileRecord, SourceQueryRecord, SourceStore } from './sources/store.js';
 import { registerModelRoutes } from './models/routes.js';
 import type { ModelProfileStore } from './models/store.js';
 import { registerPromptRoutes } from './prompts/routes.js';
 import type { PromptTemplateStore } from './prompts/types.js';
 import { registerEpisodePlanningRoutes } from './planning/routes.js';
-import { registerResearchRoutes } from './research/routes.js';
+import { registerResearchRoutes, type ResearchCorroborationSearchRunner } from './research/routes.js';
 import type { ResearchFetch } from './research/fetch.js';
 import type { ResearchModelServices } from './research/models.js';
 import type { ResearchStore } from './research/store.js';
@@ -29,6 +29,7 @@ import type { PublishStorageAdapter, PublishUrlValidator, RssUpdateAdapter } fro
 import { registerProductionRoutes } from './production/routes.js';
 import type { FeedRecord, ProductionStore } from './production/store.js';
 import { registerSearchRoutes } from './search/routes.js';
+import { runSourceSearch } from './search/job.js';
 import type { BraveFetch } from './search/brave.js';
 import type { RssFetch } from './search/rss.js';
 import type { CandidateScorer } from './search/scoring.js';
@@ -64,6 +65,7 @@ interface BuildAppOptions extends FastifyServerOptions {
   llmRuntime?: LlmRuntime;
   researchModelServices?: ResearchModelServices;
   researchFetchImpl?: ResearchFetch;
+  corroborationSearchRunner?: ResearchCorroborationSearchRunner;
   audioPreviewProvider?: AudioPreviewProvider;
   audioFinalProvider?: AudioFinalProvider;
   coverArtProvider?: CoverArtProvider;
@@ -95,6 +97,61 @@ async function readPublicFile(fileName: string) {
   throw new Error(`Public asset not found: ${fileName}`);
 }
 
+function canRunSourceSearch(store: unknown): store is SourceStore & SearchJobStore {
+  const candidate = store as Record<string, unknown>;
+  return typeof candidate.listSourceProfiles === 'function'
+    && typeof candidate.listSourceQueries === 'function'
+    && typeof candidate.createJob === 'function'
+    && typeof candidate.updateJob === 'function'
+    && typeof candidate.insertStoryCandidate === 'function'
+    && typeof candidate.listStoryCandidateDedupeKeys === 'function';
+}
+
+function sourceSearchPriority(profile: SourceProfileRecord): number {
+  return profile.type === 'brave' ? 0 : profile.type === 'zai-web' ? 1 : profile.type === 'openrouter-perplexity' ? 2 : 99;
+}
+
+function sourceSearchApiKey(profile: SourceProfileRecord, options: BuildAppOptions): string | undefined {
+  if (profile.type === 'brave') return options.braveApiKey ?? process.env.BRAVE_API_KEY;
+  if (profile.type === 'zai-web') {
+    return options.zaiApiKey ?? process.env.ZAI_API_KEY ?? process.env.GLM_API_KEY ?? process.env.GLM_API ?? process.env.ZHIPU_API_KEY ?? process.env.ZHIPUAI_API_KEY;
+  }
+  if (profile.type === 'openrouter-perplexity') return options.openRouterApiKey ?? process.env.OPENROUTER_API_KEY;
+  return undefined;
+}
+
+function adHocCorroborationQuery(
+  profile: SourceProfileRecord,
+  template: SourceQueryRecord,
+  request: Parameters<ResearchCorroborationSearchRunner>[0],
+): SourceQueryRecord {
+  const now = new Date();
+  const excludeDomains = [...new Set([
+    ...(template.excludeDomains ?? []),
+    ...request.excludeDomains,
+  ].map((domain) => domain.trim()).filter(Boolean))];
+
+  return {
+    id: 'ad-hoc-research-corroboration',
+    sourceProfileId: profile.id,
+    query: request.query,
+    enabled: true,
+    weight: template.weight ?? 1,
+    region: template.region ?? null,
+    language: template.language ?? null,
+    freshness: template.freshness ?? null,
+    includeDomains: [],
+    excludeDomains,
+    config: {
+      ...(template.config ?? {}),
+      adHoc: true,
+      purpose: request.purpose,
+    },
+    createdAt: template.createdAt ?? now,
+    updatedAt: now,
+  };
+}
+
 export function buildApp(options: BuildAppOptions = {}) {
   const {
     sourceStore,
@@ -109,6 +166,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     llmRuntime,
     researchModelServices,
     researchFetchImpl,
+    corroborationSearchRunner,
     audioPreviewProvider,
     audioFinalProvider,
     coverArtProvider,
@@ -128,6 +186,52 @@ export function buildApp(options: BuildAppOptions = {}) {
     & Partial<ProductionStore>
     & Partial<SchedulerStore>
     | undefined = sourceStore;
+
+  const effectiveCorroborationSearchRunner: ResearchCorroborationSearchRunner | undefined = corroborationSearchRunner ?? (async (request) => {
+    resolvedSourceStore ??= createDbSourceStore();
+    const store = resolvedSourceStore;
+    if (!canRunSourceSearch(store)) {
+      return { status: 'skipped', query: request.query, excludeDomains: request.excludeDomains, error: 'Source search store is unavailable.' };
+    }
+
+    const profiles = (await store.listSourceProfiles({ showId: request.showId }))
+      .filter((profile) => profile.enabled && ['brave', 'zai-web', 'openrouter-perplexity'].includes(profile.type))
+      .sort((a, b) => sourceSearchPriority(a) - sourceSearchPriority(b));
+
+    for (const profile of profiles) {
+      const apiKey = sourceSearchApiKey(profile, options);
+      if (!apiKey) continue;
+
+      const template = (await store.listSourceQueries(profile.id)).find((query) => query.enabled);
+      if (!template) continue;
+
+      const query = adHocCorroborationQuery(profile, template, request);
+      const result = await runSourceSearch({
+        apiKey,
+        profile,
+        queries: [query],
+        store,
+        fetchImpl,
+        zaiFetchImpl,
+        openRouterPerplexityFetchImpl,
+        candidateScorer,
+        sleep,
+      });
+
+      return {
+        status: 'succeeded',
+        query: request.query,
+        excludeDomains: query.excludeDomains,
+        inserted: result.inserted,
+        skipped: result.skipped,
+        jobId: result.job.id,
+        sourceProfileId: profile.id,
+        sourceProfileType: profile.type,
+      };
+    }
+
+    return { status: 'skipped', query: request.query, excludeDomains: request.excludeDomains, error: 'No enabled search-capable source profile with credentials and enabled query.' };
+  });
 
   app.get('/health', async () => ({ ok: true, service: 'podcast-forge-api' }));
 
@@ -267,6 +371,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     fetchImpl: researchFetchImpl,
     llmRuntime,
     researchModelServices,
+    corroborationSearchRunner: effectiveCorroborationSearchRunner,
   });
 
   registerScriptRoutes(app, {

@@ -21,7 +21,8 @@
             "properties": {
               "name": { "type": "string" },
               "role": { "type": "string" },
-              "voice": { "type": "string" }
+              "voice": { "type": "string" },
+              "persona": { "type": "string" }
             }
           }
         }
@@ -34,6 +35,8 @@
         "required": ["id", "type", "enabled"],
         "properties": {
           "id": { "type": "string" },
+          "name": { "type": "string" },
+          "category": { "type": "string" },
           "type": { "enum": ["brave", "zai-web", "openrouter-perplexity", "rss", "manual", "local-json"] },
           "enabled": { "type": "boolean" },
           "weight": { "type": "number" },

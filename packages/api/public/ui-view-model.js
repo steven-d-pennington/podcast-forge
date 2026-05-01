@@ -164,7 +164,7 @@ function researchStatus(packet) {
 }
 
 function researchReady(packet) {
-  return ['ready', 'approved', 'research-ready'].includes(researchStatus(packet));
+  return ['ready', 'approved', 'research-ready', 'single_source_breaking'].includes(researchStatus(packet));
 }
 
 function summarizeBrief(packet) {
@@ -1011,6 +1011,31 @@ function warningItem(stage, message, source = null, severity = 'warning') {
   return compactObject({ stage, severity, message, source });
 }
 
+function looksLikeRawValidationMessage(message) {
+  return typeof message === 'string' && (
+    message.includes('invalid_type')
+    || message.includes('unrecognized_keys')
+    || message.includes('Invalid input: expected')
+    || message.includes('Unrecognized keys')
+    || message.includes('source_urls')
+    || message.includes('source_document_ids')
+    || message.includes('uncertainty_label')
+  );
+}
+
+function researchWarningSummary(warning) {
+  if (warning?.code === 'MODEL_CLAIM_EXTRACTION_FAILED') {
+    return 'Claim extraction failed for this source. Claims and citations may be incomplete.';
+  }
+
+  const message = warning?.message || warning?.code || 'Research warning requires review.';
+  if (looksLikeRawValidationMessage(message)) {
+    return 'Model output did not match the expected research-claim format. Claims and citations may be incomplete.';
+  }
+
+  return message;
+}
+
 function checklistStage(key) {
   return {
     research: 'brief',
@@ -1039,7 +1064,7 @@ function deriveWarningsAndBlockers({
   const integrity = integrityReviewState(activeRevision);
 
   for (const warning of unresolvedResearchWarnings(activeBrief)) {
-    warnings.push(warningItem('brief', warning.message || warning.code || 'Research warning requires review.', warning, 'warning'));
+    warnings.push(warningItem('brief', researchWarningSummary(warning), warning, 'warning'));
   }
 
   if (activeBrief && !researchReady(activeBrief)) {

@@ -42,6 +42,8 @@ import type {
   CreateResearchPacketInput,
   CreateSourceDocumentInput,
   OverrideResearchWarningInput,
+  ExcludeResearchClaimInput,
+  MarkResearchSourcePrimaryInput,
   ResearchPacketListFilter,
   ResearchPacketRecord,
   ResearchStore,
@@ -683,6 +685,68 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
     return packet;
   }
 
+  async excludeResearchClaim(id: string, input: ExcludeResearchClaimInput) {
+    const packet = await this.getResearchPacket(id);
+    if (!packet) return undefined;
+    const claimId = input.claimId ?? packet.warnings.find((warning) => warning.id === input.warningId)?.metadata?.claimId;
+    if (typeof claimId !== 'string') return undefined;
+    const claim = packet.claims.find((candidateClaim) => candidateClaim.id === claimId);
+    if (!claim) return undefined;
+    const excludedAt = '2026-01-03T00:00:00.000Z';
+    packet.claims = packet.claims.filter((candidateClaim) => candidateClaim.id !== claimId);
+    packet.warnings = packet.warnings.filter((warning) => warning.id !== input.warningId && warning.metadata?.claimId !== claimId);
+    packet.content = {
+      ...packet.content,
+      excludedClaims: [
+        ...((Array.isArray(packet.content.excludedClaims) ? packet.content.excludedClaims : []) as unknown[]),
+        { claim, warningId: input.warningId, actor: input.actor, reason: input.reason, excludedAt },
+      ],
+    };
+    this.approvalEvents.push({
+      artifactType: 'research-packet',
+      artifactId: id,
+      action: 'override',
+      gate: 'research-claim-exclusion',
+      actor: input.actor,
+      reason: input.reason,
+      createdAt: new Date('2026-01-03T00:00:00Z'),
+    });
+    packet.updatedAt = new Date('2026-01-03T00:00:00Z');
+    return packet;
+  }
+
+  async markResearchSourcePrimary(id: string, input: MarkResearchSourcePrimaryInput) {
+    const packet = await this.getResearchPacket(id);
+    if (!packet || !packet.sourceDocumentIds.includes(input.sourceDocumentId)) return undefined;
+    const document = this.sourceDocuments.find((sourceDocument) => sourceDocument.id === input.sourceDocumentId);
+    if (!document) return undefined;
+    document.metadata = { ...document.metadata, sourceType: 'primary', primarySourceMarkedBy: input.actor, primarySourceReason: input.reason };
+    document.updatedAt = new Date('2026-01-03T00:00:00Z');
+    packet.warnings = packet.warnings.filter((warning) => {
+      if (warning.code !== 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE') return true;
+      const sourceDocumentIds = warning.metadata?.sourceDocumentIds;
+      return !Array.isArray(sourceDocumentIds) || !sourceDocumentIds.includes(input.sourceDocumentId);
+    });
+    packet.content = {
+      ...packet.content,
+      primarySourceMarks: [
+        ...((Array.isArray(packet.content.primarySourceMarks) ? packet.content.primarySourceMarks : []) as unknown[]),
+        { sourceDocumentId: input.sourceDocumentId, warningId: input.warningId, actor: input.actor, reason: input.reason, markedAt: '2026-01-03T00:00:00.000Z' },
+      ],
+    };
+    this.approvalEvents.push({
+      artifactType: 'research-packet',
+      artifactId: id,
+      action: 'override',
+      gate: 'research-primary-source-mark',
+      actor: input.actor,
+      reason: input.reason,
+      createdAt: new Date('2026-01-03T00:00:00Z'),
+    });
+    packet.updatedAt = new Date('2026-01-03T00:00:00Z');
+    return packet;
+  }
+
   async approveResearchPacket(id: string, input: ApproveResearchPacketInput) {
     const packet = await this.getResearchPacket(id);
 
@@ -690,6 +754,7 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
       return undefined;
     }
 
+    packet.status = 'approved';
     packet.approvedAt = new Date('2026-01-03T12:00:00Z');
     packet.content = {
       ...packet.content,
@@ -915,6 +980,7 @@ let validatedPublishUrls: string[] = [];
 let scriptLlmMode: 'valid' | 'malformed' | 'unknown-speaker' = 'valid';
 let scriptEditorMode: 'valid' | 'malformed' | 'unknown-speaker' = 'valid';
 let integrityReviewMode: 'pass' | 'notes' | 'fail' = 'pass';
+let llmRequests: LlmProviderRequest[] = [];
 
 function quotedValue(content: string, key: string): string | undefined {
   const match = content.match(new RegExp(`"${key}"\\s*:\\s*"([^"]+)"`));
@@ -922,6 +988,8 @@ function quotedValue(content: string, key: string): string | undefined {
 }
 
 function scriptWriterResult(request: LlmProviderRequest): LlmProviderResult {
+  llmRequests.push(request);
+
   if (request.attempt.role === 'script_editor') {
     if (scriptEditorMode === 'malformed') {
       return { text: 'not json', rawOutput: 'not json', metadata: { adapter: 'test-fake-script-editor' } };
@@ -1335,6 +1403,7 @@ describe('source profile routes', () => {
     scriptLlmMode = 'valid';
     scriptEditorMode = 'valid';
     integrityReviewMode = 'pass';
+    llmRequests = [];
   });
 
   after(async () => {
@@ -1866,6 +1935,131 @@ describe('source profile routes', () => {
     assert.match(overriddenWarning.override.reason, /two independent sources/);
   });
 
+  it('lets editors exclude an unsupported high-stakes claim instead of overriding it', async () => {
+    const sourceDocument = await store.createSourceDocument({
+      storyCandidateId: null,
+      url: 'https://source.example/high-stakes',
+      canonicalUrl: 'https://source.example/high-stakes',
+      title: 'Secondary source',
+      fetchedAt: new Date('2026-01-03T00:00:00Z'),
+      fetchStatus: 'fetched',
+      httpStatus: 200,
+      contentType: 'text/html',
+      textContent: 'A secondary source describes a high stakes claim.',
+      metadata: { sourceType: 'secondary' },
+    });
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'High stakes packet',
+      status: 'ready',
+      sourceDocumentIds: [sourceDocument.id],
+      claims: [{
+        id: 'claim-high-1',
+        text: 'A lawsuit definitely proves a high-stakes allegation.',
+        sourceDocumentIds: [sourceDocument.id],
+        citationUrls: [sourceDocument.url],
+        highStakes: true,
+      }],
+      citations: [{
+        sourceDocumentId: sourceDocument.id,
+        url: sourceDocument.url,
+        title: sourceDocument.title,
+        fetchedAt: sourceDocument.fetchedAt.toISOString(),
+        status: 'fetched',
+      }],
+      warnings: [{
+        id: 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE:claim-high-1',
+        code: 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE',
+        message: 'A high-stakes claim does not cite a source marked as primary.',
+        severity: 'warning',
+        metadata: { claimId: 'claim-high-1', sourceDocumentIds: [sourceDocument.id] },
+      }],
+      content: { readiness: { status: 'ready' } },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/research-packets/${packet.id}/exclude-claim`,
+      payload: {
+        warningId: 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE:claim-high-1',
+        actor: 'editor@example.com',
+        reason: 'Remove this claim instead of publishing it without primary support.',
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const updated = response.json().researchPacket as ResearchPacketRecord;
+    assert.deepEqual(updated.claims.map((claim) => claim.id), []);
+    assert.equal(updated.warnings.some((warning) => warning.code === 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE'), false);
+    assert.equal((updated.content.excludedClaims as Array<{ claim: { id: string }; reason: string }>)[0].claim.id, 'claim-high-1');
+    assert.match((updated.content.excludedClaims as Array<{ reason: string }>)[0].reason, /Remove this claim/);
+    assert.equal(store.approvalEvents.at(-1)?.gate, 'research-claim-exclusion');
+  });
+
+  it('lets editors mark a cited source as primary to resolve high-stakes warnings', async () => {
+    const sourceDocument = await store.createSourceDocument({
+      storyCandidateId: null,
+      url: 'https://company.example/statement',
+      canonicalUrl: 'https://company.example/statement',
+      title: 'Company statement',
+      fetchedAt: new Date('2026-01-03T00:00:00Z'),
+      fetchStatus: 'fetched',
+      httpStatus: 200,
+      contentType: 'text/html',
+      textContent: 'The company published a primary statement.',
+      metadata: { sourceType: 'secondary' },
+    });
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Primary source packet',
+      status: 'ready',
+      sourceDocumentIds: [sourceDocument.id],
+      claims: [{
+        id: 'claim-high-2',
+        text: 'The company confirmed a high-stakes development.',
+        sourceDocumentIds: [sourceDocument.id],
+        citationUrls: [sourceDocument.url],
+        highStakes: true,
+      }],
+      citations: [{
+        sourceDocumentId: sourceDocument.id,
+        url: sourceDocument.url,
+        title: sourceDocument.title,
+        fetchedAt: sourceDocument.fetchedAt.toISOString(),
+        status: 'fetched',
+      }],
+      warnings: [{
+        id: 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE:claim-high-2',
+        code: 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE',
+        message: 'A high-stakes claim does not cite a source marked as primary.',
+        severity: 'warning',
+        metadata: { claimId: 'claim-high-2', sourceDocumentIds: [sourceDocument.id] },
+      }],
+      content: { readiness: { status: 'ready' } },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/research-packets/${packet.id}/mark-primary-source`,
+      payload: {
+        warningId: 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE:claim-high-2',
+        sourceDocumentId: sourceDocument.id,
+        actor: 'editor@example.com',
+        reason: 'This URL is the company statement for the claim.',
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const updated = response.json().researchPacket as ResearchPacketRecord;
+    assert.equal(updated.claims.length, 1);
+    assert.equal(updated.warnings.some((warning) => warning.code === 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE'), false);
+    assert.equal(store.sourceDocuments.find((document) => document.id === sourceDocument.id)?.metadata.sourceType, 'primary');
+    assert.equal((updated.content.primarySourceMarks as Array<{ sourceDocumentId: string }>)[0].sourceDocumentId, sourceDocument.id);
+    assert.equal(store.approvalEvents.at(-1)?.gate, 'research-primary-source-mark');
+  });
+
   it('records durable research approval only after readiness and warnings are clear', async () => {
     const blockedPacket = await store.createResearchPacket({
       showId: store.shows[0].id,
@@ -2079,7 +2273,11 @@ describe('source profile routes', () => {
     );
 
     assert.equal(packetResponse.statusCode, 201);
-    assert.ok(packet.warnings.some((warning) => warning.code === 'MODEL_CLAIM_EXTRACTION_FAILED'));
+    const modelWarning = packet.warnings.find((warning) => warning.code === 'MODEL_CLAIM_EXTRACTION_FAILED') as ResearchWarning | undefined;
+    assert.ok(modelWarning);
+    assert.equal(modelWarning.metadata?.modelStage, 'claim_extractor');
+    assert.equal(modelWarning.metadata?.originalMessage, 'Fake claim extractor failed.');
+    assert.ok(Array.isArray(modelWarning.metadata?.attempts));
     assert.ok(body.job.output.warnings.some((warning: ResearchWarning) => warning.code === 'MODEL_CLAIM_EXTRACTION_FAILED'));
     assert.ok(packet.claims.length > 0);
     assert.ok(packet.claims.every((claim) => claim.sourceDocumentIds.every((id) => fetchedDocumentIds.has(id))));
@@ -2151,6 +2349,26 @@ describe('source profile routes', () => {
   });
 
   it('generates a TSL feature-analysis script from a research packet', async () => {
+    store.shows[0].cast = [
+      {
+        name: 'DAVID',
+        role: 'host',
+        voice: 'Orus',
+        persona: 'Concise anchor; plain-language transitions.',
+      },
+      {
+        name: 'MARCUS',
+        role: 'analyst',
+        voice: 'Charon',
+        persona: 'Legal framing, but less stiff.',
+      },
+      {
+        name: 'INGRID',
+        role: 'correspondent',
+        voice: 'Leda',
+        persona: 'Ethical/social impact, emotionally grounded.',
+      },
+    ];
     const createResponse = await app.inject({
       method: 'POST',
       url: '/story-candidates/manual',
@@ -2195,6 +2413,13 @@ describe('source profile routes', () => {
     assert.ok(body.revision.metadata.citationMap.length > 0);
     assert.ok(body.revision.metadata.provenance.citationUrls.length > 0);
     assert.equal(body.job.output.validation.readyForAudio, true);
+    const requestText = llmRequests
+      .filter((request) => request.attempt.role === 'script_writer')
+      .flatMap((request) => request.messages.map((message) => message.content))
+      .join('\n');
+    assert.match(requestText, /Concise anchor; plain-language transitions/);
+    assert.match(requestText, /Legal framing, but less stiff/);
+    assert.match(requestText, /Ethical\/social impact, emotionally grounded/);
 
     const listResponse = await app.inject({
       method: 'GET',
@@ -2237,6 +2462,56 @@ describe('source profile routes', () => {
     assert.equal(store.scripts.length, 0);
     assert.equal(store.jobs.at(-1)?.type, 'script.generate');
     assert.equal(store.jobs.at(-1)?.status, 'failed');
+  });
+
+  it('allows script generation after an editor approves an overridden warning-only blocked packet', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Approved Warning Packet Story',
+      status: 'blocked',
+      sourceDocumentIds: ['source-document-1'],
+      claims: [{
+        id: 'claim-1',
+        text: 'A sourced claim exists after editor review.',
+        sourceDocumentIds: ['source-document-1'],
+        citationUrls: ['https://example.com/approved-warning'],
+      }],
+      citations: [{
+        sourceDocumentId: 'source-document-1',
+        url: 'https://example.com/approved-warning',
+        title: 'Approved warning source',
+        fetchedAt: '2026-01-04T00:00:00.000Z',
+        status: 'fetched',
+      }],
+      warnings: [{
+        id: 'THIN_CORROBORATION',
+        code: 'THIN_CORROBORATION',
+        severity: 'warning',
+        message: 'Only one independent source is available.',
+        override: {
+          actor: 'research-editor@example.com',
+          reason: 'Proceeding as a caveated single-source pilot.',
+          overriddenAt: '2026-01-04T00:00:00.000Z',
+        },
+      }],
+      content: {
+        summary: 'A warning-only packet summary.',
+        readiness: { status: 'blocked', reasons: ['Only one independent source is available.'] },
+      },
+    });
+
+    await store.approveResearchPacket(packet.id, {
+      actor: 'research-editor@example.com',
+      reason: 'Warnings reviewed and overridden.',
+    });
+
+    const response = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const body = response.json();
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(body.job.status, 'succeeded');
+    assert.equal(body.script.researchPacketId, packet.id);
   });
 
   it('rejects generated scripts with speaker labels outside the show cast', async () => {
@@ -2536,6 +2811,77 @@ describe('source profile routes', () => {
     assert.equal((coached.revision.metadata.provenanceStatus as { status: string }).status, 'stale');
     assert.equal((coached.revision.metadata.provenanceStatus as { reason: string }).reason, 'ai_coaching');
     assert.equal(coached.revision.metadata.validation.speakerLabels.valid, true);
+  });
+
+  it('creates a new draft revision from custom AI coaching feedback', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Custom Coaching Story',
+      status: 'approved',
+      sourceDocumentIds: ['source-document-1'],
+      claims: [{ id: 'claim-1', text: 'A custom coaching claim exists.', sourceDocumentIds: ['source-document-1'], citationUrls: ['https://example.com/custom-coaching'] }],
+      citations: [{
+        sourceDocumentId: 'source-document-1',
+        url: 'https://example.com/custom-coaching',
+        title: 'Custom Coaching Source',
+        fetchedAt: '2026-01-04T00:00:00.000Z',
+        status: 'fetched',
+      }],
+      warnings: [],
+      content: { summary: 'A packet summary for custom script coaching.' },
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+    const coachResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/coach`,
+      payload: {
+        action: 'custom_feedback',
+        customInstruction: 'Make the intro shorter and add one skeptical host question.',
+        actor: 'editor@example.com',
+      },
+    });
+    const coached = coachResponse.json();
+
+    assert.equal(coachResponse.statusCode, 201);
+    assert.equal(coached.revision.version, 2);
+    assert.match(coached.revision.changeSummary, /AI coaching: Custom AI feedback/);
+    assert.equal(coached.revision.metadata.coachingAction.action, 'custom_feedback');
+    assert.equal(coached.revision.metadata.coachingAction.label, 'Custom AI feedback');
+    assert.equal(coached.revision.metadata.customInstruction, 'Make the intro shorter and add one skeptical host question.');
+    assert.equal(coached.script.status, 'draft');
+    assert.equal(coached.script.approvedRevisionId, null);
+    assert.equal(coached.revision.metadata.integrityReview, undefined);
+    assert.equal((coached.revision.metadata.provenanceStatus as { status: string }).status, 'stale');
+  });
+
+  it('rejects custom AI coaching feedback without an instruction', async () => {
+    const packet = await store.createResearchPacket({
+      showId: store.shows[0].id,
+      episodeCandidateId: null,
+      title: 'Missing Custom Coaching Story',
+      status: 'approved',
+      sourceDocumentIds: [],
+      claims: [{ id: 'claim-1', text: 'A claim exists.', sourceDocumentIds: [], citationUrls: ['https://example.com/missing-custom-coaching'] }],
+      citations: [],
+      warnings: [],
+      content: { summary: 'A packet summary for missing custom instruction testing.' },
+    });
+    const scriptResponse = await app.inject({ method: 'POST', url: `/research-packets/${packet.id}/script` });
+    const initial = scriptResponse.json();
+    const coachResponse = await app.inject({
+      method: 'POST',
+      url: `/scripts/${initial.script.id}/revisions/${initial.revision.id}/coach`,
+      payload: {
+        action: 'custom_feedback',
+        actor: 'editor@example.com',
+      },
+    });
+
+    assert.equal(coachResponse.statusCode, 400);
+    assert.equal(coachResponse.json().code, 'VALIDATION_ERROR');
+    assert.equal(store.scriptRevisions.length, 1);
   });
 
   it('rejects unsupported AI coaching actions', async () => {

@@ -236,6 +236,7 @@ async function maybeScoreCandidates(options: {
 }
 
 export async function runSourceSearch(options: RunSourceSearchOptions): Promise<SourceSearchResult> {
+  const adHocQuery = options.queries.length === 1 && options.queries[0]?.config.adHoc === true ? options.queries[0] : null;
   const logs: Array<Record<string, unknown>> = [
     log('info', 'Starting source.search job.', {
       sourceProfileId: options.profile.id,
@@ -256,6 +257,11 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
       sourceProfileSlug: options.profile.slug,
       sourceType: options.profile.type,
       queryIds: options.queries.map((query) => query.id),
+      ...(adHocQuery ? {
+        adHocQuery: adHocQuery.query,
+        excludeDomains: adHocQuery.excludeDomains,
+        purpose: typeof adHocQuery.config.purpose === 'string' ? adHocQuery.config.purpose : 'source-search',
+      } : {}),
       modelProfiles,
     },
     logs,

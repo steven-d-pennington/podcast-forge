@@ -39,6 +39,7 @@ const castSchema = z.array(z.object({
   name: z.string().trim().min(1),
   role: z.string().trim().min(1).optional(),
   voice: z.string().trim().min(1),
+  persona: z.string().trim().min(1).max(1000).optional(),
 })).default([]);
 const sourceTypeSchema = z.enum(['brave', 'zai-web', 'openrouter-perplexity', 'rss', 'manual', 'local-json']);
 

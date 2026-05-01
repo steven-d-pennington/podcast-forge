@@ -186,6 +186,58 @@ test('Vertex Gemini TTS final audio provider builds Vertex requests and loudness
   }
 });
 
+test('Vertex Gemini TTS final audio provider treats structural headings as narration, not speakers', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'podcast-forge-vertex-headings-'));
+  const payloadTexts: string[] = [];
+  const provider = createVertexGeminiTtsFinalAudioProvider({
+    getAuthValue: async () => 'test-auth-value',
+    fetchImpl: async (_url, init) => {
+      const payload = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      const contents = payload.contents as Array<Record<string, unknown>>;
+      const parts = contents[0]?.parts as Array<Record<string, unknown>>;
+      payloadTexts.push(String(parts[0]?.text ?? ''));
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16', data: Buffer.from([1, 0]).toString('base64') } }] } }],
+      }), { status: 200 });
+    },
+    execFileImpl: async (_file, args) => {
+      await writeFile(args.at(-1) ?? '', Buffer.from('heading-final-mp3'));
+    },
+  });
+
+  try {
+    const context = productionContext(dir);
+    await provider.generateFinalAudio({
+      ...context,
+      revision: {
+        ...context.revision,
+        body: [
+          'NOVA: Welcome to Weird Machines Weekly.',
+          'Segment one: why squishy robots are useful.',
+          'NOVA: The actual host keeps speaking after the heading.',
+        ].join('\n'),
+        speakers: ['NOVA'],
+      },
+      show: {
+        ...context.show,
+        cast: [{ name: 'NOVA', role: 'host', voice: 'Nova' }],
+      },
+      production: {
+        localAssetDir: dir,
+        ttsProvider: 'vertex-gemini-tts',
+        vertexProjectId: 'test-project',
+      },
+    });
+
+    assert.equal(payloadTexts.length, 1);
+    assert.match(payloadTexts[0] ?? '', /NOVA: Welcome/);
+    assert.match(payloadTexts[0] ?? '', /Segment one: why squishy robots are useful/);
+    assert.doesNotMatch(payloadTexts[0] ?? '', /Segment one:\s*$/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('Vertex Gemini TTS final audio provider chunks scripts to the two-speaker request limit', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'podcast-forge-vertex-chunked-'));
   const payloads: Record<string, unknown>[] = [];

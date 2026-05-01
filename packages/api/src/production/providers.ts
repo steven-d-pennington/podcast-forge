@@ -482,6 +482,11 @@ interface ScriptTurn {
   text: string;
 }
 
+function isStructuralScriptCue(label: string): boolean {
+  const normalized = label.trim().toLowerCase().replace(/\s+/g, ' ');
+  return /^(intro|introduction|opening|cold open|segment( [a-z0-9-]+)?|closing|outro|recap|summary|takeaway|key insight|the key insight|first|second|third|fourth|fifth|finally|and finally)$/.test(normalized);
+}
+
 function scriptTurns(body: string): ScriptTurn[] {
   const turns: ScriptTurn[] = [];
   let current: ScriptTurn | null = null;
@@ -496,9 +501,12 @@ function scriptTurns(body: string): ScriptTurn[] {
     const match = line.match(/^([A-Za-z][A-Za-z0-9 _-]{0,63}):\s*(.*)$/);
 
     if (match) {
-      current = { speaker: match[1].trim(), text: match[2].trim() };
-      turns.push(current);
-      continue;
+      const label = match[1].trim();
+      if (!isStructuralScriptCue(label)) {
+        current = { speaker: label, text: match[2].trim() };
+        turns.push(current);
+        continue;
+      }
     }
 
     if (current) {

@@ -119,4 +119,27 @@ describe('OpenRouter Perplexity source provider', () => {
 
     assert.deepEqual(requestBody?.search_domain_filter, ['-example.com']);
   });
+
+  it('normalizes legacy recency aliases before sending OpenRouter search params', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const fetchImpl: OpenRouterPerplexityFetch = async (_url, init) => {
+      requestBody = JSON.parse(init.body) as Record<string, unknown>;
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return { choices: [{ message: { content: JSON.stringify({ candidates: [] }) } }] };
+        },
+      };
+    };
+
+    await searchOpenRouterPerplexity({
+      apiKey: 'test-key',
+      profile,
+      queries: [{ ...query, config: { search_recency_filter: 'oneDay' } }],
+      fetchImpl,
+    });
+
+    assert.equal(requestBody?.search_recency_filter, 'day');
+  });
 });
