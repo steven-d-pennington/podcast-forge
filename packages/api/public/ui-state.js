@@ -162,6 +162,8 @@ export const els = {
   reviewScript: document.querySelector('#reviewScript'),
   reviewProduction: document.querySelector('#reviewProduction'),
   publishChecklist: document.querySelector('#publishChecklist'),
+  historyMeta: document.querySelector('#historyMeta'),
+  historyList: document.querySelector('#historyList'),
   modelMeta: document.querySelector('#modelMeta'),
   modelProfileList: document.querySelector('#modelProfileList'),
   queriesPanel: document.querySelector('#queriesPanel'),

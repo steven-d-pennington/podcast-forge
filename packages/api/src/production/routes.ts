@@ -261,8 +261,20 @@ function retryableFailure(error: unknown) {
   return true;
 }
 
+function providerFailureMetadata(error: unknown) {
+  if (!error || typeof error !== 'object' || Array.isArray(error)) {
+    return null;
+  }
+
+  const metadata = (error as { productionMetadata?: unknown }).productionMetadata;
+  return metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+    ? metadata as Record<string, unknown>
+    : null;
+}
+
 function failureOutput(stage: string, error: unknown, metadata: Record<string, unknown> = {}) {
   const message = error instanceof Error ? error.message : 'Production job failed.';
+  const providerMetadata = providerFailureMetadata(error);
   return {
     stage,
     retryable: retryableFailure(error),
@@ -270,7 +282,9 @@ function failureOutput(stage: string, error: unknown, metadata: Record<string, u
       message,
       retryable: retryableFailure(error),
       code: error instanceof ApiError ? error.code : error instanceof Error ? error.name : 'UNKNOWN_ERROR',
+      ...(providerMetadata ? { providerMetadata } : {}),
     },
+    ...(providerMetadata ? { providerMetadata } : {}),
     ...metadata,
   };
 }

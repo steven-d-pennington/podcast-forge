@@ -3639,12 +3639,19 @@ function renderResearchBriefs() {
     }
   }
 
+  els.researchBriefMeta.textContent = `${activePackets.length} active/current research brief${activePackets.length === 1 ? '' : 's'}${archivedPackets.length ? ` (${archivedPackets.length} moved to History)` : ''}`;
+
   for (const packet of activePackets) {
     els.researchBriefList.append(renderResearchBriefRow(packet));
   }
 
-  if (archivedPackets.length > 0) {
-    els.researchBriefList.append(renderResearchBriefHistory(archivedPackets));
+  if (activePackets.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = archivedPackets.length
+      ? 'No current research brief is selected for this episode. Previous briefs are available in History / Reload.'
+      : 'No active research briefs yet. Create one from a candidate story after sources have been discovered or added manually.';
+    els.researchBriefList.append(empty);
   }
 }
 
@@ -3652,15 +3659,29 @@ function renderEpisodes() {
   els.episodeList.innerHTML = '';
   els.episodeMeta.textContent = `${state.episodes.length} episode${state.episodes.length === 1 ? '' : 's'}`;
 
-  if (state.episodes.length === 0) {
+  const activeEpisodes = [];
+  const archivedEpisodes = [];
+  for (const episode of state.episodes) {
+    const scope = artifactScope('publishing', episode.id);
+    if (scope.className === 'archive') {
+      archivedEpisodes.push(episode);
+    } else {
+      activeEpisodes.push(episode);
+    }
+  }
+  els.episodeMeta.textContent = `${activeEpisodes.length} active/current episode${activeEpisodes.length === 1 ? '' : 's'}${archivedEpisodes.length ? ` (${archivedEpisodes.length} moved to History)` : ''}`;
+
+  if (activeEpisodes.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = 'No episodes yet. Approve a script for audio, create assets, complete the publishing checklist, then publish to RSS.';
+    empty.textContent = archivedEpisodes.length
+      ? 'No current episode is selected for this production path. Previous episodes are available in History / Reload.'
+      : 'No episodes yet. Approve a script for audio, create assets, complete the publishing checklist, then publish to RSS.';
     els.episodeList.append(empty);
     return;
   }
 
-  for (const episode of state.episodes) {
+  for (const episode of activeEpisodes) {
     const scope = artifactScope('publishing', episode.id);
     const row = document.createElement('article');
     const isActiveEpisode = currentProductionViewModel().activeArtifacts?.publishing?.id === episode.id;
@@ -3697,6 +3718,153 @@ function renderEpisodes() {
     row.append(title, meta, summary, select);
     els.episodeList.append(row);
   }
+}
+
+function renderHistoryCard(titleText, metaText, summaryText, actions = []) {
+  const row = document.createElement('article');
+  row.className = 'record-row archive-artifact';
+  const title = document.createElement('strong');
+  title.textContent = titleText;
+  appendScopePill(title, { label: 'History/archive', className: 'archive' });
+  const meta = document.createElement('span');
+  meta.textContent = metaText;
+  const summary = document.createElement('p');
+  summary.textContent = summaryText;
+  const actionRow = document.createElement('div');
+  actionRow.className = 'actions inline row-actions';
+  for (const action of actions) {
+    actionRow.append(action);
+  }
+  row.append(title, meta, summary);
+  if (actionRow.children.length > 0) {
+    row.append(actionRow);
+  }
+  return row;
+}
+
+function renderHistorySection(titleText, helpText, count) {
+  const section = document.createElement('section');
+  section.className = 'history-section';
+  const heading = document.createElement('div');
+  heading.className = 'section-title';
+  const title = document.createElement('h3');
+  title.textContent = `${titleText} (${count})`;
+  const help = document.createElement('p');
+  help.className = 'help';
+  help.textContent = helpText;
+  heading.append(title, help);
+  const list = document.createElement('div');
+  list.className = 'record-list';
+  section.append(heading, list);
+  return { section, list };
+}
+
+async function reloadCandidateFromHistory(candidate, button) {
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Reloading...';
+  try {
+    await api(`/story-candidates/${candidate.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'new', reason: 'Reloaded from History / Reload' }),
+    });
+    await refreshData();
+    state.candidateFilters = { published: 'all', status: 'active', quality: 'all', source: 'all', domain: candidate.title || '' };
+    setActiveSurface('workflow');
+    render();
+    setStatus('Story candidate reloaded into the active queue.');
+  } catch (error) {
+    reportError(error, 'Could not reload candidate from history.');
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+}
+
+function renderHistoryPanel() {
+  if (!els.historyList) {
+    return;
+  }
+
+  els.historyList.innerHTML = '';
+  const viewModel = currentProductionViewModel();
+  const archivedBriefIds = new Set(asArray(viewModel.historicalArtifacts?.briefs).map((artifact) => artifact.id).filter(Boolean));
+  const archivedEpisodeIds = new Set(asArray(viewModel.historicalArtifacts?.publishing).map((artifact) => artifact.id).filter(Boolean));
+  const archivedBriefs = state.researchPackets.filter((packet) => archivedBriefIds.has(packet.id));
+  const archivedEpisodes = state.episodes.filter((episode) => archivedEpisodeIds.has(episode.id));
+  const ignoredCandidates = rankedCandidateList(state.storyCandidates.filter((candidate) => candidate.status === 'ignored'));
+  const total = archivedBriefs.length + archivedEpisodes.length + ignoredCandidates.length;
+  els.historyMeta.textContent = `${total} archived item${total === 1 ? '' : 's'} for this show: ${archivedBriefs.length} brief${archivedBriefs.length === 1 ? '' : 's'}, ${ignoredCandidates.length} ignored candidate${ignoredCandidates.length === 1 ? '' : 's'}, ${archivedEpisodes.length} previous episode${archivedEpisodes.length === 1 ? '' : 's'}.`;
+
+  const briefSection = renderHistorySection('Previous research briefs', 'Open a prior brief for audit/review without crowding the active production workflow.', archivedBriefs.length);
+  for (const packet of archivedBriefs) {
+    briefSection.list.append(renderResearchBriefRow(packet));
+  }
+  if (archivedBriefs.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No previous research briefs for the current show/episode context.';
+    briefSection.list.append(empty);
+  }
+
+  const candidateSection = renderHistorySection('Ignored / archived story candidates', 'Reload a story into the active queue or view it under the ignored-candidate filter.', ignoredCandidates.length);
+  for (const candidate of ignoredCandidates) {
+    const view = document.createElement('button');
+    view.type = 'button';
+    view.className = 'secondary';
+    view.textContent = 'View in Queue';
+    view.addEventListener('click', () => {
+      state.candidateFilters = { published: 'all', status: 'ignored', quality: 'all', source: 'all', domain: candidate.title || '' };
+      setActiveSurface('workflow');
+      render();
+    });
+    const reload = document.createElement('button');
+    reload.type = 'button';
+    reload.className = 'secondary';
+    reload.textContent = 'Reload to Active Queue';
+    reload.addEventListener('click', () => reloadCandidateFromHistory(candidate, reload));
+    candidateSection.list.append(renderHistoryCard(
+      candidate.title || candidateUrl(candidate) || 'Untitled candidate',
+      `${candidate.status || 'ignored'} | ${candidate.sourceName || hostnameFor(candidateUrl(candidate)) || 'unknown source'} | ${candidate.discoveredAt ? formatTime(candidate.discoveredAt) : 'unknown discovery time'}`,
+      candidate.summary || candidateUrl(candidate) || 'No summary recorded.',
+      [view, reload],
+    ));
+  }
+  if (ignoredCandidates.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No ignored story candidates to reload.';
+    candidateSection.list.append(empty);
+  }
+
+  const episodeSection = renderHistorySection('Previous episodes', 'Inspect prior episode production records without blending them into the current publishing checklist.', archivedEpisodes.length);
+  for (const episode of archivedEpisodes) {
+    const select = document.createElement('button');
+    select.type = 'button';
+    select.className = 'secondary';
+    select.textContent = 'Load for Audit';
+    select.addEventListener('click', () => {
+      state.selectedEpisodeId = episode.id;
+      savePipelineState();
+      setActiveSurface('workflow');
+      render();
+      setStatus('Historical episode loaded for audit review.');
+    });
+    episodeSection.list.append(renderHistoryCard(
+      episode.episodeNumber ? `EP${episode.episodeNumber}: ${episode.title}` : episode.title,
+      `${episode.status} | ${episode.slug}${episode.publishedAt ? ` | published ${new Date(episode.publishedAt).toLocaleString()}` : ''}`,
+      episode.feedGuid || episode.description || 'No episode summary recorded.',
+      [select],
+    ));
+  }
+  if (archivedEpisodes.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No previous episodes outside the active production path.';
+    episodeSection.list.append(empty);
+  }
+
+  els.historyList.append(briefSection.section, candidateSection.section, episodeSection.section);
 }
 
 function renderModelProfiles() {
@@ -5910,6 +6078,7 @@ function render() {
   renderJobRuns();
   renderEpisodes();
   renderReviewGates();
+  renderHistoryPanel();
   renderModelProfiles();
   renderQueries();
   renderScripts();

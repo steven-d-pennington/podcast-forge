@@ -18,6 +18,7 @@
       </div>
       <nav class="surface-nav" aria-label="Workspace sections">
         <button class="surface-tab active" data-surface-tab="workflow" type="button" aria-pressed="true">Produce Episode</button>
+        <button class="surface-tab" data-surface-tab="history" type="button" aria-pressed="false">History</button>
         <button class="surface-tab" data-surface-tab="settings" type="button" aria-pressed="false">Settings / Admin</button>
         <button class="surface-tab" data-surface-tab="debug" type="button" aria-pressed="false">Jobs / Debug</button>
       </nav>
@@ -456,6 +457,17 @@
             <article id="reviewProduction" class="review-card"></article>
             <article id="publishChecklist" class="review-card"></article>
           </div>
+        </section>
+
+        <section id="historyPanel" class="panel surface-hidden" data-surface="history" aria-labelledby="historyTitle">
+          <div class="panel-heading">
+            <div>
+              <h2 id="historyTitle">History / Reload</h2>
+              <p id="historyMeta">Previous briefs, story candidates, episodes, and production attempts live here so the active workflow stays focused.</p>
+              <p class="help">Use history to inspect prior work, reload an artifact for audit/review, or jump back to ignored candidates without mixing archive content into the current production path.</p>
+            </div>
+          </div>
+          <div id="historyList" class="history-grid"></div>
         </section>
 
         <section id="queriesPanel" class="panel admin-panel surface-hidden" data-surface="settings" hidden>

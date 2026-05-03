@@ -537,6 +537,101 @@ test('Vertex Gemini TTS final audio provider does not expose credential paths in
   }
 });
 
+test('Vertex Gemini TTS final audio provider adds chunk metadata to timeout failures', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'podcast-forge-vertex-timeout-metadata-'));
+  const provider = createVertexGeminiTtsFinalAudioProvider({
+    getAuthValue: async () => 'test-auth-value',
+    fetchImpl: async () => {
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    },
+    execFileImpl: async () => {
+      throw new Error('ffmpeg should not run after provider timeout');
+    },
+  });
+
+  try {
+    const context = productionContext(dir);
+    await assert.rejects(
+      () => provider.generateFinalAudio({
+        ...context,
+        show: {
+          ...context.show,
+          cast: [
+            { name: 'DAVID', role: 'host', voice: 'Orus' },
+            { name: 'MARCUS', role: 'analyst', voice: 'Charon' },
+            { name: 'INGRID', role: 'correspondent', voice: 'Leda' },
+          ],
+        },
+        revision: {
+          ...context.revision,
+          body: ['DAVID: First chunk.', 'MARCUS: First chunk too.', 'INGRID: Second chunk times out.'].join('\n'),
+          speakers: ['DAVID', 'MARCUS', 'INGRID'],
+        },
+        production: {
+          localAssetDir: dir,
+          ttsProvider: 'vertex-gemini-tts',
+          vertexProjectId: 'test-project',
+          vertexTtsTimeoutMs: 123,
+        },
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /timed out after 123ms while rendering chunk 1\/2/);
+        const metadata = (error as Error & { productionMetadata?: Record<string, unknown> }).productionMetadata;
+        assert.equal(metadata?.provider, 'vertex-gemini-tts');
+        assert.equal(metadata?.stage, 'vertex-tts-request');
+        assert.equal(metadata?.chunkIndex, 0);
+        assert.equal(metadata?.chunkNumber, 1);
+        assert.equal(metadata?.chunkCount, 2);
+        assert.equal(metadata?.timeoutMs, 123);
+        assert.equal(metadata?.retryable, true);
+        assert.deepEqual(metadata?.speakers, ['DAVID', 'MARCUS']);
+        assert.equal(metadata?.endpoint, 'https://us-central1-aiplatform.googleapis.com');
+        assert.ok(typeof metadata?.elapsedMs === 'number');
+        return true;
+      },
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('Vertex Gemini TTS final audio provider adds chunk metadata to HTTP failures', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'podcast-forge-vertex-http-metadata-'));
+  const provider = createVertexGeminiTtsFinalAudioProvider({
+    getAuthValue: async () => 'test-auth-value',
+    fetchImpl: async () => new Response(JSON.stringify({ error: { message: 'quota' } }), { status: 429 }),
+    execFileImpl: async () => {
+      throw new Error('ffmpeg should not run after provider HTTP failure');
+    },
+  });
+
+  try {
+    await assert.rejects(
+      () => provider.generateFinalAudio({
+        ...productionContext(dir),
+        production: {
+          localAssetDir: dir,
+          ttsProvider: 'vertex-gemini-tts',
+          vertexProjectId: 'test-project',
+        },
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /HTTP 429 while rendering chunk 1\/1/);
+        const metadata = (error as Error & { productionMetadata?: Record<string, unknown> }).productionMetadata;
+        assert.equal(metadata?.httpStatus, 429);
+        assert.equal(metadata?.retryable, true);
+        assert.equal(metadata?.chunkNumber, 1);
+        assert.equal(metadata?.chunkCount, 1);
+        return true;
+      },
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('deterministic cover art provider writes visible cover art, not a 1x1 placeholder pixel', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'podcast-forge-cover-provider-'));
   try {

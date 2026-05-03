@@ -50,4 +50,4 @@ export const SETTINGS_SECTIONS = {
   advanced: 'Advanced/internal',
 };
 
-export const SURFACES = new Set(['workflow', 'settings', 'debug']);
+export const SURFACES = new Set(['workflow', 'history', 'settings', 'debug']);

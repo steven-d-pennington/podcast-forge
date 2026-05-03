@@ -710,6 +710,45 @@ function sampleRateFromMimeType(mimeType: string, fallback: number) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+type ProductionProviderError = Error & { productionMetadata?: Record<string, unknown> };
+
+function withProductionMetadata(error: Error, metadata: Record<string, unknown>): ProductionProviderError {
+  const productionError = error as ProductionProviderError;
+  productionError.productionMetadata = {
+    ...(isRecord(productionError.productionMetadata) ? productionError.productionMetadata : {}),
+    ...metadata,
+  };
+  return productionError;
+}
+
+function vertexChunkMetadata(input: {
+  chunkIndex: number;
+  chunkCount: number;
+  speakers: string[];
+  characterCount: number;
+  timeoutMs: number;
+  endpoint: string;
+  model: string;
+  location: string;
+  startedAt: number;
+}) {
+  return {
+    provider: 'vertex-gemini-tts',
+    stage: 'vertex-tts-request',
+    chunkIndex: input.chunkIndex,
+    chunkNumber: input.chunkIndex + 1,
+    chunkCount: input.chunkCount,
+    speakers: input.speakers,
+    speakerCount: input.speakers.length,
+    characterCount: input.characterCount,
+    timeoutMs: input.timeoutMs,
+    elapsedMs: Math.max(0, Date.now() - input.startedAt),
+    endpoint: new URL(input.endpoint).origin,
+    model: input.model,
+    location: input.location,
+  };
+}
+
 function wavFromPcm(pcm: Buffer, sampleRate: number) {
   const channels = 1;
   const bitsPerSample = 16;
@@ -793,30 +832,69 @@ export function createVertexGeminiTtsFinalAudioProvider(options: VertexGeminiTts
       const requests: Array<Record<string, unknown>> = [];
       let sampleRate = fallbackSampleRate;
       let sourceAudioMimeType: string | null = null;
+      const model = vertexTtsModel(context.production);
+      const location = vertexLocation(context.production);
 
       for (let index = 0; index < chunks.length; index += 1) {
         const chunk = chunks[index] ?? [];
         const speakers = [...new Set(chunk.map((turn) => turn.speaker).filter((speaker): speaker is string => Boolean(speaker)))];
         const text = chunkText(chunk);
         const payload = vertexTtsPayload(context, text, speakers);
-        const response = await fetchImpl(url, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${authHeaderValue}`,
-            'content-type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(timeout),
+        const startedAt = Date.now();
+        const requestMetadata = vertexChunkMetadata({
+          chunkIndex: index,
+          chunkCount: chunks.length,
+          speakers,
+          characterCount: text.length,
+          timeoutMs: timeout,
+          endpoint: url,
+          model,
+          location,
+          startedAt,
         });
+        let response: Response;
+
+        try {
+          response = await fetchImpl(url, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${authHeaderValue}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(timeout),
+          });
+        } catch (error) {
+          const causeMessage = error instanceof Error ? error.message : 'unknown provider error';
+          const timeoutLike = error instanceof Error && /timeout|aborted/i.test(`${error.name} ${error.message}`);
+          const message = timeoutLike
+            ? `Vertex Gemini TTS timed out after ${timeout}ms while rendering chunk ${index + 1}/${chunks.length}.`
+            : `Vertex Gemini TTS request failed while rendering chunk ${index + 1}/${chunks.length}: ${causeMessage}`;
+          throw withProductionMetadata(new Error(message, { cause: error }), {
+            ...requestMetadata,
+            elapsedMs: Math.max(0, Date.now() - startedAt),
+            retryable: true,
+            cause: error instanceof Error ? error.name : 'UNKNOWN_ERROR',
+          });
+        }
 
         if (!response.ok) {
-          throw new Error(`Vertex Gemini TTS request failed with HTTP ${response.status}.`);
+          throw withProductionMetadata(new Error(`Vertex Gemini TTS request failed with HTTP ${response.status} while rendering chunk ${index + 1}/${chunks.length}.`), {
+            ...requestMetadata,
+            elapsedMs: Math.max(0, Date.now() - startedAt),
+            httpStatus: response.status,
+            retryable: response.status >= 500 || response.status === 408 || response.status === 429,
+          });
         }
 
         const inlineAudio = inlineAudioFromVertexResponse(await response.json() as unknown);
 
         if (!inlineAudio) {
-          throw new Error('Vertex Gemini TTS response did not include inline audio data.');
+          throw withProductionMetadata(new Error(`Vertex Gemini TTS response for chunk ${index + 1}/${chunks.length} did not include inline audio data.`), {
+            ...requestMetadata,
+            elapsedMs: Math.max(0, Date.now() - startedAt),
+            retryable: true,
+          });
         }
 
         sampleRate = sampleRateFromMimeType(inlineAudio.mimeType, fallbackSampleRate);

@@ -147,7 +147,8 @@ textarea:focus-visible {
 
 .topbar h1,
 .panel h2,
-.section-title h2 {
+.section-title h2,
+.section-title h3 {
   margin: 0;
 }
 
@@ -277,9 +278,17 @@ textarea:focus-visible {
 
 .list,
 .query-list,
-.record-list {
+.record-list,
+.history-grid {
   display: grid;
   gap: 0.75rem;
+}
+
+.history-section {
+  border: 1px solid #e1e7ef;
+  border-radius: 8px;
+  background: #fbfdff;
+  padding: 0.85rem;
 }
 
 .profile-button {
