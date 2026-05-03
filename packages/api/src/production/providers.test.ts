@@ -596,6 +596,91 @@ test('Vertex Gemini TTS final audio provider adds chunk metadata to timeout fail
   }
 });
 
+test('Vertex Gemini TTS final audio provider resumes final audio from completed chunk artifacts', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'podcast-forge-vertex-resume-chunks-'));
+  const context = productionContext(dir);
+  const body = [
+    'DAVID: First chunk starts here.',
+    'MARCUS: First chunk continues here.',
+    'INGRID: Second chunk should be retried after a timeout.',
+  ].join('\n');
+  const resumableContext = {
+    ...context,
+    show: {
+      ...context.show,
+      cast: [
+        { name: 'DAVID', role: 'host', voice: 'Orus' },
+        { name: 'MARCUS', role: 'analyst', voice: 'Charon' },
+        { name: 'INGRID', role: 'correspondent', voice: 'Leda' },
+      ],
+    },
+    revision: {
+      ...context.revision,
+      body,
+      speakers: ['DAVID', 'MARCUS', 'INGRID'],
+    },
+    production: {
+      localAssetDir: dir,
+      ttsProvider: 'vertex-gemini-tts',
+      vertexProjectId: 'test-project',
+      vertexTtsTimeoutMs: 500,
+    },
+  };
+  const chunkOnePcm = Buffer.from([1, 0, 2, 0]);
+  const chunkTwoPcm = Buffer.from([3, 0, 4, 0]);
+  let firstAttemptCalls = 0;
+  const firstAttemptProvider = createVertexGeminiTtsFinalAudioProvider({
+    getAuthValue: async () => 'test-auth-value',
+    fetchImpl: async () => {
+      firstAttemptCalls += 1;
+      if (firstAttemptCalls === 2) {
+        throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+      }
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;rate=24000', data: chunkOnePcm.toString('base64') } }] } }],
+      }), { status: 200 });
+    },
+    execFileImpl: async () => {
+      throw new Error('ffmpeg should not run until all chunks are available');
+    },
+  });
+
+  try {
+    await assert.rejects(
+      () => firstAttemptProvider.generateFinalAudio(resumableContext),
+      /chunk 2\/2/,
+    );
+    assert.equal(firstAttemptCalls, 2);
+
+    let retryCalls = 0;
+    const retryProvider = createVertexGeminiTtsFinalAudioProvider({
+      getAuthValue: async () => 'test-auth-value',
+      fetchImpl: async () => {
+        retryCalls += 1;
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;rate=24000', data: chunkTwoPcm.toString('base64') } }] } }],
+        }), { status: 200 });
+      },
+      execFileImpl: async (_file, args) => {
+        await writeFile(args.at(-1) ?? '', Buffer.from('resumed-final-mp3'));
+      },
+    });
+
+    const generated = await retryProvider.generateFinalAudio(resumableContext);
+    const requests = generated.metadata?.requests as Array<Record<string, unknown>>;
+    assert.equal(retryCalls, 1, 'retry should reuse the completed first chunk instead of calling Vertex again');
+    assert.equal(generated.metadata?.chunkCount, 2);
+    assert.equal(generated.metadata?.resumedChunkCount, 1);
+    assert.equal(generated.metadata?.renderedChunkCount, 1);
+    assert.equal(requests[0]?.cacheStatus, 'reused');
+    assert.equal(requests[1]?.cacheStatus, 'rendered');
+    assert.match(String(requests[0]?.objectKey), /audio-final-chunks\/revision-1\/chunk-0001\.pcm$/);
+    assert.equal(generated.byteSize, 'resumed-final-mp3'.length);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('Vertex Gemini TTS final audio provider adds chunk metadata to HTTP failures', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'podcast-forge-vertex-http-metadata-'));
   const provider = createVertexGeminiTtsFinalAudioProvider({
