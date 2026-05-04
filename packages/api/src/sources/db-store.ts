@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import {
   approvalEvents,
   createDb,
@@ -482,6 +483,12 @@ function slugify(value: string) {
   return slug || 'episode';
 }
 
+export function combineOptionalWhereClauses(clauses: Array<SQL | undefined>) {
+  return clauses.filter((clause): clause is SQL => Boolean(clause)).reduce<SQL | undefined>((current, next) => {
+    return current ? and(current, next) : next;
+  }, undefined);
+}
+
 export function createDbSourceStore(connectionString = process.env.DATABASE_URL): SourceStore & SearchJobStore & ResearchStore & ModelProfileStore & PromptTemplateStore & ScriptStore & ProductionStore & SchedulerStore {
   const { db, pool } = createDb(connectionString);
 
@@ -913,9 +920,7 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
       const showWhere = filter.showId ? eq(jobs.showId, filter.showId) : undefined;
       const episodeWhere = filter.episodeId ? eq(jobs.episodeId, filter.episodeId) : undefined;
       const typeWhere = filter.types && filter.types.length > 0 ? inArray(jobs.type, filter.types) : undefined;
-      const where = [showWhere, episodeWhere, typeWhere].filter(Boolean).reduce((current, next) => {
-        return current && next ? and(current, next) : current ?? next;
-      });
+      const where = combineOptionalWhereClauses([showWhere, episodeWhere, typeWhere]);
       const rows = where
         ? await db.select().from(jobs).where(where).orderBy(desc(jobs.createdAt)).limit(filter.limit ?? 50)
         : await db.select().from(jobs).orderBy(desc(jobs.createdAt)).limit(filter.limit ?? 50);
@@ -1139,127 +1144,164 @@ export function createDbSourceStore(connectionString = process.env.DATABASE_URL)
     },
 
     async excludeResearchClaim(id: string, input: ExcludeResearchClaimInput) {
-      const current = await this.getResearchPacket(id);
+      const rows = await db.transaction(async (tx) => {
+        const [currentRow] = await tx.select().from(researchPackets).where(eq(researchPackets.id, id)).limit(1);
+        const current = currentRow ? mapResearchPacket(currentRow) : undefined;
 
-      if (!current) {
-        return undefined;
-      }
+        if (!current) {
+          return undefined;
+        }
 
-      const claimId = input.claimId ?? current.warnings.find((warning) => warning.id === input.warningId)?.metadata?.claimId;
+        const warning = current.warnings.find((candidateWarning) => candidateWarning.id === input.warningId);
+        const warningClaimId = warning?.metadata?.claimId;
 
-      if (typeof claimId !== 'string') {
-        return undefined;
-      }
+        if (typeof warningClaimId !== 'string') {
+          return undefined;
+        }
 
-      const claim = current.claims.find((candidateClaim) => candidateClaim.id === claimId);
+        const claimId = input.claimId ?? warningClaimId;
 
-      if (!claim) {
-        return undefined;
-      }
+        if (claimId !== warningClaimId) {
+          return undefined;
+        }
 
-      const excludedAt = new Date();
-      const warnings = current.warnings.filter((warning) => warning.id !== input.warningId && warning.metadata?.claimId !== claimId);
-      const excludedClaims = Array.isArray(current.content.excludedClaims) ? current.content.excludedClaims : [];
-      const content = {
-        ...current.content,
-        excludedClaims: [
-          ...excludedClaims,
-          {
-            claim,
-            warningId: input.warningId,
-            actor: input.actor,
-            reason: input.reason,
-            excludedAt: excludedAt.toISOString(),
-          },
-        ],
-      };
+        const claim = current.claims.find((candidateClaim) => candidateClaim.id === claimId);
 
-      await db.insert(approvalEvents).values({
-        researchPacketId: id,
-        action: 'override',
-        gate: 'research-claim-exclusion',
-        actor: input.actor,
-        reason: input.reason,
-        metadata: { warningId: input.warningId, claimId },
+        if (!claim) {
+          return undefined;
+        }
+
+        const excludedAt = new Date();
+        const warnings = current.warnings.filter((warning) => warning.id !== input.warningId && warning.metadata?.claimId !== claimId);
+        const excludedClaims = Array.isArray(current.content.excludedClaims) ? current.content.excludedClaims : [];
+        const content = {
+          ...current.content,
+          excludedClaims: [
+            ...excludedClaims,
+            {
+              claim,
+              warningId: input.warningId,
+              actor: input.actor,
+              reason: input.reason,
+              excludedAt: excludedAt.toISOString(),
+            },
+          ],
+        };
+
+        await tx.insert(approvalEvents).values({
+          researchPacketId: id,
+          action: 'override',
+          gate: 'research-claim-exclusion',
+          actor: input.actor,
+          reason: input.reason,
+          metadata: { warningId: input.warningId, claimId },
+        });
+
+        return tx.update(researchPackets)
+          .set({
+            claims: toJsonRecords(current.claims.filter((candidateClaim) => candidateClaim.id !== claimId)),
+            warnings: toJsonRecords(warnings),
+            content,
+            updatedAt: excludedAt,
+          })
+          .where(eq(researchPackets.id, id))
+          .returning();
       });
-
-      const [row] = await db.update(researchPackets)
-        .set({
-          claims: toJsonRecords(current.claims.filter((candidateClaim) => candidateClaim.id !== claimId)),
-          warnings: toJsonRecords(warnings),
-          content,
-          updatedAt: excludedAt,
-        })
-        .where(eq(researchPackets.id, id))
-        .returning();
+      const row = rows?.[0];
 
       return row ? mapResearchPacket(row) : undefined;
     },
 
     async markResearchSourcePrimary(id: string, input: MarkResearchSourcePrimaryInput) {
-      const current = await this.getResearchPacket(id);
+      const rows = await db.transaction(async (tx) => {
+        const [currentRow] = await tx.select().from(researchPackets).where(eq(researchPackets.id, id)).limit(1);
+        const current = currentRow ? mapResearchPacket(currentRow) : undefined;
 
-      if (!current || !current.sourceDocumentIds.includes(input.sourceDocumentId)) {
-        return undefined;
-      }
-
-      const [sourceDocument] = await db.select().from(sourceDocuments).where(eq(sourceDocuments.id, input.sourceDocumentId)).limit(1);
-
-      if (!sourceDocument) {
-        return undefined;
-      }
-
-      const markedAt = new Date();
-      const nextSourceMetadata = {
-        ...((sourceDocument.metadata ?? {}) as Record<string, unknown>),
-        sourceType: 'primary',
-        primarySourceMarkedBy: input.actor,
-        primarySourceReason: input.reason,
-        primarySourceMarkedAt: markedAt.toISOString(),
-      };
-      const warnings = current.warnings.filter((warning) => {
-        if (warning.code !== 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE') {
-          return true;
+        if (!current || !current.sourceDocumentIds.includes(input.sourceDocumentId)) {
+          return undefined;
         }
-        const sourceDocumentIds = warning.metadata?.sourceDocumentIds;
-        return !Array.isArray(sourceDocumentIds) || !sourceDocumentIds.includes(input.sourceDocumentId);
+
+        const [sourceDocument] = await tx.select().from(sourceDocuments).where(eq(sourceDocuments.id, input.sourceDocumentId)).limit(1);
+
+        if (!sourceDocument) {
+          return undefined;
+        }
+
+        const warning = current.warnings.find((candidateWarning) => candidateWarning.id === input.warningId);
+
+        if (warning?.code !== 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE') {
+          return undefined;
+        }
+
+        const warningSourceDocumentIds = warning.metadata?.sourceDocumentIds;
+
+        if (!Array.isArray(warningSourceDocumentIds) || !warningSourceDocumentIds.includes(input.sourceDocumentId)) {
+          return undefined;
+        }
+
+        const warningClaimId = warning.metadata?.claimId;
+
+        if (typeof warningClaimId === 'string') {
+          const claim = current.claims.find((candidateClaim) => candidateClaim.id === warningClaimId);
+
+          if (!claim || !claim.sourceDocumentIds.includes(input.sourceDocumentId)) {
+            return undefined;
+          }
+        }
+
+        const markedAt = new Date();
+        const nextSourceMetadata = {
+          ...((sourceDocument.metadata ?? {}) as Record<string, unknown>),
+          sourceType: 'primary',
+          primarySourceMarkedBy: input.actor,
+          primarySourceReason: input.reason,
+          primarySourceMarkedAt: markedAt.toISOString(),
+        };
+        const warnings = current.warnings.filter((warning) => {
+          if (warning.code !== 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE') {
+            return true;
+          }
+          const sourceDocumentIds = warning.metadata?.sourceDocumentIds;
+          return !Array.isArray(sourceDocumentIds) || !sourceDocumentIds.includes(input.sourceDocumentId);
+        });
+        const primarySourceMarks = Array.isArray(current.content.primarySourceMarks) ? current.content.primarySourceMarks : [];
+        const content = {
+          ...current.content,
+          primarySourceMarks: [
+            ...primarySourceMarks,
+            {
+              sourceDocumentId: input.sourceDocumentId,
+              warningId: input.warningId,
+              actor: input.actor,
+              reason: input.reason,
+              markedAt: markedAt.toISOString(),
+            },
+          ],
+        };
+
+        await tx.update(sourceDocuments)
+          .set({ metadata: nextSourceMetadata, updatedAt: markedAt })
+          .where(eq(sourceDocuments.id, input.sourceDocumentId));
+
+        await tx.insert(approvalEvents).values({
+          researchPacketId: id,
+          action: 'override',
+          gate: 'research-primary-source-mark',
+          actor: input.actor,
+          reason: input.reason,
+          metadata: { warningId: input.warningId, sourceDocumentId: input.sourceDocumentId },
+        });
+
+        return tx.update(researchPackets)
+          .set({
+            warnings: toJsonRecords(warnings),
+            content,
+            updatedAt: markedAt,
+          })
+          .where(eq(researchPackets.id, id))
+          .returning();
       });
-      const primarySourceMarks = Array.isArray(current.content.primarySourceMarks) ? current.content.primarySourceMarks : [];
-      const content = {
-        ...current.content,
-        primarySourceMarks: [
-          ...primarySourceMarks,
-          {
-            sourceDocumentId: input.sourceDocumentId,
-            warningId: input.warningId,
-            actor: input.actor,
-            reason: input.reason,
-            markedAt: markedAt.toISOString(),
-          },
-        ],
-      };
-
-      await db.update(sourceDocuments)
-        .set({ metadata: nextSourceMetadata, updatedAt: markedAt })
-        .where(eq(sourceDocuments.id, input.sourceDocumentId));
-
-      await db.insert(approvalEvents).values({
-        researchPacketId: id,
-        action: 'override',
-        gate: 'research-primary-source-mark',
-        actor: input.actor,
-        reason: input.reason,
-        metadata: { warningId: input.warningId, sourceDocumentId: input.sourceDocumentId },
-      });
-
-      const [row] = await db.update(researchPackets)
-        .set({
-          warnings: toJsonRecords(warnings),
-          content,
-          updatedAt: markedAt,
-        })
-        .where(eq(researchPackets.id, id))
-        .returning();
+      const row = rows?.[0];
 
       return row ? mapResearchPacket(row) : undefined;
     },

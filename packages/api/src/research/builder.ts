@@ -12,6 +12,7 @@ const MIN_INDEPENDENT_HOSTS = 2;
 const BREAKING_NEWS_MAX_AGE_HOURS = 48;
 const MAX_CORROBORATION_QUERIES = 8;
 const MAX_CORROBORATION_QUERY_LENGTH = 180;
+const MAX_PACKET_CLAIMS = 12;
 const HIGH_STAKES_PATTERN = /\b(lawsuit|court|criminal|security|breach|vulnerability|regulation|regulator|recall|death|injury|sanction|filing|investigation)\b/i;
 
 function hostnameFor(value: string): string | null {
@@ -41,8 +42,16 @@ function compactText(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
+function cleanStoryQuery(value: string): string {
+  return compactText(value)
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/\s+[-–—|]\s+(CBS News|CNN|BBC News|The Guardian|Associated Press|AP News|Reuters|NPR|Al Jazeera|The New York Times|New York Times|Washington Post|NBC News|ABC News|Fox News|Politico|Axios|TechCrunch)$/i, '')
+    .trim();
+}
+
 function clampQuery(value: string): string {
-  const normalized = compactText(value).replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+  const normalized = cleanStoryQuery(value);
   if (normalized.length <= MAX_CORROBORATION_QUERY_LENGTH) {
     return normalized;
   }
@@ -120,9 +129,9 @@ function corroborationQueriesFor(options: {
   const sourceTitleQueries = options.documents.map((document) => document.title ?? '').filter(Boolean);
 
   return uniqueLimited([
-    ...claimQueries,
-    ...candidateQueries,
     ...sourceTitleQueries,
+    ...candidateQueries,
+    ...claimQueries,
   ], MAX_CORROBORATION_QUERIES);
 }
 
@@ -239,6 +248,34 @@ function normalizeClaimSupport(claim: ResearchClaim, documentsById: Map<string, 
   };
 }
 
+function claimDedupeKey(claim: ResearchClaim): string {
+  return compactText(claim.text)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\b(the|a|an|and|or|but|to|of|in|on|for|with|that|this|is|are|was|were)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function limitClaims(claims: ResearchClaim[], limit = MAX_PACKET_CLAIMS): ResearchClaim[] {
+  const seen = new Set<string>();
+  const output: ResearchClaim[] = [];
+
+  for (const claim of claims) {
+    const key = claimDedupeKey(claim);
+    if (key.length < 12 || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    output.push(claim);
+    if (output.length >= limit) {
+      break;
+    }
+  }
+
+  return output;
+}
+
 function deterministicClaims(
   candidates: StoryCandidateRecord[],
   usableDocuments: SourceDocumentRecord[],
@@ -263,22 +300,22 @@ function deterministicClaims(
       supportLevel: primaryDocuments.length >= MIN_INDEPENDENT_HOSTS ? 'corroborated' : 'single_source',
       highStakes: candidates.some((candidate) => HIGH_STAKES_PATTERN.test(`${candidate.title} ${candidate.summary ?? ''}`)),
     });
+
+    for (const document of usableDocuments.slice(0, 3)) {
+      claims.push({
+        id: `claim-${claims.length + 1}`,
+        text: `${sourceLabel(document)} reports: ${firstSentence(document.textContent ?? '')}`,
+        sourceDocumentIds: [document.id],
+        citationUrls: [document.canonicalUrl ?? document.url],
+        claimType: 'fact',
+        confidence: 'medium',
+        supportLevel: 'single_source',
+        highStakes: HIGH_STAKES_PATTERN.test(document.textContent ?? ''),
+      });
+    }
   }
 
-  for (const document of usableDocuments.slice(0, 3)) {
-    claims.push({
-      id: `claim-${claims.length + 1}`,
-      text: `${sourceLabel(document)} reports: ${firstSentence(document.textContent ?? '')}`,
-      sourceDocumentIds: [document.id],
-      citationUrls: [document.canonicalUrl ?? document.url],
-      claimType: 'fact',
-      confidence: 'medium',
-      supportLevel: 'single_source',
-      highStakes: HIGH_STAKES_PATTERN.test(document.textContent ?? ''),
-    });
-  }
-
-  return claims;
+  return limitClaims(claims);
 }
 
 function readinessFor(options: {

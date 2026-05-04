@@ -226,5 +226,11 @@ export function createDefaultLlmProviders(): LlmProviderAdapter[] {
     createFakeLlmProvider(),
     openAiProvider,
     createOpenAiCompatibleProvider({ provider: 'openai-compatible' }),
+    createOpenAiCompatibleProvider({
+      provider: 'deepseek',
+      apiKeyEnv: 'DEEPSEEK_API_KEY',
+      baseUrlEnv: 'DEEPSEEK_BASE_URL',
+      baseUrl: 'https://api.deepseek.com/v1',
+    }),
   ];
 }

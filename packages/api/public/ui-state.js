@@ -20,6 +20,7 @@ export const state = {
     source: 'all',
     domain: '',
   },
+  recentOtherSourceCandidateIds: [],
   episodePlan: null,
   episodes: [],
   selectedScriptId: '',

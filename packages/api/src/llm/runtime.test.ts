@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import type { ResolvedModelProfile } from '../models/resolver.js';
 import { parseJsonOutput } from './json.js';
 import { appendLlmInvocationToJobOutput, llmInvocationJobLog } from './job-metadata.js';
-import { createFakeLlmProvider, createOpenAiCompatibleProvider } from './providers.js';
+import { createDefaultLlmProviders, createFakeLlmProvider, createOpenAiCompatibleProvider } from './providers.js';
 import { createLlmRuntime } from './runtime.js';
 import { LlmJsonOutputError, LlmRuntimeError } from './types.js';
 
@@ -24,6 +24,11 @@ function profile(input: Partial<ResolvedModelProfile> = {}): ResolvedModelProfil
 }
 
 describe('LLM runtime', () => {
+  it('registers DeepSeek as a first-class OpenAI-compatible provider', () => {
+    const providers = createDefaultLlmProviders().map((provider) => provider.provider);
+    assert.ok(providers.includes('deepseek'));
+  });
+
   it('generates deterministic fake text with reusable invocation metadata', async () => {
     const runtime = createLlmRuntime({
       adapters: [createFakeLlmProvider()],

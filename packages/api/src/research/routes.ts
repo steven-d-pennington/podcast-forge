@@ -326,14 +326,14 @@ function sanitizeErrorMessage(message: string): string {
 
 function safeModelFailureDetails(error: unknown, stage: 'claim_extractor' | 'research_synthesizer'): Record<string, unknown> {
   const metadata = error instanceof LlmRuntimeError || error instanceof LlmJsonOutputError ? error.metadata : undefined;
-  const attempts = metadata?.attempts.map((attempt) => ({
+  const attempts = Array.isArray(metadata?.attempts) ? metadata.attempts.map((attempt) => ({
     provider: attempt.provider,
     model: attempt.model,
     status: attempt.status,
     errorCode: attempt.error?.code,
     errorMessage: attempt.error?.message ? sanitizeErrorMessage(attempt.error.message) : undefined,
     retryable: attempt.error?.retryable,
-  })) ?? [];
+  })) : [];
   return {
     modelStage: stage,
     failureType: error instanceof LlmJsonOutputError ? error.code : error instanceof LlmRuntimeError ? 'runtime_error' : 'model_error',

@@ -361,6 +361,7 @@ describe('search routes candidate scoring', () => {
 
   it('runs an ad hoc source.search query for a selected story subject', async () => {
     const store = new FakeSearchStore();
+    store.queries[0].includeDomains = ['independent.example'];
     const requestedUrls: string[] = [];
     const app = buildApp({
       sourceStore: store,
@@ -378,6 +379,12 @@ describe('search routes candidate scoring', () => {
                 description: 'Independent reporting on the same subject.',
                 age: '2026-04-26T00:00:00Z',
                 meta_url: { hostname: 'independent.example' },
+              }, {
+                title: 'Filtered low value coverage',
+                url: 'https://wire.example/anthropic-valuation',
+                description: 'A result outside the configured ad hoc include domains.',
+                age: '2026-04-26T00:00:00Z',
+                meta_url: { hostname: 'wire.example' },
               }],
             };
           },
@@ -399,7 +406,10 @@ describe('search routes candidate scoring', () => {
 
       assert.equal(response.statusCode, 200);
       assert.equal(body.inserted, 1);
+      assert.equal(body.candidates.length, 1);
       assert.equal(body.candidates[0].url, 'https://independent.example/anthropic-valuation');
+      assert.deepEqual(body.candidates[0].metadata.sourceControls.applied.includeDomains, ['independent.example']);
+      assert.equal(body.candidates[0].sourceQueryId, null);
       assert.match(requestedUrls[0], /q=Anthropic\+potential\+%24900B\+valuation\+round/);
       assert.equal(body.job.input.queryIds[0], 'ad-hoc-research-more-sources');
       assert.equal(body.job.input.adHocQuery, 'Anthropic potential $900B valuation round');

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { trustStatusVocabulary } from '../packages/api/public/ui-formatters.js';
+import { castToLines, trustStatusVocabulary } from '../packages/api/public/ui-formatters.js';
 import { deriveProductionViewModel } from '../packages/api/public/ui-view-model.js';
 
 const repoRoot = new URL('../', import.meta.url);
@@ -87,6 +87,13 @@ test('research review warnings sanitize model validation dumps for humans', () =
   assertContains(uiViewModelJs, 'Claim extraction failed for this source. Claims and citations may be incomplete.', 'view model human warning copy');
 });
 
+test('show cast persona lines normalize embedded newlines', () => {
+  assert.equal(
+    castToLines([{ name: 'David', role: 'anchor', voice: 'Orus', persona: 'Concise anchor.\nPlain-language transitions.' }]),
+    'David | anchor | Orus | Concise anchor. Plain-language transitions.',
+  );
+});
+
 
 test('research review warnings explain impact and remediation before override', () => {
   assertContains(uiJs, 'function researchWarningRemediation(warning)', 'warning remediation helper');
@@ -115,13 +122,13 @@ test('research review warnings explain impact and remediation before override', 
 
 test('blocked research briefs expose claim-guided other-source search', () => {
   assertContains(uiJs, 'Search for other sources', 'other-source action label');
-  assertContains(uiJs, 'function runMoreSourcesForResearchPacket(packet)', 'other-source search handler');
-  assertContains(uiJs, "readiness.status === 'needs_more_sources'", 'other-source action should target needs_more_sources blocker');
+  assertContains(uiJs, 'function runMoreSourcesForResearchPacket(packet, options = {})', 'other-source search handler');
+  assertContains(uiViewModelJs, "readinessStatus === 'needs_more_sources'", 'other-source action should target needs_more_sources blocker');
   assertContains(uiJs, 'sourceSearchProfileForMoreSources', 'other-source action should choose a search-capable profile');
   assertContains(uiJs, 'corroborationQueryForPacket(packet)', 'other-source action should prefer claim-derived corroboration queries');
   assertContains(uiJs, 'corroborationExcludedDomains(packet)', 'other-source action should exclude current corroboration source hosts');
   assertContains(uiJs, "purpose: 'research-more-sources'", 'other-source API purpose marker');
-  assertContains(uiJs, 'Select independent results, then rebuild the research brief.', 'other-source completion guidance');
+  assertContains(uiJs, 'Select only independent, relevant results, then rebuild the research brief.', 'other-source completion guidance');
 });
 
 test('research review surfaces automatic corroboration search metadata', () => {
@@ -129,7 +136,7 @@ test('research review surfaces automatic corroboration search metadata', () => {
   assertContains(uiJs, 'corroborationSearchStatusText', 'automatic corroboration status formatter');
   assertContains(uiJs, 'Automatic corroboration search ran', 'automatic corroboration success copy');
   assertContains(uiJs, 'automaticSearch.status', 'research review should expose stored automatic search status');
-  assertContains(uiJs, 'corroboration.automatedSearch || corroboration.search', 'research review should read stored automated search metadata with legacy fallback');
+  assertContains(uiJs, 'corroborationAutomatedSearch(corroboration)', 'research review should read stored automated search metadata with legacy fallback');
   assertContains(appTs, 'effectiveCorroborationSearchRunner', 'app wires default automatic corroboration search runner');
   assertContains(appTs, "purpose: request.purpose", 'default runner records research-corroboration purpose on ad hoc search');
 });

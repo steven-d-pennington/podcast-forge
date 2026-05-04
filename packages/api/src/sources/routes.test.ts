@@ -688,8 +688,11 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
   async excludeResearchClaim(id: string, input: ExcludeResearchClaimInput) {
     const packet = await this.getResearchPacket(id);
     if (!packet) return undefined;
-    const claimId = input.claimId ?? packet.warnings.find((warning) => warning.id === input.warningId)?.metadata?.claimId;
-    if (typeof claimId !== 'string') return undefined;
+    const warning = packet.warnings.find((candidateWarning) => candidateWarning.id === input.warningId);
+    const warningClaimId = warning?.metadata?.claimId;
+    if (typeof warningClaimId !== 'string') return undefined;
+    const claimId = input.claimId ?? warningClaimId;
+    if (claimId !== warningClaimId) return undefined;
     const claim = packet.claims.find((candidateClaim) => candidateClaim.id === claimId);
     if (!claim) return undefined;
     const excludedAt = '2026-01-03T00:00:00.000Z';
@@ -720,6 +723,15 @@ class FakeSourceStore implements SourceStore, SearchJobStore, ResearchStore, Mod
     if (!packet || !packet.sourceDocumentIds.includes(input.sourceDocumentId)) return undefined;
     const document = this.sourceDocuments.find((sourceDocument) => sourceDocument.id === input.sourceDocumentId);
     if (!document) return undefined;
+    const warning = packet.warnings.find((candidateWarning) => candidateWarning.id === input.warningId);
+    if (warning?.code !== 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE') return undefined;
+    const warningSourceDocumentIds = warning.metadata?.sourceDocumentIds;
+    if (!Array.isArray(warningSourceDocumentIds) || !warningSourceDocumentIds.includes(input.sourceDocumentId)) return undefined;
+    const warningClaimId = warning.metadata?.claimId;
+    if (typeof warningClaimId === 'string') {
+      const claim = packet.claims.find((candidateClaim) => candidateClaim.id === warningClaimId);
+      if (!claim || !claim.sourceDocumentIds.includes(input.sourceDocumentId)) return undefined;
+    }
     document.metadata = { ...document.metadata, sourceType: 'primary', primarySourceMarkedBy: input.actor, primarySourceReason: input.reason };
     document.updatedAt = new Date('2026-01-03T00:00:00Z');
     packet.warnings = packet.warnings.filter((warning) => {
@@ -1978,6 +1990,21 @@ describe('source profile routes', () => {
       content: { readiness: { status: 'ready' } },
     });
 
+    const mismatchResponse = await app.inject({
+      method: 'POST',
+      url: `/research-packets/${packet.id}/exclude-claim`,
+      payload: {
+        warningId: 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE:claim-other',
+        claimId: 'claim-high-1',
+        actor: 'editor@example.com',
+        reason: 'This warning ID is not tied to this claim.',
+      },
+    });
+
+    assert.equal(mismatchResponse.statusCode, 404);
+    assert.equal(store.approvalEvents.length, 0);
+    assert.deepEqual((await store.getResearchPacket(packet.id))?.claims.map((claim) => claim.id), ['claim-high-1']);
+
     const response = await app.inject({
       method: 'POST',
       url: `/research-packets/${packet.id}/exclude-claim`,
@@ -2039,6 +2066,21 @@ describe('source profile routes', () => {
       }],
       content: { readiness: { status: 'ready' } },
     });
+
+    const mismatchResponse = await app.inject({
+      method: 'POST',
+      url: `/research-packets/${packet.id}/mark-primary-source`,
+      payload: {
+        warningId: 'HIGH_STAKES_CLAIM_NEEDS_PRIMARY_SOURCE:claim-other',
+        sourceDocumentId: sourceDocument.id,
+        actor: 'editor@example.com',
+        reason: 'This warning ID is not tied to this source.',
+      },
+    });
+
+    assert.equal(mismatchResponse.statusCode, 404);
+    assert.equal(store.approvalEvents.length, 0);
+    assert.equal(store.sourceDocuments.find((document) => document.id === sourceDocument.id)?.metadata.sourceType, 'secondary');
 
     const response = await app.inject({
       method: 'POST',

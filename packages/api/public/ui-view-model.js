@@ -1271,6 +1271,198 @@ function deriveHistoricalArtifacts({ activeIds, packets, scripts, revisions, ass
   };
 }
 
+const DISCOVERABLE_SOURCE_TYPES = ['brave', 'zai-web', 'openrouter-perplexity', 'rss'];
+
+export function derivePreferredSourceProfileId(input = {}) {
+  const profiles = asArray(input.profiles);
+  const selectedProfileId = typeof input.selectedProfileId === 'string' ? input.selectedProfileId : '';
+  const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) || null;
+
+  if (selectedProfile?.enabled) {
+    return selectedProfile.id;
+  }
+
+  const enabledDiscoverable = profiles.find((profile) => profile.enabled && DISCOVERABLE_SOURCE_TYPES.includes(profile.type));
+  if (enabledDiscoverable) {
+    return enabledDiscoverable.id;
+  }
+
+  return selectedProfile?.id || profiles[0]?.id || '';
+}
+
+function cleanCorroborationSearchQuery(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/\s+[-–—|]\s+(CBS News|CNN|BBC News|The Guardian|Associated Press|AP News|Reuters|NPR|Al Jazeera|The New York Times|New York Times|Washington Post|NBC News|ABC News|Fox News|Politico|Axios|TechCrunch)$/i, '')
+    .trim();
+}
+
+function isLikelyNarrowClaimQuery(value) {
+  const normalized = cleanCorroborationSearchQuery(value);
+  return normalized.length > 110
+    || /\b(in|on)\s+(january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(normalized)
+    || /\bcaused|uprooting|sweeping away|according to|reported that\b/i.test(normalized);
+}
+
+function firstCitationTitle(packet) {
+  const content = asObject(packet.content);
+  const synthesis = asObject(content.synthesis);
+  const claims = [...asArray(packet.claims), ...asArray(synthesis.claims)];
+
+  for (const claim of claims) {
+    for (const citation of asArray(asObject(claim).citations)) {
+      const title = cleanCorroborationSearchQuery(asObject(citation).title);
+      if (title) {
+        return title;
+      }
+    }
+  }
+
+  return '';
+}
+
+const CORROBORATION_RETRY_STOPWORDS = new Set([
+  'about', 'after', 'against', 'amid', 'among', 'and', 'are', 'because', 'been', 'being', 'from', 'have', 'into', 'over', 'that', 'their', 'them', 'these', 'this', 'through', 'what', 'when', 'where', 'which', 'while', 'with', 'without', 'would', 'could', 'should', 'will', 'how', 'why', 'the', 'for',
+]);
+
+function corroborationRetryTerms(value) {
+  const cleaned = cleanCorroborationSearchQuery(value).toLowerCase();
+  return cleaned
+    .replace(/[^a-z0-9\s-]/gi, ' ')
+    .split(/\s+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 4 && !CORROBORATION_RETRY_STOPWORDS.has(term));
+}
+
+export function deriveBroaderCorroborationRetryQuery(input = {}) {
+  const packet = asObject(input.packet);
+  const corroboration = asObject(asObject(packet.content).corroboration);
+  const sources = [
+    input.previousQuery,
+    packet.title,
+    ...asArray(packet.citations).map((citation) => asObject(citation).title),
+    ...asArray(corroboration.queries),
+    input.fallbackSubject,
+  ];
+  const terms = [];
+  const seen = new Set();
+  for (const source of sources) {
+    if (typeof source !== 'string') continue;
+    for (const term of corroborationRetryTerms(source)) {
+      if (seen.has(term)) continue;
+      seen.add(term);
+      terms.push(term);
+      if (terms.length >= 8) break;
+    }
+    if (terms.length >= 8) break;
+  }
+
+  const stem = terms.length > 0
+    ? terms.join(' ')
+    : cleanCorroborationSearchQuery(input.previousQuery) || cleanCorroborationSearchQuery(input.fallbackSubject) || cleanCorroborationSearchQuery(packet.title);
+  return [stem, 'independent reporting'].filter(Boolean).join(' ').trim();
+}
+
+export function deriveCorroborationQuery(input = {}) {
+  const packet = asObject(input.packet);
+  const title = cleanCorroborationSearchQuery(packet.title);
+  const citationTitle = firstCitationTitle(packet);
+  const storyTitle = citationTitle || title;
+  const corroboration = asObject(asObject(packet.content).corroboration);
+  const queries = asArray(corroboration.queries)
+    .filter((query) => typeof query === 'string' && query.trim())
+    .map(cleanCorroborationSearchQuery)
+    .filter(Boolean);
+
+  if (storyTitle && (queries.length === 0 || isLikelyNarrowClaimQuery(queries[0]))) {
+    return storyTitle;
+  }
+
+  return queries[0] || cleanCorroborationSearchQuery(input.fallbackSubject) || storyTitle || '';
+}
+
+export function isWeakCorroborationCandidate(candidate) {
+  const item = asObject(candidate);
+  const scoring = asObject(asObject(item.metadata).scoring);
+  const verdict = typeof scoring.verdict === 'string' ? scoring.verdict.toLowerCase() : '';
+  const score = typeof item.score === 'number'
+    ? item.score
+    : typeof scoring.overallScore === 'number'
+      ? scoring.overallScore
+      : null;
+  return verdict === 'ignore' || verdict === 'reject' || (score !== null && score < 50);
+}
+
+export function deriveOtherSourceSearchResult(input = {}) {
+  const inserted = Number.isFinite(input.inserted) ? Number(input.inserted) : 0;
+  const skipped = Number.isFinite(input.skipped) ? Number(input.skipped) : 0;
+  const candidates = asArray(input.candidates).filter((candidate) => asObject(candidate).id);
+  const candidateIds = [...new Set([
+    ...asArray(input.candidateIds),
+    ...candidates.map((candidate) => asObject(candidate).id),
+  ].filter((id) => typeof id === 'string' && id.trim()))];
+  const candidateCount = candidates.length || candidateIds.length || inserted;
+  const summaries = candidates.slice(0, 3).map((candidate) => {
+    const item = asObject(candidate);
+    const scoring = asObject(asObject(item.metadata).scoring);
+    const score = typeof item.score === 'number'
+      ? item.score
+      : typeof scoring.overallScore === 'number'
+        ? scoring.overallScore
+        : null;
+    const verdict = typeof scoring.verdict === 'string' ? scoring.verdict : '';
+    const title = typeof item.title === 'string' && item.title.trim() ? item.title.trim() : 'Untitled candidate';
+    const parts = [title];
+    if (score !== null) {
+      parts.push(`score ${score}`);
+    }
+    if (verdict) {
+      parts.push(`verdict ${verdict}`);
+    }
+    return parts.join(' | ');
+  });
+  const weakCandidates = candidates.filter(isWeakCorroborationCandidate);
+  const weakCandidateIds = weakCandidates.map((candidate) => asObject(candidate).id).filter(Boolean);
+  const weakIdSet = new Set(weakCandidateIds);
+  const safeCandidateIds = candidateIds.filter((id) => !weakIdSet.has(id));
+  const allInsertedAreWeak = candidateCount > 0 && candidates.length > 0 && safeCandidateIds.length === 0;
+  const message = candidateCount > 0
+    ? [
+      `Other-source search complete: ${inserted} inserted, ${skipped} skipped.`,
+      `Review ${candidateCount} inserted candidate${candidateCount === 1 ? '' : 's'} before using ${candidateCount === 1 ? 'it' : 'them'} as corroboration.`,
+      summaries.length ? summaries.join(' ; ') : '',
+    ].filter(Boolean).join(' ')
+    : `Other-source search complete: ${inserted} inserted, ${skipped} skipped. No independent candidates were added.`;
+
+  return {
+    status: allInsertedAreWeak ? 'warning' : 'info',
+    message,
+    nextStep: candidateCount > 0
+      ? allInsertedAreWeak
+        ? 'Do not rebuild from these results. Run another search or add a manual source URL, unless an editor explicitly overrides the low-quality assessment.'
+        : 'Select independent, relevant results in Candidate Stories, then rebuild the research brief.'
+      : 'Try a broader source/search profile or add a manual source URL before rebuilding the research brief.',
+    candidateIds,
+    safeCandidateIds,
+    weakCandidateIds,
+  };
+}
+
+export function shouldOfferOtherSourceSearch(input = {}) {
+  const packet = asObject(input.packet);
+  if (!packet || input.scopeClassName === 'archive') {
+    return false;
+  }
+
+  const readiness = asObject(asObject(packet.content).readiness);
+  const readinessStatus = typeof readiness.status === 'string' ? readiness.status : '';
+  return (packet.status === 'blocked' && readinessStatus === 'needs_more_sources')
+    || packet.status === 'single_source_breaking'
+    || readinessStatus === 'single_source_breaking';
+}
+
 export function deriveProductionViewModel(input = {}) {
   const shows = asArray(input.shows);
   const feeds = asArray(input.feeds);
@@ -1286,7 +1478,8 @@ export function deriveProductionViewModel(input = {}) {
   const jobs = uniqueById([...asArray(input.recentJobs), ...productionJobs]);
   const episodes = production.episode ? [production.episode, ...asArray(input.episodes).filter((episode) => episode.id !== production.episode.id)] : asArray(input.episodes);
   const selectedShow = shows.find((show) => show.slug === input.selectedShowSlug) || null;
-  const selectedSource = profiles.find((profile) => profile.id === input.selectedProfileId) || null;
+  const selectedSourceProfileId = derivePreferredSourceProfileId({ profiles, selectedProfileId: input.selectedProfileId });
+  const selectedSource = profiles.find((profile) => profile.id === selectedSourceProfileId) || null;
   const selectedCandidateIds = new Set(asArray(input.selectedCandidateIds));
   const hasCandidateSelection = selectedCandidateIds.size > 0;
   const selectedCandidates = candidates.filter((candidate) => selectedCandidateIds.has(candidate.id));
@@ -1294,7 +1487,7 @@ export function deriveProductionViewModel(input = {}) {
   const selectedScriptBrief = selectedScript?.researchPacketId ? packets.find((packet) => packet.id === selectedScript.researchPacketId) : null;
   const selectedBrief = packets.find((packet) => packet.id === input.selectedResearchPacketId) || null;
   const latestMatchingBrief = latest(packets.filter((packet) => packetMatchesCandidateSelection(packet, selectedCandidateIds)));
-  const pathBrief = [selectedScriptBrief, selectedBrief, latestMatchingBrief]
+  const pathBrief = [selectedBrief, selectedScriptBrief, latestMatchingBrief]
     .find((packet) => packetMatchesCandidateSelection(packet, selectedCandidateIds));
   const activeBrief = pathBrief || null;
   const selectedScriptMatchesBrief = Boolean(selectedScript && activeBrief && selectedScript.researchPacketId === activeBrief.id);

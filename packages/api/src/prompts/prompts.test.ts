@@ -385,6 +385,42 @@ describe('prompt output schemas', () => {
     }]);
   });
 
+  it('normalizes model-emitted warnings with null sourceDocumentId', () => {
+    const result = researchSynthesisSchema.parse({
+      title: 'AI Liability and the Duty to Warn',
+      summary: 'Families filed lawsuits after a school shooting, raising questions about AI safety duties.',
+      known_facts: ['Families filed lawsuits against OpenAI.'],
+      open_questions: ['What duty-to-warn standard applies?'],
+      source_document_ids: ['doc-1'],
+      claims: [{
+        text: 'Families of Canadian school shooting victims sued OpenAI.',
+        claimType: 'factual',
+        supportLevel: 'high',
+        source_document_ids: ['doc-1'],
+        citations: [{ source_document_id: 'doc-1', extraModelNote: 'drop this alias-only noise' }],
+      }],
+      warnings: [{
+        code: 'limited_sources',
+        severity: 'warning',
+        message: 'Only one source is available.',
+        source_document_id: null,
+        extraModelNote: 'This alias should not trip strict schema validation.',
+      }],
+      extraModelNote: 'This root alias should not trip strict schema validation.',
+    });
+
+    assert.deepEqual(result.knownFacts, ['Families filed lawsuits against OpenAI.']);
+    assert.deepEqual(result.openQuestions, ['What duty-to-warn standard applies?']);
+    assert.deepEqual(result.sourceDocumentIds, ['doc-1']);
+    assert.deepEqual(result.claims[0].citations, [{ sourceDocumentId: 'doc-1' }]);
+    assert.deepEqual(result.warnings, [{
+      code: 'limited_sources',
+      severity: 'warning',
+      message: 'Only one source is available.',
+      sourceDocumentId: undefined,
+    }]);
+  });
+
   it('describes nested research synthesis arrays so JSON-mode models emit canonical claims', () => {
     const properties = PROMPT_OUTPUT_SCHEMAS.research_synthesis.schemaHint.properties as Record<string, unknown>;
     const knownFacts = properties.knownFacts as { items?: Record<string, unknown> };
@@ -434,12 +470,16 @@ describe('prompt output schemas', () => {
       claimIssues: [],
       missingCitations: [{
         claim: 'Several high-stakes claims lack primary source documentation.',
+        issue: 'The cited line still needs primary source documentation.',
         detail: 'Add primary source links before production.',
+        extraModelNote: 'This alias should not trip strict schema validation.',
       }],
       unsupportedCertainty: [],
       attributionWarnings: [{
         location: 'MARCUS: The release changes the global AI race.',
+        issue: 'Attribute this as analysis rather than settled fact.',
         detail: 'Attribute this as analysis rather than settled fact.',
+        claim: 'The release changes the global AI race.',
       }],
       balanceWarnings: [{
         location: 'INGRID: Regulators are moving quickly.',
@@ -451,7 +491,7 @@ describe('prompt output schemas', () => {
 
     assert.deepEqual(result.missingCitations, [{
       scriptExcerpt: 'Several high-stakes claims lack primary source documentation.',
-      issue: 'Add primary source links before production.',
+      issue: 'The cited line still needs primary source documentation.',
       severity: 'warning',
     }]);
     assert.deepEqual(result.attributionWarnings, [{

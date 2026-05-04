@@ -494,7 +494,7 @@ export function sanitizedDebug(value) {
 
 export function castToLines(cast) {
   return asArray(cast)
-    .map((member) => [member.name, member.role || '', member.voice, member.persona || '']
+    .map((member) => [member.name, member.role || '', member.voice, String(member.persona || '').replace(/\s*\n+\s*/g, ' ')]
       .filter((part) => part !== '')
       .join(' | '))
     .join('\n');

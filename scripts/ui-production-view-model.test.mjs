@@ -399,7 +399,7 @@ test('view model recovers downstream workflow when candidate selection is stale'
   assert.equal(model.primaryNextAction.enabled, true);
 });
 
-test('view model uses selected script provenance over stale selected brief', () => {
+test('view model uses explicitly selected brief over stale selected script provenance', () => {
   const scriptFromWarningBrief = { ...approvedScript, researchPacketId: 'brief-warning' };
   const model = deriveProductionViewModel(baseInput({
     storyCandidates: [candidate],
@@ -413,8 +413,8 @@ test('view model uses selected script provenance over stale selected brief', () 
     selectedRevisions: [passedReviewRevision],
   }));
 
-  assert.equal(model.activeArtifacts.brief.id, 'brief-warning');
-  assert.equal(model.primaryNextAction.label, 'Resolve research warnings');
+  assert.equal(model.activeArtifacts.brief.id, 'brief-1');
+  assert.equal(model.primaryNextAction.label, 'Generate script draft');
   assert.equal(model.primaryNextAction.enabled, true);
 });
 

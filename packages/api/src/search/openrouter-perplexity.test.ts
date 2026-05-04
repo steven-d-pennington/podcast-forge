@@ -90,6 +90,7 @@ describe('OpenRouter Perplexity source provider', () => {
     assert.equal((requestBody?.response_format as { type?: string }).type, 'json_schema');
     assert.ok((requestBody?.response_format as { json_schema?: unknown }).json_schema);
     assert.equal(requestBody?.search_recency_filter, 'day');
+    assert.deepEqual(requestBody?.search_domain_filter, ['-youtube.com', '-reddit.com', '-facebook.com', '-instagram.com', '-tiktok.com', '-x.com', '-twitter.com']);
     assert.ok((requestBody?.messages as Array<{ content: string }>)[0].content.includes('production approval gates'));
     assert.deepEqual(candidates.map((candidate) => candidate.title), ['Anthropic ships Claude Opus 4.7']);
     assert.equal(candidates[0].publishedAt?.toISOString(), '2026-04-28T00:00:00.000Z');
@@ -118,6 +119,41 @@ describe('OpenRouter Perplexity source provider', () => {
     });
 
     assert.deepEqual(requestBody?.search_domain_filter, ['-example.com']);
+  });
+
+  it('uses source allowlists as positive OpenRouter domain filters', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const fetchImpl: OpenRouterPerplexityFetch = async (_url, init) => {
+      requestBody = JSON.parse(init.body) as Record<string, unknown>;
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  candidates: [
+                    { title: 'Reuters AI launch', url: 'https://www.reuters.com/technology/ai-launch' },
+                    { title: 'Homepage should survive provider mapping and be dropped later', url: 'https://www.reuters.com/' },
+                  ],
+                }),
+              },
+            }],
+          };
+        },
+      };
+    };
+
+    const candidates = await searchOpenRouterPerplexity({
+      apiKey: 'test-key',
+      profile: { ...profile, includeDomains: ['reuters.com', 'apnews.com'], excludeDomains: ['youtube.com'] },
+      queries: [{ ...query, includeDomains: ['axios.com'] }],
+      fetchImpl,
+    });
+
+    assert.deepEqual(requestBody?.search_domain_filter, ['reuters.com', 'apnews.com', 'axios.com']);
+    assert.deepEqual(candidates.map((candidate) => candidate.title), ['Reuters AI launch']);
   });
 
   it('normalizes legacy recency aliases before sending OpenRouter search params', async () => {

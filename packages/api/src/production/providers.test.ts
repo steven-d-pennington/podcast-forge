@@ -676,6 +676,30 @@ test('Vertex Gemini TTS final audio provider resumes final audio from completed 
     assert.equal(requests[1]?.cacheStatus, 'rendered');
     assert.match(String(requests[0]?.objectKey), /audio-final-chunks\/revision-1\/chunk-0001\.pcm$/);
     assert.equal(generated.byteSize, 'resumed-final-mp3'.length);
+
+    let configChangedCalls = 0;
+    const configChangedProvider = createVertexGeminiTtsFinalAudioProvider({
+      getAuthValue: async () => 'test-auth-value',
+      fetchImpl: async () => {
+        configChangedCalls += 1;
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;rate=24000', data: chunkTwoPcm.toString('base64') } }] } }],
+        }), { status: 200 });
+      },
+      execFileImpl: async (_file, args) => {
+        await writeFile(args.at(-1) ?? '', Buffer.from('config-changed-final-mp3'));
+      },
+    });
+    const configChanged = await configChangedProvider.generateFinalAudio({
+      ...resumableContext,
+      show: {
+        ...resumableContext.show,
+        cast: resumableContext.show.cast.map((member) => member.name === 'DAVID' ? { ...member, voice: 'Aoede' } : member),
+      },
+    });
+    const configChangedRequests = configChanged.metadata?.requests as Array<Record<string, unknown>>;
+    assert.equal(configChangedCalls, 2, 'voice/config changes should not reuse stale cached PCM chunks');
+    assert.deepEqual(configChangedRequests.map((request) => request.cacheStatus), ['rendered', 'rendered']);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

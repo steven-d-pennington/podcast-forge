@@ -13,6 +13,7 @@ export interface ResearchFetchResponse {
 export type ResearchFetch = (url: string) => Promise<ResearchFetchResponse>;
 
 const MAX_SOURCE_CHARS = 200_000;
+const READABLE_CONTAINERS = ['article', 'main'];
 
 function defaultFetch(): ResearchFetch {
   if (!globalThis.fetch) {
@@ -29,8 +30,38 @@ function normalizeWhitespace(value: string): string {
 function stripUnsafeBlocks(value: string): string {
   return value
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<script\b[^>]*>[\s\S]*$/gi, ' ')
+    .replace(/^[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*$/gi, ' ')
+    .replace(/^[\s\S]*?<\/style>/gi, ' ')
     .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, ' ');
+}
+
+function stripChromeBlocks(value: string): string {
+  return value
+    .replace(/<nav\b[^>]*>[\s\S]*?<\/nav>/gi, ' ')
+    .replace(/<header\b[^>]*>[\s\S]*?<\/header>/gi, ' ')
+    .replace(/<footer\b[^>]*>[\s\S]*?<\/footer>/gi, ' ')
+    .replace(/<aside\b[^>]*>[\s\S]*?<\/aside>/gi, ' ')
+    .replace(/<form\b[^>]*>[\s\S]*?<\/form>/gi, ' ')
+    .replace(/<button\b[^>]*>[\s\S]*?<\/button>/gi, ' ')
+    .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, ' ');
+}
+
+function candidateContainerHtml(html: string): string[] {
+  const candidates: string[] = [];
+
+  for (const tag of READABLE_CONTAINERS) {
+    const pattern = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi');
+    for (const match of html.matchAll(pattern)) {
+      if (match[1]) {
+        candidates.push(match[1]);
+      }
+    }
+  }
+
+  return candidates;
 }
 
 function stripTags(value: string): string {
@@ -38,6 +69,56 @@ function stripTags(value: string): string {
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|section|article|h[1-6]|li|blockquote)>/gi, '\n')
     .replace(/<[^>]*>/g, ' ');
+}
+
+function cleanVisibleText(value: string): string {
+  const decoded = decodeBasicEntities(stripTags(value));
+  const lines = decoded
+    .split(/\n+/)
+    .map((line) => normalizeWhitespace(line))
+    .filter((line) => {
+      if (line.length < 2) {
+        return false;
+      }
+      if (/\b(window\.__|__ROUTES__|webpackJsonp|dataLayer|function\s*\(|var\s+|const\s+|let\s+)\b/i.test(line)) {
+        return false;
+      }
+      const cssTokenCount = (line.match(/[{};:]|--[a-z0-9-]+|#[0-9a-f]{3,8}\b/gi) ?? []).length;
+      return !(cssTokenCount >= 6 && cssTokenCount > line.split(/\s+/).length / 3);
+    });
+
+  return normalizeWhitespace(lines.join('\n'));
+}
+
+function scoreReadableText(value: string): number {
+  const words = value.split(/\s+/).filter(Boolean).length;
+  const sentences = (value.match(/[.!?](\s|$)/g) ?? []).length;
+  const chromeHits = (value.match(/\b(subscribe|sign in|privacy policy|advertisement|latest|newsletter)\b/gi) ?? []).length;
+  return words + sentences * 15 - chromeHits * 25;
+}
+
+function selectReadableHtml(body: string): string {
+  const strippedBody = stripChromeBlocks(body);
+  const candidates = candidateContainerHtml(strippedBody)
+    .map((candidate) => stripChromeBlocks(candidate));
+
+  if (candidates.length === 0) {
+    return strippedBody;
+  }
+
+  let bestHtml = strippedBody;
+  let bestScore = scoreReadableText(cleanVisibleText(strippedBody));
+
+  for (const candidate of candidates) {
+    const text = cleanVisibleText(candidate);
+    const score = scoreReadableText(text);
+    if (text.length >= 120 && score >= bestScore * 0.45) {
+      bestHtml = candidate;
+      bestScore = score;
+    }
+  }
+
+  return bestHtml;
 }
 
 function extractTitle(html: string): string | null {
@@ -50,7 +131,8 @@ export function extractReadableContent(html: string): { title: string | null; te
   const withoutBlocks = stripUnsafeBlocks(html);
   const bodyMatch = withoutBlocks.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
   const body = bodyMatch?.[1] ?? withoutBlocks;
-  const text = normalizeWhitespace(decodeBasicEntities(stripTags(body)));
+  const readableHtml = selectReadableHtml(body);
+  const text = cleanVisibleText(readableHtml).slice(0, MAX_SOURCE_CHARS);
 
   return {
     title: extractTitle(withoutBlocks),
@@ -108,7 +190,7 @@ export async function fetchSourceSnapshot(
       };
     }
 
-    const rawText = (await response.text()).slice(0, MAX_SOURCE_CHARS);
+    const rawText = await response.text();
     const extracted = extractReadableContent(rawText);
 
     return {
@@ -123,6 +205,7 @@ export async function fetchSourceSnapshot(
       textContent: extracted.text,
       metadata: {
         originalLength: rawText.length,
+        extractedLength: extracted.text.length,
       },
     };
   } catch (error) {

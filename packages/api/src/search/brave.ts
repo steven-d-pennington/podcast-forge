@@ -21,14 +21,21 @@ interface BraveSearchOptions {
   queries: SourceQueryRecord[];
   fetchImpl?: BraveFetch;
   timeoutMs?: number;
+  rateLimitDelayMs?: number;
+  sleep?: (ms: number) => Promise<void>;
 }
 
 type JsonObject = Record<string, unknown>;
 
 const BRAVE_NEWS_SEARCH_URL = 'https://api.search.brave.com/res/v1/news/search';
+const DEFAULT_BRAVE_RATE_LIMIT_DELAY_MS = 1_100;
 
 function defaultFetch(url: string, init: { headers: Record<string, string>; signal?: AbortSignal }) {
   return fetch(url, init) as Promise<BraveResponse>;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function asObject(value: unknown): JsonObject {
@@ -136,9 +143,19 @@ function mapResult(item: JsonObject, query: SourceQueryRecord, profile: SourcePr
 
 export async function searchBraveNews(options: BraveSearchOptions): Promise<BraveCandidate[]> {
   const fetchImpl = options.fetchImpl ?? defaultFetch;
+  const wait = options.sleep ?? sleep;
+  const rateLimitDelayMs = options.rateLimitDelayMs ?? DEFAULT_BRAVE_RATE_LIMIT_DELAY_MS;
   const candidates: BraveCandidate[] = [];
+  let lastRequestStartedAt = 0;
 
   for (const query of options.queries) {
+    if (lastRequestStartedAt > 0) {
+      const elapsedMs = Date.now() - lastRequestStartedAt;
+      if (elapsedMs < rateLimitDelayMs) {
+        await wait(rateLimitDelayMs - elapsedMs);
+      }
+    }
+
     const count = resolveCount(query, options.profile);
     const freshness = resolveFreshness(query, options.profile);
     const region = resolveRegion(query, options.profile);
@@ -160,13 +177,24 @@ export async function searchBraveNews(options: BraveSearchOptions): Promise<Brav
       params.set('search_lang', language);
     }
 
-    const response = await fetchImpl(`${BRAVE_NEWS_SEARCH_URL}?${params.toString()}`, {
+    let response: BraveResponse;
+    const url = `${BRAVE_NEWS_SEARCH_URL}?${params.toString()}`;
+    const init = {
       headers: {
         Accept: 'application/json',
         'X-Subscription-Token': options.apiKey,
       },
       signal: AbortSignal.timeout(options.timeoutMs ?? 10_000),
-    });
+    };
+
+    lastRequestStartedAt = Date.now();
+    response = await fetchImpl(url, init);
+
+    if (response.status === 429) {
+      await wait(rateLimitDelayMs);
+      lastRequestStartedAt = Date.now();
+      response = await fetchImpl(url, init);
+    }
 
     if (!response.ok) {
       throw new Error(`Brave search failed with HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`);
@@ -183,7 +211,6 @@ export async function searchBraveNews(options: BraveSearchOptions): Promise<Brav
 
     for (const result of results) {
       const mapped = mapResult(asObject(result), query, options.profile, search);
-
       if (mapped) {
         candidates.push(mapped);
       }

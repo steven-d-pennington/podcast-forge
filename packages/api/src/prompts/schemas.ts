@@ -11,7 +11,10 @@ const citationReferenceSchema = z.preprocess((value) => {
   }
 
   return {
-    ...object,
+    ...(typeof object.url === 'string' ? { url: object.url } : {}),
+    ...(typeof object.title === 'string' ? { title: object.title } : {}),
+    ...(typeof object.quote === 'string' ? { quote: object.quote } : {}),
+    ...(typeof object.sourceDocumentId === 'string' ? { sourceDocumentId: object.sourceDocumentId } : {}),
     ...(typeof object.source_document_id === 'string' && typeof object.sourceDocumentId !== 'string'
       ? { sourceDocumentId: object.source_document_id }
       : {}),
@@ -42,7 +45,23 @@ const warningSchema = z.preprocess((value) => {
     };
   }
 
-  return value;
+  const object = objectValue(value);
+  if (!object) {
+    return value;
+  }
+
+  return {
+    code: object.code,
+    severity: object.severity,
+    message: object.message,
+    ...(object.metadata && typeof object.metadata === 'object' && !Array.isArray(object.metadata) ? { metadata: object.metadata } : {}),
+    ...(typeof object.sourceDocumentId === 'string' ? { sourceDocumentId: object.sourceDocumentId } : {}),
+    ...(object.sourceDocumentId === null || object.source_document_id === null
+      ? { sourceDocumentId: undefined }
+      : typeof object.source_document_id === 'string' && typeof object.sourceDocumentId !== 'string'
+        ? { sourceDocumentId: object.source_document_id }
+        : {}),
+  };
 }, warningObjectSchema);
 
 const scoreDimensionsSchema = z.object({
@@ -245,8 +264,8 @@ export const extractedClaimsSchema = z.preprocess((value) => {
   }
 
   return {
-    ...object,
     claims: object.claims.map((claim, index) => normalizeExtractedClaim(claim, index)),
+    warnings: Array.isArray(object.warnings) ? object.warnings : [],
   };
 }, z.object({
   claims: z.array(extractedClaimSchema),
@@ -260,13 +279,16 @@ export const researchSynthesisSchema = z.preprocess((value) => {
   }
 
   return {
-    ...object,
+    title: object.title,
+    summary: object.summary,
     knownFacts: normalizeStringArrayField(object.knownFacts, object.known_facts, object.facts),
     openQuestions: normalizeStringArrayField(object.openQuestions, object.open_questions, object.questions, object.sourceGaps, object.source_gaps),
     sourceDocumentIds: normalizeStringArrayField(object.sourceDocumentIds, object.source_document_ids, object.sourceDocumentId, object.source_document_id),
     claims: Array.isArray(object.claims)
       ? object.claims.map((claim, index) => normalizeExtractedClaim(claim, index))
       : [],
+    warnings: Array.isArray(object.warnings) ? object.warnings : [],
+    ...(typeof object.editorialAngle === 'string' ? { editorialAngle: object.editorialAngle } : {}),
   };
 }, z.object({
   title: z.string().min(1),
@@ -312,7 +334,7 @@ const integrityIssueSchema = z.object({
 const missingCitationSchema = z.preprocess((value) => {
   const object = objectValue(value);
 
-  if (!object || typeof object.issue === 'string') {
+  if (!object) {
     return value;
   }
 
@@ -324,11 +346,14 @@ const missingCitationSchema = z.preprocess((value) => {
         : typeof object.location === 'string'
           ? object.location
           : 'Unspecified script excerpt',
-    issue: typeof object.detail === 'string'
-      ? object.detail
-      : typeof object.claim === 'string'
-        ? object.claim
-        : 'Missing citation.',
+    issue: typeof object.issue === 'string'
+      ? object.issue
+      : typeof object.detail === 'string'
+        ? object.detail
+        : typeof object.claim === 'string'
+          ? object.claim
+          : 'Missing citation.',
+    ...(object.suggestedCitation ? { suggestedCitation: object.suggestedCitation } : {}),
     ...(typeof object.suggestedFix === 'string' ? { suggestedFix: object.suggestedFix } : {}),
     ...(typeof object.severity === 'string' ? { severity: object.severity } : {}),
   };
@@ -350,17 +375,20 @@ const unsupportedCertaintySchema = z.object({
 const integrityWarningSchema = z.preprocess((value) => {
   const object = objectValue(value);
 
-  if (!object || typeof object.issue === 'string') {
+  if (!object) {
     return value;
   }
 
   return {
+    ...(typeof object.scriptExcerpt === 'string' ? { scriptExcerpt: object.scriptExcerpt } : {}),
     ...(typeof object.location === 'string' ? { scriptExcerpt: object.location } : {}),
-    issue: typeof object.detail === 'string'
-      ? object.detail
-      : typeof object.claim === 'string'
-        ? object.claim
-        : 'Integrity warning.',
+    issue: typeof object.issue === 'string'
+      ? object.issue
+      : typeof object.detail === 'string'
+        ? object.detail
+        : typeof object.claim === 'string'
+          ? object.claim
+          : 'Integrity warning.',
     ...(typeof object.suggestedFix === 'string' ? { suggestedFix: object.suggestedFix } : {}),
     ...(typeof object.severity === 'string' ? { severity: object.severity } : {}),
   };

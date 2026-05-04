@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { buildApp } from '../app.js';
+import { LlmRuntimeError } from '../llm/types.js';
 import type { StoryCandidateRecord } from '../search/store.js';
 import type {
   CreateResearchPacketInput,
@@ -203,6 +204,45 @@ describe('research packet corroboration search workflow', () => {
 
     assert.equal(response.statusCode, 201);
     assert.equal(response.json().researchPacket.status, 'approved');
+    await app.close();
+  });
+
+  it('records model failure warnings when runtime metadata omits attempts', async () => {
+    const store = new FakeResearchRouteStore();
+    const app = buildApp({
+      sourceStore: store as never,
+      researchFetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        headers: { get: () => 'text/html' },
+        async text() {
+          return `<html><head><title>Anthropic valuation talks</title></head><body>${'Anthropic valuation talks remain active according to one sourced report. '.repeat(12)}</body></html>`;
+        },
+      }),
+      researchModelServices: {
+        async extractClaims() {
+          throw new LlmRuntimeError('Runtime failed without attempt metadata.', {
+            selected: null,
+            responseFormat: { type: 'json' },
+            rawOutputPreview: 'not-json',
+          } as never);
+        },
+        async synthesize() {
+          return { synthesis: null, claims: [], warnings: [], invocations: [] };
+        },
+      },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/research-packets',
+      payload: { candidateIds: [candidateId] },
+    });
+
+    assert.equal(response.statusCode, 201);
+    const warning = response.json().researchPacket.warnings.find((item: { code: string }) => item.code === 'MODEL_CLAIM_EXTRACTION_FAILED');
+    assert.ok(warning);
+    assert.deepEqual(warning.metadata.attempts, []);
     await app.close();
   });
 });

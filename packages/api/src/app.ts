@@ -140,7 +140,7 @@ function adHocCorroborationQuery(
     region: template.region ?? null,
     language: template.language ?? null,
     freshness: template.freshness ?? null,
-    includeDomains: [],
+    includeDomains: template.includeDomains ?? [],
     excludeDomains,
     config: {
       ...(template.config ?? {}),

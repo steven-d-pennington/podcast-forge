@@ -1,7 +1,7 @@
 import { api, ApiRequestError, debugText } from './ui-api.js';
 import { SETTINGS_SECTIONS, SURFACES } from './ui-constants.js';
 import { els, state } from './ui-state.js';
-import { deriveProductionViewModel, integrityReviewState as viewModelIntegrityReviewState } from './ui-view-model.js';
+import { deriveBroaderCorroborationRetryQuery, deriveCorroborationQuery, deriveOtherSourceSearchResult, derivePreferredSourceProfileId, deriveProductionViewModel, integrityReviewState as viewModelIntegrityReviewState, isWeakCorroborationCandidate, shouldOfferOtherSourceSearch } from './ui-view-model.js';
 import {
   applySourceControlState,
   applySourceControlStateToForms,
@@ -46,11 +46,13 @@ const SETTINGS_TAB_PANELS = {
   advanced: () => els.settingsPrompts,
 };
 
-function setStatus(message, debugDetails = '', status = debugDetails ? 'warning' : 'info') {
+function setStatus(message, debugDetails = '', status = debugDetails ? 'warning' : 'info', options = {}) {
   state.latestActionResult = {
     status,
     message,
     source: 'ui',
+    nextStep: options.nextStep || null,
+    debugDetails: options.debugDetails || null,
   };
   els.status.textContent = message;
   const detail = debugText(debugDetails);
@@ -266,9 +268,7 @@ function selectedStorySourceDomains() {
 }
 
 function corroborationQueryForPacket(packet) {
-  const corroboration = asObject(asObject(packet?.content).corroboration);
-  const queries = asArray(corroboration.queries).filter((query) => typeof query === 'string' && query.trim());
-  return queries[0]?.trim() || selectedStorySubject() || packet?.title || '';
+  return deriveCorroborationQuery({ packet, fallbackSubject: selectedStorySubject() });
 }
 
 function corroborationExcludedDomains(packet) {
@@ -937,11 +937,15 @@ function activeSelectedRevision() {
 }
 
 function selectedEpisode() {
-  const activeId = currentProductionViewModel().activeArtifacts?.publishing?.id;
+  const viewModel = currentProductionViewModel();
+  const activeId = viewModel.activeArtifacts?.publishing?.id;
   if (activeId) {
     return (state.production.episode?.id === activeId ? state.production.episode : null)
       || state.episodes.find((episode) => episode.id === activeId)
       || null;
+  }
+  if (viewModel.activeArtifacts?.brief?.id || viewModel.activeArtifacts?.script?.id) {
+    return null;
   }
   return state.selectedCandidateIds.length > 0 ? null : state.production.episode
     || state.episodes.find((episode) => episode.id === state.selectedEpisodeId)
@@ -1338,7 +1342,22 @@ function coverageClaimText(item) {
     ? 'independent sources unknown'
     : `${item.independentSourceCount} independent source${item.independentSourceCount === 1 ? '' : 's'}`;
   const mapped = item.citedInScript ? 'mapped to script' : 'not mapped to script';
-  return `${coverageStatusLabel(item.status)}: ${item.text || item.claimId} | ${sourceCount} | ${mapped}`;
+  return `${coverageStatusLabel(item.status)} | ${sourceCount} | ${mapped}`;
+}
+
+function compactCoverageFindingText(item) {
+  const claim = item.claimId ? `Claim ${item.claimId}: ` : '';
+  return `${claim}${item.message || item.code || 'Coverage finding requires review.'}`;
+}
+
+function limitedCoverageSummary(summary, limit = 8) {
+  return {
+    ...summary,
+    claims: asArray(summary?.claims).slice(0, limit),
+    blockers: asArray(summary?.blockers).slice(0, limit),
+    needsAttention: asArray(summary?.needsAttention).slice(0, limit),
+    unknowns: asArray(summary?.unknowns).slice(0, limit),
+  };
 }
 
 function renderCoverageClaimMap(summary) {
@@ -1482,17 +1501,39 @@ function renderCoverageSummary(summary) {
     ['Integrity findings', counts.integrityFindings ?? 0],
   ]));
 
-  section.append(renderCoverageClaimMap(summary));
+  const claimCount = asArray(summary.claims).length;
+  const findingCount = asArray(summary.blockers).length + asArray(summary.needsAttention).length + asArray(summary.unknowns).length;
+  const useDisclosure = claimCount > 12 || findingCount > 12;
+  const detailRoot = useDisclosure ? document.createElement('details') : section;
+  if (useDisclosure) {
+    detailRoot.className = 'coverage-detail-disclosure';
+    const detailSummary = document.createElement('summary');
+    detailSummary.textContent = `Show claim/source detail (${claimCount} claims, ${findingCount} findings; previewing first 8)`;
+    detailRoot.append(detailSummary);
+    const note = document.createElement('p');
+    note.className = 'help';
+    note.textContent = 'The full coverage object is intentionally collapsed so large research packets do not make the review page unusable on mobile.';
+    detailRoot.append(note);
+    detailRoot.addEventListener('toggle', () => {
+      if (detailRoot.open) {
+        detailRoot.querySelectorAll('.coverage-claim-map').forEach((map) => renderCoverageFindingConnectors(map));
+      }
+    });
+    section.append(detailRoot);
+  }
 
-  section.append(
-    reviewList('Blocking coverage findings', asArray(summary.blockers), 'No blocking coverage findings recorded.', coverageFindingText),
-    reviewList('Needs attention', asArray(summary.needsAttention), 'No weak, stale, single-source, missing-primary, or uncertain coverage warnings recorded.', coverageFindingText),
-    reviewList('Covered claims', asArray(summary.claims).filter((claim) => claim.status === 'covered'), 'No claims are marked fully covered by current metadata.', coverageClaimText),
+  const detailSummary = useDisclosure ? limitedCoverageSummary(summary, 8) : summary;
+  detailRoot.append(renderCoverageClaimMap(detailSummary));
+
+  detailRoot.append(
+    reviewList('Blocking coverage findings', asArray(detailSummary.blockers), 'No blocking coverage findings recorded.', useDisclosure ? compactCoverageFindingText : coverageFindingText),
+    reviewList('Needs attention', asArray(detailSummary.needsAttention), 'No weak, stale, single-source, missing-primary, or uncertain coverage warnings recorded.', useDisclosure ? compactCoverageFindingText : coverageFindingText),
+    reviewList('Covered claims', asArray(detailSummary.claims).filter((claim) => claim.status === 'covered'), 'No claims are marked fully covered by current metadata.', coverageClaimText),
   );
 
-  const unknowns = asArray(summary.unknowns);
+  const unknowns = asArray(detailSummary.unknowns);
   if (unknowns.length > 0) {
-    section.append(reviewList('Coverage unknowns', unknowns, 'No unknown coverage gaps recorded.', coverageFindingText));
+    detailRoot.append(reviewList('Coverage unknowns', unknowns, 'No unknown coverage gaps recorded.', useDisclosure ? compactCoverageFindingText : coverageFindingText));
   }
 
   return section;
@@ -3299,6 +3340,110 @@ function renderCandidateSelectionPanel() {
   renderEpisodePlan();
 }
 
+function latestOtherSourceSearchJob() {
+  return state.recentJobs.find((item) => item.type === 'source.search'
+    && item.status === 'succeeded'
+    && asObject(item.input).purpose === 'research-more-sources');
+}
+
+function recentOtherSourceCandidateIds() {
+  if (state.recentOtherSourceCandidateIds.length > 0) {
+    return state.recentOtherSourceCandidateIds;
+  }
+
+  const job = latestOtherSourceSearchJob();
+  return asArray(asObject(job?.output).candidateIds).filter((id) => typeof id === 'string' && id.trim());
+}
+
+function renderRecentOtherSourceResults() {
+  const ids = new Set(recentOtherSourceCandidateIds());
+  const candidates = state.storyCandidates.filter((candidate) => ids.has(candidate.id));
+  if (candidates.length === 0) {
+    return null;
+  }
+  const weakCandidates = candidates.filter(isWeakCorroborationCandidate);
+  const allCandidatesWeak = weakCandidates.length === candidates.length;
+
+  const panel = document.createElement('section');
+  panel.className = 'recent-other-source-panel';
+  panel.setAttribute('aria-label', 'Recent other-source search results');
+
+  const heading = document.createElement('div');
+  heading.className = 'recent-other-source-heading';
+  const title = document.createElement('h3');
+  title.textContent = `Recent other-source result${candidates.length === 1 ? '' : 's'}`;
+  const next = document.createElement('p');
+  next.textContent = allCandidatesWeak
+    ? 'These results are low-score or scorer-rejected. Do not rebuild from them; run another search or add a stronger manual source unless an editor explicitly overrides.'
+    : 'Review these before treating them as corroboration. Select only independent, relevant results, then rebuild the research brief.';
+  heading.append(title, next);
+  panel.append(heading);
+  if (allCandidatesWeak) {
+    const retryActions = document.createElement('div');
+    retryActions.className = 'actions inline recent-other-source-retry-actions';
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'secondary';
+    retry.textContent = isActionRunning('discover') ? 'Searching...' : 'Try broader independent search';
+    retry.disabled = isActionRunning('discover') || !selectedResearchPacket();
+    retry.title = selectedResearchPacket()
+      ? 'Run a broader keyword-based corroboration search and keep excluding the current source domains.'
+      : 'Select the current research brief before retrying corroboration search.';
+    retry.addEventListener('click', () => runBroaderMoreSourcesRetry());
+    retryActions.append(retry);
+    panel.append(retryActions);
+  }
+
+  const list = document.createElement('div');
+  list.className = 'recent-other-source-list';
+  for (const candidate of candidates) {
+    const row = document.createElement('article');
+    row.className = 'recent-other-source-row';
+    const titleLine = document.createElement('strong');
+    titleLine.textContent = candidate.title || 'Untitled candidate';
+    const quality = candidateQualityStatus(candidate);
+    const weakForCorroboration = isWeakCorroborationCandidate(candidate);
+    const meta = document.createElement('p');
+    meta.textContent = [
+      hostnameFor(candidateUrl(candidate)) || candidate.sourceName || 'unknown source',
+      `quality: ${quality.label}`,
+      `query: ${sourceQueryText(candidate)}`,
+    ].filter(Boolean).join(' | ');
+    const warnings = candidateStatusWarnings(candidate);
+    const warningText = document.createElement('p');
+    warningText.className = warnings.some((warning) => warning.level === 'error') ? 'recent-other-source-warning error' : 'recent-other-source-warning';
+    warningText.textContent = warnings.length > 0
+      ? warnings.slice(0, 2).map((warning) => warning.text).join(' | ')
+      : 'No unresolved candidate warnings recorded.';
+    const actions = document.createElement('div');
+    actions.className = 'actions inline';
+    const selected = state.selectedCandidateIds.includes(candidate.id);
+    const select = document.createElement('button');
+    select.type = 'button';
+    select.className = selected ? 'secondary selected-action' : 'secondary';
+    select.textContent = selected ? 'Selected for Brief' : weakForCorroboration ? 'Needs override' : 'Select for Brief';
+    select.disabled = weakForCorroboration && !selected;
+    select.title = weakForCorroboration && !selected
+      ? 'Scorer rejected or low-scored this result; use a stronger source or manually override outside this handoff.'
+      : '';
+    select.addEventListener('click', () => toggleCandidateSelection(candidate.id));
+    const rebuild = document.createElement('button');
+    rebuild.type = 'button';
+    rebuild.className = 'secondary';
+    rebuild.textContent = 'Rebuild Research Brief';
+    rebuild.disabled = weakForCorroboration || !selectedCandidateAnalysis().canLaunch;
+    rebuild.title = weakForCorroboration
+      ? 'Do not rebuild from a low-score or scorer-rejected corroboration result.'
+      : rebuild.disabled ? 'Select at least one relevant candidate before rebuilding.' : '';
+    rebuild.addEventListener('click', () => buildResearchBriefFromSelected());
+    actions.append(select, rebuild);
+    row.append(titleLine, meta, warningText, actions);
+    list.append(row);
+  }
+  panel.append(list);
+  return panel;
+}
+
 function renderStoryCandidates() {
   els.candidateList.innerHTML = '';
   syncCandidateFilterInputs();
@@ -3314,6 +3459,11 @@ function renderStoryCandidates() {
   els.clearCandidateFilters.disabled = !candidateFiltersActive();
   els.clearCandidateQueue.disabled = activeCandidates.length === 0;
   renderCandidateSelectionPanel();
+
+  const recentOtherSourcePanel = renderRecentOtherSourceResults();
+  if (recentOtherSourcePanel) {
+    els.candidateList.append(recentOtherSourcePanel);
+  }
 
   if (state.storyCandidates.length === 0) {
     const empty = document.createElement('div');
@@ -3571,8 +3721,8 @@ function renderResearchBriefRow(packet) {
   });
   actions.append(useForScript);
 
-  const needsMoreSources = packet.status === 'blocked' && readiness.status === 'needs_more_sources';
-  if (needsMoreSources && scope.className !== 'archive') {
+  const canSearchOtherSources = shouldOfferOtherSourceSearch({ packet, scopeClassName: scope.className });
+  if (canSearchOtherSources) {
     const searchMoreSources = document.createElement('button');
     searchMoreSources.type = 'button';
     searchMoreSources.className = 'secondary';
@@ -5506,9 +5656,14 @@ function corroborationSearchStatusText(search) {
   return 'Automatic corroboration search not run.';
 }
 
+function corroborationAutomatedSearch(corroboration) {
+  const automatedSearch = asObject(corroboration.automatedSearch);
+  return Object.keys(automatedSearch).length > 0 ? automatedSearch : asObject(corroboration.search);
+}
+
 function renderCorroborationSearchSummary(packet) {
   const corroboration = asObject(asObject(packet?.content).corroboration);
-  const search = asObject(corroboration.search);
+  const search = corroborationAutomatedSearch(corroboration);
   const section = document.createElement('section');
   section.className = 'review-subsection';
   const heading = document.createElement('h4');
@@ -5549,7 +5704,7 @@ function renderResearchReview() {
   const candidateIds = asArray(packet.content?.candidateIds).filter((id) => typeof id === 'string');
   const sourceUrls = asArray(packet.citations).map((citation) => citation.url).filter(Boolean);
   const corroboration = asObject(packet.content?.corroboration);
-  const automaticSearch = asObject(corroboration.automatedSearch || corroboration.search);
+  const automaticSearch = corroborationAutomatedSearch(corroboration);
 
   els.reviewResearch.append(
     reviewSectionHeading('Research Brief', status, packet.title),
@@ -6112,8 +6267,13 @@ async function loadProfiles() {
   const body = await api(`/source-profiles?showSlug=${encodeURIComponent(state.selectedShowSlug)}`);
   state.profiles = body.sourceProfiles;
 
-  if (!state.profiles.some((profile) => profile.id === state.selectedProfileId)) {
-    state.selectedProfileId = state.profiles[0]?.id || '';
+  const preferredProfileId = derivePreferredSourceProfileId({
+    profiles: state.profiles,
+    selectedProfileId: state.selectedProfileId,
+  });
+
+  if (state.selectedProfileId !== preferredProfileId) {
+    state.selectedProfileId = preferredProfileId;
   }
 
   if (state.selectedProfileId !== previousProfileId) {
@@ -6560,9 +6720,27 @@ async function runSelectedProfileDiscovery() {
   }
 }
 
-async function runMoreSourcesForResearchPacket(packet) {
+async function runBroaderMoreSourcesRetry() {
+  const packet = selectedResearchPacket();
+  if (!packet) {
+    setStatus('Broader other-source search blocked: select the current research brief first.', '', 'warning');
+    return;
+  }
+
+  const priorQuery = asObject(latestOtherSourceSearchJob()?.input).query || corroborationQueryForPacket(packet);
+  const query = deriveBroaderCorroborationRetryQuery({
+    packet,
+    previousQuery: typeof priorQuery === 'string' ? priorQuery : '',
+    fallbackSubject: selectedStorySubject(),
+  });
+  await runMoreSourcesForResearchPacket(packet, { query });
+}
+
+async function runMoreSourcesForResearchPacket(packet, options = {}) {
   const profile = sourceSearchProfileForMoreSources();
-  const query = corroborationQueryForPacket(packet);
+  const query = typeof options.query === 'string' && options.query.trim()
+    ? options.query.trim()
+    : corroborationQueryForPacket(packet);
   const excludeDomains = corroborationExcludedDomains(packet);
 
   if (!profile) {
@@ -6596,8 +6774,18 @@ async function runMoreSourcesForResearchPacket(packet) {
     });
     await loadStoryCandidates();
     await loadJobs();
+    const handoff = deriveOtherSourceSearchResult(body);
+    state.recentOtherSourceCandidateIds = handoff.candidateIds;
     render();
-    setStatus(`Other-source search complete: ${body.inserted} inserted, ${body.skipped} skipped. Select independent results, then rebuild the research brief.`);
+    setStatus(handoff.message, '', handoff.status, {
+      nextStep: handoff.nextStep,
+      debugDetails: {
+        jobId: body.job?.id,
+        candidateIds: handoff.candidateIds,
+        query,
+        excludeDomains,
+      },
+    });
   } catch (error) {
     await loadJobs();
     render();

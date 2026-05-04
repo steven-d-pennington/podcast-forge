@@ -57,9 +57,13 @@ function asPositiveNumber(value: unknown): number | undefined {
   return undefined;
 }
 
-function queryIdFromCandidate(candidate: SourceCandidate): string | null {
-  const query = asObject(candidate.metadata.query);
-  return typeof query.id === 'string' ? query.id : null;
+function queryIdFromCandidate(candidate: SourceCandidate, query?: SourceQueryRecord): string | null {
+  if (query?.config.adHoc === true) {
+    return null;
+  }
+
+  const queryMetadata = asObject(candidate.metadata.query);
+  return typeof queryMetadata.id === 'string' ? queryMetadata.id : null;
 }
 
 function providerLabel(profile: SourceProfileRecord): string {
@@ -315,7 +319,7 @@ export async function runSourceSearch(options: RunSourceSearchOptions): Promise<
           ...candidate,
           showId: options.profile.showId,
           sourceProfileId: options.profile.id,
-          sourceQueryId: queryIdFromCandidate(candidate),
+          sourceQueryId: queryIdFromCandidate(candidate, query),
         });
 
         if (inserted) {

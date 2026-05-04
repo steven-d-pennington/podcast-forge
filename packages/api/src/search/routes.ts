@@ -246,7 +246,7 @@ function sourceSearchQueries(baseQueries: SourceQueryRecord[], body: z.infer<typ
     region: template?.region ?? null,
     language: template?.language ?? null,
     freshness: template?.freshness ?? null,
-    includeDomains: [],
+    includeDomains: template?.includeDomains ?? [],
     excludeDomains,
     config: {
       ...(template?.config ?? {}),

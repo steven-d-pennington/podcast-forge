@@ -318,6 +318,59 @@ describe('claim coverage summary', () => {
     assert.ok(summary.needsAttention.some((item) => item.code === 'CLAIM_SINGLE_SOURCE'));
   });
 
+  it('aggregates expected single-source-breaking attribution guidance instead of repeating it per claim', () => {
+    const claims = Array.from({ length: 3 }, (_, index) => ({
+      id: `claim-${index + 1}`,
+      text: `Single-source breaking claim ${index + 1} that should be attributed carefully.`,
+      sourceDocumentIds: ['source-1'],
+      citationUrls: ['https://primary.example/developing-story'],
+      claimType: 'fact' as const,
+      confidence: 'medium' as const,
+      supportLevel: 'single_source' as const,
+      highStakes: false,
+    }));
+
+    const summary = buildClaimCoverageSummary(
+      packet({
+        status: 'single_source_breaking',
+        claims,
+        citations: [{
+          sourceDocumentId: 'source-1',
+          url: 'https://primary.example/developing-story',
+          title: 'Developing story source',
+          fetchedAt: '2026-04-20T00:00:00.000Z',
+          status: 'fetched',
+        }],
+        content: { readiness: { status: 'single_source_breaking' } },
+        warnings: [{
+          id: 'single-source-breaking',
+          code: 'SINGLE_SOURCE_BREAKING_NEWS',
+          message: 'Story appears fresh enough to treat as a developing single-source report with explicit attribution.',
+          severity: 'warning',
+        }],
+      }),
+      revision({
+        metadata: {
+          citationMap: claims.map((claim) => ({
+            line: `HOST: ${claim.text}`,
+            claimId: claim.id,
+            sourceDocumentIds: ['source-1'],
+          })),
+          validation: { provenance: { valid: true, warnings: [] } },
+          integrityReview: { status: 'pass', result: { claimIssues: [] } },
+        },
+      }),
+      { now: new Date('2026-04-20T00:00:00Z') },
+    );
+
+    assert.equal(summary.counts.totalClaims, 3);
+    assert.equal(summary.counts.covered, 3);
+    assert.equal(summary.counts.needsAttention, 0);
+    assert.equal(summary.needsAttention.filter((item) => item.code === 'CLAIM_SINGLE_SOURCE').length, 0);
+    assert.equal(summary.needsAttention.filter((item) => item.code === 'SINGLE_SOURCE_ATTRIBUTION_REQUIRED').length, 1);
+    assert.ok(summary.headline.includes('single-source developing story'));
+  });
+
   it('marks corroborated cited claims covered when no blockers are present', () => {
     const summary = buildClaimCoverageSummary(
       packet({
