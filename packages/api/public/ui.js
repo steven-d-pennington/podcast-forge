@@ -1439,7 +1439,9 @@ function renderCoverageFindingConnectors(panel) {
   if (!overlay) {
     return;
   }
+  let frame = 0;
   const draw = () => {
+    frame = 0;
     overlay.replaceChildren();
     const panelBox = panel.getBoundingClientRect();
     if (!panelBox.width || !panelBox.height) {
@@ -1468,7 +1470,29 @@ function renderCoverageFindingConnectors(panel) {
       overlay.append(line);
     }
   };
-  window.requestAnimationFrame(draw);
+  const scheduleDraw = () => {
+    if (frame) {
+      return;
+    }
+    frame = window.requestAnimationFrame(draw);
+  };
+  scheduleDraw();
+  if ('ResizeObserver' in window) {
+    const observer = new ResizeObserver(scheduleDraw);
+    observer.observe(panel);
+    for (const column of panel.querySelectorAll('.coverage-claim-column, .coverage-finding-column')) {
+      observer.observe(column);
+    }
+  } else {
+    window.addEventListener('resize', scheduleDraw);
+  }
+  const disclosure = panel.closest('details');
+  if (disclosure) {
+    disclosure.addEventListener('toggle', scheduleDraw);
+  }
+  if (document.fonts?.ready) {
+    document.fonts.ready.then(scheduleDraw).catch(() => {});
+  }
 }
 
 function renderCoverageSummary(summary) {
@@ -2819,7 +2843,11 @@ function buildPipelineStages() {
   const publishRunning = isActionRunning('publish');
   const productionActionRunning = productionRunning || isActionRunning('production');
   const packetWarningCount = packet?.warnings?.length || 0;
-  const packetBlocked = packet?.status === 'blocked';
+  const packetReadiness = asObject(asObject(packet?.content).readiness);
+  const packetBlocked = packet?.status === 'blocked'
+    || packet?.status === 'needs_more_sources'
+    || packetReadiness.status === 'blocked'
+    || packetReadiness.status === 'needs_more_sources';
   const profileSupportsDiscovery = profile && ['brave', 'zai-web', 'openrouter-perplexity', 'rss'].includes(profile.type);
   const profileDiscoveryBlocker = profile ? sourceDiscoveryBlocker(profile, state.queries) : '';
   const profileActionLabel = profile ? sourceActionLabel(profile.type) : 'Choose Story Source';

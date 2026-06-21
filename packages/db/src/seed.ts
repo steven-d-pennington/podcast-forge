@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { readFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';
 import { createDb } from './client.js';
@@ -48,8 +48,10 @@ type ExampleConfig = {
 };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(__dirname, '../../..');
 const defaultConfigPath = resolve(__dirname, '../../../config/examples/the-synthetic-lens.json');
 const configPath = process.argv[2] ? resolve(process.argv[2]) : defaultConfigPath;
+const seededFrom = relative(repoRoot, configPath).startsWith('..') ? configPath : relative(repoRoot, configPath);
 
 const config = JSON.parse(await readFile(configPath, 'utf8')) as ExampleConfig;
 const { db, pool } = createDb();
@@ -310,7 +312,7 @@ try {
       excludeDomains: source.excludeDomains ?? [],
       config: {
         category: source.category,
-        seededFrom: 'config/examples/the-synthetic-lens.json',
+        seededFrom,
         feeds: source.feeds ?? []
       }
     }).onConflictDoUpdate({
@@ -325,7 +327,7 @@ try {
         name: source.name ?? source.id,
         config: {
           category: source.category,
-          seededFrom: 'config/examples/the-synthetic-lens.json',
+          seededFrom,
           feeds: source.feeds ?? []
         },
         updatedAt: new Date()
@@ -338,7 +340,7 @@ try {
         query,
         config: {
           category: source.category,
-          seededFrom: 'config/examples/the-synthetic-lens.json',
+          seededFrom,
           freshness: source.freshness,
           includeDomains: source.includeDomains ?? []
         }

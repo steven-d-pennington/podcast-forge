@@ -5,13 +5,13 @@ import { canonicalizeUrl } from '../search/candidate.js';
 import { modelProfileMap, hasModelProfileStore, resolveModelProfile } from '../models/resolver.js';
 import type { ModelProfileStore } from '../models/store.js';
 import type { LlmRuntime } from '../llm/types.js';
-import { LlmJsonOutputError, LlmRuntimeError } from '../llm/types.js';
 import { createPromptRegistry } from '../prompts/registry.js';
 import type { PromptTemplateStore } from '../prompts/types.js';
 import type { CreateJobInput, JobRecord, SearchJobStore, UpdateJobInput } from '../search/store.js';
 import type { ResearchFetch } from './fetch.js';
 import { fetchSourceSnapshot } from './fetch.js';
 import { buildResearchPacketInputFromCandidates, type ResearchCorroborationSearchAttempt } from './builder.js';
+import { safeModelFailureDetails, sanitizeErrorMessage, sanitizedModelFailureMessage } from './model-failure.js';
 import { createLlmResearchModelServices, type ResearchModelServices } from './models.js';
 import type { ResearchStore, ResearchWarning } from './store.js';
 
@@ -295,55 +295,6 @@ function researchModelsFor(options: ResearchRoutesOptions, store: Partial<Prompt
     runtime: options.llmRuntime,
     promptRegistry: createPromptRegistry({ store }),
   });
-}
-
-function looksLikeRawValidationMessage(message: string): boolean {
-  return message.includes('invalid_type')
-    || message.includes('unrecognized_keys')
-    || message.includes('Invalid input: expected')
-    || message.includes('Unrecognized keys')
-    || message.includes('source_urls')
-    || message.includes('source_document_ids')
-    || message.includes('uncertainty_label');
-}
-
-function sanitizedModelFailureMessage(code: string, message: string): string {
-  if (!looksLikeRawValidationMessage(message)) {
-    return message;
-  }
-  if (code === 'MODEL_CLAIM_EXTRACTION_FAILED') {
-    return 'Claim extraction failed for one or more sources because model output did not match the expected claim format. Claims and citations may be incomplete.';
-  }
-  if (code === 'MODEL_RESEARCH_SYNTHESIS_FAILED') {
-    return 'Research synthesis failed because model output did not match the expected synthesis format. Review the generated claims and citations before drafting.';
-  }
-  return 'Model output did not match the expected research format. Review the generated evidence before drafting.';
-}
-
-function sanitizeErrorMessage(message: string): string {
-  return message.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]');
-}
-
-function safeModelFailureDetails(error: unknown, stage: 'claim_extractor' | 'research_synthesizer'): Record<string, unknown> {
-  const metadata = error instanceof LlmRuntimeError || error instanceof LlmJsonOutputError ? error.metadata : undefined;
-  const attempts = Array.isArray(metadata?.attempts) ? metadata.attempts.map((attempt) => ({
-    provider: attempt.provider,
-    model: attempt.model,
-    status: attempt.status,
-    errorCode: attempt.error?.code,
-    errorMessage: attempt.error?.message ? sanitizeErrorMessage(attempt.error.message) : undefined,
-    retryable: attempt.error?.retryable,
-  })) : [];
-  return {
-    modelStage: stage,
-    failureType: error instanceof LlmJsonOutputError ? error.code : error instanceof LlmRuntimeError ? 'runtime_error' : 'model_error',
-    originalMessage: sanitizeErrorMessage(error instanceof Error ? error.message : 'Model invocation failed.'),
-    attempts,
-    selected: metadata?.selected ?? null,
-    responseFormat: metadata?.responseFormat,
-    rawOutputPreview: metadata?.rawOutputPreview,
-    validationDetails: error instanceof LlmJsonOutputError ? error.details : undefined,
-  };
 }
 
 function modelFailureWarning(code: string, message: string, metadata?: Record<string, unknown>): ResearchWarning {
