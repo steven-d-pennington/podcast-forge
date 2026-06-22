@@ -51,7 +51,7 @@ const candidateStatusUpdateSchema = z.object({
 
 const sourceSearchBodySchema = z.object({
   query: z.string().trim().min(3).max(500).optional(),
-  excludeDomains: z.array(z.string().trim().min(1).max(255)).max(20).optional(),
+  excludeDomains: z.array(z.string().trim().min(1).max(255)).optional(),
   purpose: z.string().trim().max(80).optional(),
 }).optional();
 

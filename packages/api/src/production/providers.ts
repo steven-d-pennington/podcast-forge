@@ -486,6 +486,7 @@ interface ScriptTurn {
 function scriptTurns(body: string): ScriptTurn[] {
   const turns: ScriptTurn[] = [];
   let current: ScriptTurn | null = null;
+  const leadingCues: string[] = [];
 
   for (const rawLine of body.split(/\r?\n/)) {
     const line = rawLine.trim();
@@ -499,21 +500,38 @@ function scriptTurns(body: string): ScriptTurn[] {
     if (match) {
       const label = match[1].trim();
       if (!isStructuralScriptCue(label)) {
-        current = { speaker: label, text: match[2].trim() };
+        const text = [leadingCues.join(' '), match[2].trim()].filter(Boolean).join(' ');
+        current = { speaker: label, text };
         turns.push(current);
+        leadingCues.length = 0;
+        continue;
+      }
+
+      if (!current) {
+        const cueText = match[2].trim() || label;
+        if (cueText) {
+          leadingCues.push(cueText);
+        }
         continue;
       }
     }
 
     if (current) {
       current.text = `${current.text} ${line}`.trim();
+    } else if (leadingCues.length > 0) {
+      leadingCues.push(line);
     } else {
       current = { speaker: null, text: line };
       turns.push(current);
     }
   }
 
-  return turns.length > 0 ? turns : [{ speaker: null, text: body.trim() }];
+  if (turns.length > 0) {
+    return turns;
+  }
+
+  const leadingText = leadingCues.join(' ').trim();
+  return [{ speaker: null, text: leadingText || body.trim() }];
 }
 
 function splitTextForVertex(text: string, maxChars: number) {

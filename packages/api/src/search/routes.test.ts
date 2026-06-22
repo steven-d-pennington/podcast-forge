@@ -420,6 +420,62 @@ describe('search routes candidate scoring', () => {
     }
   });
 
+  it('accepts larger ad hoc exclude domain sets and deduplicates them with query controls', async () => {
+    const store = new FakeSearchStore();
+    store.queries[0].excludeDomains = ['existing.example', 'duplicate.example'];
+    const requestedUrls: string[] = [];
+    const app = buildApp({
+      sourceStore: store,
+      braveApiKey: 'test-key',
+      fetchImpl: async (url) => {
+        requestedUrls.push(url);
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              results: [{
+                title: 'Large exclude list still searches',
+                url: 'https://allowed.example/story',
+                description: 'Large corroboration briefs should not fail request validation.',
+                age: '2026-04-26T00:00:00Z',
+                meta_url: { hostname: 'allowed.example' },
+              }],
+            };
+          },
+        };
+      },
+    });
+    const excludeDomains = [
+      ...Array.from({ length: 25 }, (_value, index) => `excluded-${index}.example`),
+      'duplicate.example',
+      ' duplicate.example ',
+    ];
+
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/source-profiles/22222222-2222-4222-8222-222222222222/search',
+        payload: {
+          query: 'large corroboration packet',
+          excludeDomains,
+        },
+      });
+      const body = response.json();
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(body.inserted, 1);
+      assert.equal(requestedUrls.length, 1);
+      assert.deepEqual(body.job.input.excludeDomains, [
+        'existing.example',
+        'duplicate.example',
+        ...Array.from({ length: 25 }, (_value, index) => `excluded-${index}.example`),
+      ]);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('enforces Brave include and exclude domains without substring overmatching', async () => {
     const store = new FakeSearchStore();
     store.profiles[0].includeDomains = ['https://AI.com/news'];

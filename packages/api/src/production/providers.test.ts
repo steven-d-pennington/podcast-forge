@@ -244,6 +244,63 @@ test('Vertex Gemini TTS final audio provider treats structural headings as narra
   }
 });
 
+test('Vertex Gemini TTS final audio provider folds leading structural cues into the first speaker turn', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'podcast-forge-vertex-leading-cues-'));
+  const payloadTexts: string[] = [];
+  const provider = createVertexGeminiTtsFinalAudioProvider({
+    getAuthValue: async () => 'test-auth-value',
+    fetchImpl: async (_url, init) => {
+      const payload = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      const contents = payload.contents as Array<Record<string, unknown>>;
+      const parts = contents[0]?.parts as Array<Record<string, unknown>>;
+      payloadTexts.push(String(parts[0]?.text ?? ''));
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16', data: Buffer.from([1, 0]).toString('base64') } }] } }],
+      }), { status: 200 });
+    },
+    execFileImpl: async (_file, args) => {
+      await writeFile(args.at(-1) ?? '', Buffer.from('leading-cues-final-mp3'));
+    },
+  });
+
+  try {
+    const context = productionContext(dir);
+    await provider.generateFinalAudio({
+      ...context,
+      revision: {
+        ...context.revision,
+        body: [
+          'INTRO: Open on the filing and the unanswered question.',
+          'SEGMENT 1: What changed overnight.',
+          'DAVID: The host begins after the structural setup.',
+          'MARCUS: The analyst answers with context.',
+        ].join('\n'),
+        speakers: ['DAVID', 'MARCUS'],
+      },
+      show: {
+        ...context.show,
+        cast: [
+          { name: 'DAVID', role: 'host', voice: 'Orus' },
+          { name: 'MARCUS', role: 'analyst', voice: 'Charon' },
+        ],
+      },
+      production: {
+        localAssetDir: dir,
+        ttsProvider: 'vertex-gemini-tts',
+        vertexProjectId: 'test-project',
+      },
+    });
+
+    assert.equal(payloadTexts.length, 1);
+    assert.match(payloadTexts[0] ?? '', /^DAVID: Open on the filing and the unanswered question\. What changed overnight\. The host begins/);
+    assert.match(payloadTexts[0] ?? '', /\nMARCUS: The analyst answers with context\./);
+    assert.doesNotMatch(payloadTexts[0] ?? '', /^INTRO:/);
+    assert.doesNotMatch(payloadTexts[0] ?? '', /\nSEGMENT 1:/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('Vertex Gemini TTS final audio provider chunks scripts to the two-speaker request limit', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'podcast-forge-vertex-chunked-'));
   const payloads: Record<string, unknown>[] = [];
