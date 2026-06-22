@@ -13,6 +13,7 @@ export interface ResearchFetchResponse {
 export type ResearchFetch = (url: string) => Promise<ResearchFetchResponse>;
 
 const MAX_SOURCE_CHARS = 200_000;
+const MAX_EXTRACT_INPUT_CHARS = 500_000;
 const READABLE_CONTAINERS = ['article', 'main'];
 
 function defaultFetch(): ResearchFetch {
@@ -31,10 +32,10 @@ function stripUnsafeBlocks(value: string): string {
   return value
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
     .replace(/<script\b[^>]*>[\s\S]*$/gi, ' ')
-    .replace(/^[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<\/script>/gi, ' ')
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
     .replace(/<style\b[^>]*>[\s\S]*$/gi, ' ')
-    .replace(/^[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<\/style>/gi, ' ')
     .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, ' ');
 }
 
@@ -191,7 +192,10 @@ export async function fetchSourceSnapshot(
     }
 
     const rawText = await response.text();
-    const extracted = extractReadableContent(rawText);
+    const extractionInput = rawText.length > MAX_EXTRACT_INPUT_CHARS
+      ? rawText.slice(0, MAX_EXTRACT_INPUT_CHARS)
+      : rawText;
+    const extracted = extractReadableContent(extractionInput);
 
     return {
       storyCandidateId,
@@ -205,6 +209,8 @@ export async function fetchSourceSnapshot(
       textContent: extracted.text,
       metadata: {
         originalLength: rawText.length,
+        extractionInputLength: extractionInput.length,
+        truncatedBeforeExtraction: rawText.length > extractionInput.length,
         extractedLength: extracted.text.length,
       },
     };

@@ -54,6 +54,38 @@ describe('research source fetching and readability extraction', () => {
     assert.doesNotMatch(document.textContent ?? '', /window\.__ROUTES__/);
     assert.ok((document.textContent ?? '').length < 2_000);
     assert.equal(document.metadata.originalLength, html.length);
+    assert.equal(document.metadata.truncatedBeforeExtraction, false);
+    assert.equal(document.metadata.extractedLength, document.textContent?.length);
+  });
+
+  it('removes stray unsafe closing tags without deleting earlier article text', () => {
+    const html = `<!doctype html><html><head><title>Literal tag example</title></head><body>
+      <article>
+        <p>Analysts quoted a literal closing script tag before the important finding: </script>.</p>
+        <p>The important finding should remain visible after cleanup.</p>
+      </article>
+    </body></html>`;
+
+    const extracted = extractReadableContent(html);
+
+    assert.equal(extracted.title, 'Literal tag example');
+    assert.match(extracted.text, /Analysts quoted a literal closing script tag/);
+    assert.match(extracted.text, /important finding should remain visible/);
+  });
+
+  it('bounds oversized HTML before readability extraction', async () => {
+    const article = '<article><p>The bounded article text should still be extracted.</p></article>';
+    const oversizedTail = `<div>${'tail '.repeat(120_000)}</div>`;
+    const html = `<!doctype html><html><head><title>Bounded extraction</title></head><body>${article}${oversizedTail}</body></html>`;
+
+    const document = await fetchSourceSnapshot('candidate-2', 'https://example.com/oversized', async () => response(html));
+
+    assert.equal(document.fetchStatus, 'fetched');
+    assert.equal(document.title, 'Bounded extraction');
+    assert.match(document.textContent ?? '', /bounded article text/);
+    assert.equal(document.metadata.originalLength, html.length);
+    assert.equal(document.metadata.extractionInputLength, 500_000);
+    assert.equal(document.metadata.truncatedBeforeExtraction, true);
     assert.equal(document.metadata.extractedLength, document.textContent?.length);
   });
 });
