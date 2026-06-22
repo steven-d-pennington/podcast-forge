@@ -214,6 +214,9 @@ test('Vertex Gemini TTS final audio provider treats structural headings as narra
         body: [
           'NOVA: Welcome to Weird Machines Weekly.',
           'Segment one: why squishy robots are useful.',
+          'Next: watch the actuator, not the costume.',
+          'Then: compare it to the warehouse baseline.',
+          'Editor note: verify the demo video timestamp before publication.',
           'NOVA: The actual host keeps speaking after the heading.',
         ].join('\n'),
         speakers: ['NOVA'],
@@ -232,6 +235,9 @@ test('Vertex Gemini TTS final audio provider treats structural headings as narra
     assert.equal(payloadTexts.length, 1);
     assert.match(payloadTexts[0] ?? '', /NOVA: Welcome/);
     assert.match(payloadTexts[0] ?? '', /Segment one: why squishy robots are useful/);
+    assert.match(payloadTexts[0] ?? '', /Next: watch the actuator/);
+    assert.match(payloadTexts[0] ?? '', /Then: compare it to the warehouse baseline/);
+    assert.match(payloadTexts[0] ?? '', /Editor note: verify the demo video timestamp/);
     assert.doesNotMatch(payloadTexts[0] ?? '', /Segment one:\s*$/);
   } finally {
     await rm(dir, { recursive: true, force: true });

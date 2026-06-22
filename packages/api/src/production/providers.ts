@@ -10,6 +10,7 @@ import sharp from 'sharp';
 import type { ResearchPacketRecord } from '../research/store.js';
 import type { ShowRecord } from '../sources/store.js';
 import type { ScriptRecord, ScriptRevisionRecord } from '../scripts/store.js';
+import { isStructuralScriptCue } from '../scripts/cues.js';
 
 export interface ProductionConfig {
   ttsProvider?: string;
@@ -480,11 +481,6 @@ async function vertexTtsEndpoint(production: ProductionConfig) {
 interface ScriptTurn {
   speaker: string | null;
   text: string;
-}
-
-function isStructuralScriptCue(label: string): boolean {
-  const normalized = label.trim().toLowerCase().replace(/\s+/g, ' ');
-  return /^(intro|introduction|opening|cold open|segment( [a-z0-9-]+)?|closing|outro|recap|summary|takeaway|key insight|the key insight|first|second|third|fourth|fifth|finally|and finally)$/.test(normalized);
 }
 
 function scriptTurns(body: string): ScriptTurn[] {

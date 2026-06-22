@@ -5,6 +5,7 @@ import { renderPromptTemplate } from '../prompts/renderer.js';
 import type { PromptRegistry } from '../prompts/types.js';
 import type { ResearchClaim, ResearchPacketRecord } from '../research/store.js';
 import type { ShowRecord } from '../sources/store.js';
+import { isStructuralScriptCue } from './cues.js';
 
 export interface BuiltScriptDraft {
   title: string;
@@ -234,13 +235,6 @@ export function extractSpeakerLabels(body: string): string[] {
   }
 
   return [...labels];
-}
-
-function isStructuralScriptCue(label: string): boolean {
-  const normalized = label.trim().toLowerCase().replace(/\s+/g, ' ');
-  return /^(intro|introduction|opening|cold open|segment( [a-z0-9-]+)?|closing|outro)$/.test(normalized)
-    || /^(first|second|third|fourth|fifth|next|then|finally|and finally)$/.test(normalized)
-    || /^(the key insight|key insight|takeaway|practical takeaway|source note|editor note)$/.test(normalized);
 }
 
 export function invalidSpeakerLabels(body: string, cast: ShowRecord['cast']): string[] {

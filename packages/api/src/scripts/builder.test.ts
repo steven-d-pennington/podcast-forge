@@ -9,7 +9,10 @@ describe('script speaker label extraction', () => {
       'NOVA: Welcome to Weird Machines Weekly.',
       'SEGMENT ONE: The robot that looks absurd but solves a real handling problem.',
       'First: it is tempting to dunk on the design, but the source gives useful context.',
+      'Next: watch the actuator, not the costume.',
+      'Then: compare it to the warehouse baseline.',
       'The key insight: odd machines often optimize for constraints that are not obvious.',
+      'Editor note: verify the demo video timestamp before publication.',
       'CLOSING: That is the tour for today.',
       'NOVA: Keep the machines weird and the sourcing boring.',
     ].join('\n');
