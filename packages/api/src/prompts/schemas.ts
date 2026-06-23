@@ -201,6 +201,13 @@ function normalizeConfidence(value: unknown): unknown {
   return value;
 }
 
+function confidenceLevel(value: unknown): 'low' | 'medium' | 'high' | undefined {
+  const normalized = normalizeConfidence(value);
+  return normalized === 'low' || normalized === 'medium' || normalized === 'high'
+    ? normalized
+    : undefined;
+}
+
 function stringArray(...values: unknown[]): string[] {
   const out: string[] = [];
   for (const value of values) {
@@ -236,7 +243,11 @@ function normalizeExtractedClaim(value: unknown, index: number): unknown {
       ? object.text
       : typeof object.claim === 'string' ? object.claim : object.statement,
     claimType: normalizeClaimType(object.claimType ?? object.claim_type ?? object.type),
-    confidence: normalizeConfidence(object.confidence ?? object.uncertainty_label ?? object.uncertaintyLabel ?? object.supportLevel),
+    confidence: confidenceLevel(object.confidence)
+      ?? confidenceLevel(object.uncertainty_label)
+      ?? confidenceLevel(object.uncertaintyLabel)
+      ?? confidenceLevel(object.supportLevel)
+      ?? 'medium',
     sourceDocumentIds,
     citations,
     ...(typeof object.caveat === 'string' && object.caveat.trim() ? { caveat: object.caveat } : {}),

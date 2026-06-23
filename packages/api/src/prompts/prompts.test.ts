@@ -385,6 +385,25 @@ describe('prompt output schemas', () => {
     }]);
   });
 
+  it('does not treat evidence support levels as confidence values', () => {
+    const result = researchSynthesisSchema.parse({
+      title: 'AI Liability and the Duty to Warn',
+      summary: 'Families filed lawsuits after a school shooting, raising questions about AI safety duties.',
+      knownFacts: ['Families filed lawsuits against OpenAI.'],
+      openQuestions: ['What duty-to-warn standard applies?'],
+      sourceDocumentIds: ['doc-1'],
+      claims: [{
+        text: 'The claim is corroborated by multiple source documents.',
+        claimType: 'fact',
+        supportLevel: 'corroborated',
+        sourceDocumentIds: ['doc-1'],
+      }],
+      warnings: [],
+    });
+
+    assert.equal(result.claims[0].confidence, 'medium');
+  });
+
   it('normalizes model-emitted warnings with null sourceDocumentId', () => {
     const result = researchSynthesisSchema.parse({
       title: 'AI Liability and the Duty to Warn',
