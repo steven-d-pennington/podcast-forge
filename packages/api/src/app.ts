@@ -133,7 +133,7 @@ function adHocCorroborationQuery(
   ]);
 
   return {
-    id: 'ad-hoc-research-corroboration',
+    id: template.id,
     sourceProfileId: profile.id,
     query: request.query,
     enabled: true,
@@ -146,6 +146,7 @@ function adHocCorroborationQuery(
     config: {
       ...(template.config ?? {}),
       adHoc: true,
+      adHocQueryId: 'ad-hoc-research-corroboration',
       purpose: request.purpose,
     },
     createdAt: template.createdAt ?? now,

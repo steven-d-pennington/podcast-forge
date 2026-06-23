@@ -237,7 +237,7 @@ function sourceSearchQueries(baseQueries: SourceQueryRecord[], body: z.infer<typ
   ]);
 
   return [{
-    id: adHocQueryId(body?.purpose),
+    id: template?.id ?? adHocQueryId(body?.purpose),
     sourceProfileId: template?.sourceProfileId ?? '',
     query: adHocQuery,
     enabled: true,
@@ -250,6 +250,7 @@ function sourceSearchQueries(baseQueries: SourceQueryRecord[], body: z.infer<typ
     config: {
       ...(template?.config ?? {}),
       adHoc: true,
+      adHocQueryId: adHocQueryId(body?.purpose),
       purpose: body?.purpose ?? 'source-search',
     },
     createdAt: template?.createdAt ?? now,

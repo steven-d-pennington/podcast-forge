@@ -89,8 +89,13 @@ test('research review warnings sanitize model validation dumps for humans', () =
 
 test('show cast persona lines normalize embedded newlines', () => {
   assert.equal(
-    castToLines([{ name: 'David', role: 'anchor', voice: 'Orus', persona: 'Concise anchor.\nPlain-language transitions.' }]),
-    'David | anchor | Orus | Concise anchor. Plain-language transitions.',
+    castToLines([{
+      name: 'David\nPennington',
+      role: 'anchor\nproducer',
+      voice: 'Orus\nvoice',
+      persona: 'Concise anchor.\nPlain-language transitions.',
+    }]),
+    'David Pennington | anchor producer | Orus voice | Concise anchor. Plain-language transitions.',
   );
 });
 

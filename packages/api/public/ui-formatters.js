@@ -493,8 +493,10 @@ export function sanitizedDebug(value) {
 }
 
 export function castToLines(cast) {
+  const linePart = (value) => String(value || '').replace(/\s*\n+\s*/g, ' ').trim();
   return asArray(cast)
-    .map((member) => [member.name, member.role || '', member.voice, String(member.persona || '').replace(/\s*\n+\s*/g, ' ')]
+    .map((member) => [member.name, member.role || '', member.voice, member.persona || '']
+      .map(linePart)
       .filter((part) => part !== '')
       .join(' | '))
     .join('\n');

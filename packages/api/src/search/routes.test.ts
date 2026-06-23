@@ -409,9 +409,10 @@ describe('search routes candidate scoring', () => {
       assert.equal(body.candidates.length, 1);
       assert.equal(body.candidates[0].url, 'https://independent.example/anthropic-valuation');
       assert.deepEqual(body.candidates[0].metadata.sourceControls.applied.includeDomains, ['independent.example']);
+      assert.equal(body.candidates[0].metadata.query.id, '33333333-3333-4333-8333-333333333333');
       assert.equal(body.candidates[0].sourceQueryId, null);
       assert.match(requestedUrls[0], /q=Anthropic\+potential\+%24900B\+valuation\+round/);
-      assert.equal(body.job.input.queryIds[0], 'ad-hoc-research-more-sources');
+      assert.equal(body.job.input.queryIds[0], '33333333-3333-4333-8333-333333333333');
       assert.equal(body.job.input.adHocQuery, 'Anthropic potential $900B valuation round');
       assert.deepEqual(body.job.input.excludeDomains, ['techcrunch.com']);
       assert.match(JSON.stringify(body.job.logs), /Running Brave news query/);
