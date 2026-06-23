@@ -9,6 +9,7 @@ import { createLlmCandidateScorer, type CandidateScorer } from './scoring.js';
 import type { SearchJobStore } from './store.js';
 import type { ZaiWebFetch } from './zai-web.js';
 import type { OpenRouterPerplexityFetch } from './openrouter-perplexity.js';
+import { normalizeDomainList } from './controls.js';
 import { createLlmRuntime } from '../llm/runtime.js';
 import type { LlmRuntime } from '../llm/types.js';
 import { hasModelProfileStore, resolveModelProfile } from '../models/resolver.js';
@@ -230,12 +231,10 @@ function sourceSearchQueries(baseQueries: SourceQueryRecord[], body: z.infer<typ
 
   const template = baseQueries[0];
   const now = new Date();
-  const excludeDomains = [
-    ...new Set([
-      ...(template?.excludeDomains ?? []),
-      ...(body?.excludeDomains ?? []),
-    ].map((domain) => domain.trim()).filter(Boolean)),
-  ];
+  const excludeDomains = normalizeDomainList([
+    ...(template?.excludeDomains ?? []),
+    ...(body?.excludeDomains ?? []),
+  ]);
 
   return [{
     id: adHocQueryId(body?.purpose),

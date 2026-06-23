@@ -30,6 +30,7 @@ import { registerProductionRoutes } from './production/routes.js';
 import type { FeedRecord, ProductionStore } from './production/store.js';
 import { registerSearchRoutes } from './search/routes.js';
 import { runSourceSearch } from './search/job.js';
+import { normalizeDomainList } from './search/controls.js';
 import type { BraveFetch } from './search/brave.js';
 import type { RssFetch } from './search/rss.js';
 import type { CandidateScorer } from './search/scoring.js';
@@ -126,10 +127,10 @@ function adHocCorroborationQuery(
   request: Parameters<ResearchCorroborationSearchRunner>[0],
 ): SourceQueryRecord {
   const now = new Date();
-  const excludeDomains = [...new Set([
+  const excludeDomains = normalizeDomainList([
     ...(template.excludeDomains ?? []),
     ...request.excludeDomains,
-  ].map((domain) => domain.trim()).filter(Boolean))];
+  ]);
 
   return {
     id: 'ad-hoc-research-corroboration',

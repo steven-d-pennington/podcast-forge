@@ -450,6 +450,7 @@ describe('search routes candidate scoring', () => {
       ...Array.from({ length: 25 }, (_value, index) => `excluded-${index}.example`),
       'duplicate.example',
       ' duplicate.example ',
+      'HTTPS://Excluded-0.example/path',
     ];
 
     try {
