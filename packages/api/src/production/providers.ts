@@ -815,11 +815,12 @@ function safeStringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
-function vertexTtsRenderingConfig(context: ProductionProviderContext, input: { model: string; location: string }) {
+function vertexTtsRenderingConfig(context: ProductionProviderContext, input: { model: string; location: string; endpoint: string }) {
   return {
     provider: 'vertex-gemini-tts',
     model: input.model,
     location: input.location,
+    endpoint: input.endpoint,
     castVoiceMapping: context.show.cast.map((member) => ({
       speaker: member.name,
       voice: member.voice,
@@ -992,7 +993,7 @@ export function createVertexGeminiTtsFinalAudioProvider(options: VertexGeminiTts
       let sourceAudioMimeType: string | null = null;
       const model = vertexTtsModel(context.production);
       const location = vertexLocation(context.production);
-      const renderingConfig = vertexTtsRenderingConfig(context, { model, location });
+      const renderingConfig = vertexTtsRenderingConfig(context, { model, location, endpoint: url });
 
       for (let index = 0; index < chunks.length; index += 1) {
         const chunk = chunks[index] ?? [];

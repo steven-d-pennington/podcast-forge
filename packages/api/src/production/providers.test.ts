@@ -740,6 +740,30 @@ test('Vertex Gemini TTS final audio provider resumes final audio from completed 
     assert.match(String(requests[0]?.objectKey), /audio-final-chunks\/revision-1\/chunk-0001\.pcm$/);
     assert.equal(generated.byteSize, 'resumed-final-mp3'.length);
 
+    let endpointChangedCalls = 0;
+    const endpointChangedProvider = createVertexGeminiTtsFinalAudioProvider({
+      getAuthValue: async () => 'test-auth-value',
+      fetchImpl: async () => {
+        endpointChangedCalls += 1;
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;rate=24000', data: chunkTwoPcm.toString('base64') } }] } }],
+        }), { status: 200 });
+      },
+      execFileImpl: async (_file, args) => {
+        await writeFile(args.at(-1) ?? '', Buffer.from('endpoint-changed-final-mp3'));
+      },
+    });
+    const endpointChanged = await endpointChangedProvider.generateFinalAudio({
+      ...resumableContext,
+      production: {
+        ...resumableContext.production,
+        vertexTtsEndpoint: 'https://custom-tts.example.test/v1/models/test-tts:generateContent',
+      },
+    });
+    const endpointChangedRequests = endpointChanged.metadata?.requests as Array<Record<string, unknown>>;
+    assert.equal(endpointChangedCalls, 2, 'endpoint changes should not reuse stale cached PCM chunks');
+    assert.deepEqual(endpointChangedRequests.map((request) => request.cacheStatus), ['rendered', 'rendered']);
+
     let configChangedCalls = 0;
     const configChangedProvider = createVertexGeminiTtsFinalAudioProvider({
       getAuthValue: async () => 'test-auth-value',
