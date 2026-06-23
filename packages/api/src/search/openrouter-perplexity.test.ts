@@ -135,6 +135,7 @@ describe('OpenRouter Perplexity source provider', () => {
                 content: JSON.stringify({
                   candidates: [
                     { title: 'Reuters AI launch', url: 'https://www.reuters.com/technology/ai-launch' },
+                    { title: 'Out of allowlist', url: 'https://example.com/ai-launch' },
                     { title: 'Homepage should survive provider mapping and be dropped later', url: 'https://www.reuters.com/' },
                   ],
                 }),

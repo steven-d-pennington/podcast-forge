@@ -133,9 +133,9 @@ function asResearchWarnings(value: unknown): ResearchWarning[] {
   }) : [];
 }
 
-function asCast(value: unknown): Array<{ name: string; role?: string; voice: string; persona?: string }> {
-  return Array.isArray(value) ? value.filter((item): item is { name: string; role?: string; voice: string; persona?: string } => {
-    return Boolean(
+export function asCast(value: unknown): Array<{ name: string; role?: string; voice: string; persona?: string }> {
+  return Array.isArray(value) ? value.flatMap((item) => {
+    if (
       item
       && typeof item === 'object'
       && !Array.isArray(item)
@@ -143,9 +143,22 @@ function asCast(value: unknown): Array<{ name: string; role?: string; voice: str
       && typeof item.name === 'string'
       && 'voice' in item
       && typeof item.voice === 'string'
-      && (!('role' in item) || typeof item.role === 'string')
-      && (!('persona' in item) || typeof item.persona === 'string'),
-    );
+      && (!('role' in item) || item.role == null || typeof item.role === 'string')
+      && (!('persona' in item) || item.persona == null || typeof item.persona === 'string')
+    ) {
+      const castMember: { name: string; role?: string; voice: string; persona?: string } = {
+        name: item.name,
+        voice: item.voice,
+      };
+      if ('role' in item && typeof item.role === 'string') {
+        castMember.role = item.role;
+      }
+      if ('persona' in item && typeof item.persona === 'string') {
+        castMember.persona = item.persona;
+      }
+      return [castMember];
+    }
+    return [];
   }) : [];
 }
 

@@ -170,6 +170,12 @@ function isHomepage(value: string): boolean {
 function isDeniedUrl(value: string, denied: string[]): boolean {
   const host = hostname(value);
   if (!host) return false;
+  const allowDomains = denied
+    .filter((domain) => !domain.startsWith('-'))
+    .map((domain) => domain.replace(/^www\./, '').toLowerCase());
+  if (allowDomains.length > 0) {
+    return !allowDomains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  }
   return denied
     .filter((domain) => domain.startsWith('-'))
     .map((domain) => domain.replace(/^-/, '').replace(/^www\./, '').toLowerCase())
