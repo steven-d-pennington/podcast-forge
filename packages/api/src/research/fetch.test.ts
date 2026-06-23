@@ -39,6 +39,30 @@ describe('research source fetching and readability extraction', () => {
     assert.doesNotMatch(extracted.text, /About Contact Privacy/);
   });
 
+  it('keeps the strongest readable candidate instead of downgrading to weaker later containers', () => {
+    const html = `<!doctype html>
+      <html>
+        <head><title>Readability candidates</title></head>
+        <body>
+          <article>
+            <h1>Strong report</h1>
+            <p>Researchers documented verifiable changes in production systems. Operators confirmed the deployment timeline. The report includes detailed evidence and named owners.</p>
+            <p>Additional analysis explains why the release matters. Teams validated the operational risks and described concrete mitigations.</p>
+          </article>
+          <article>
+            <p>Shorter sidebar text mentions the same release but has less evidence and fewer concrete details for readers.</p>
+            <p>It should not replace the stronger article candidate.</p>
+          </article>
+        </body>
+      </html>`;
+
+    const extracted = extractReadableContent(html);
+
+    assert.match(extracted.text, /Researchers documented verifiable changes/);
+    assert.match(extracted.text, /concrete mitigations/);
+    assert.doesNotMatch(extracted.text, /Shorter sidebar text/);
+  });
+
   it('strips long script/router payloads before applying the source text cap', async () => {
     const scriptPayload = 'window.__ROUTES__ = ' + JSON.stringify({ routes: 'x'.repeat(230_000) });
     const html = `<!doctype html><html><head><title>Router polluted article</title></head><body>

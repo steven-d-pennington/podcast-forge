@@ -526,6 +526,30 @@ describe('prompt output schemas', () => {
     assert.deepEqual(result.suggestedFixes, ['Add an inline citation map and primary source caveat.']);
   });
 
+  it('preserves explicit integrity warning script excerpts when location aliases are also present', () => {
+    const result = integrityReviewResultSchema.parse({
+      verdict: 'PASS_WITH_NOTES',
+      summary: 'Accurate but needs editorial review for high-stakes claims.',
+      claimIssues: [],
+      missingCitations: [],
+      unsupportedCertainty: [],
+      attributionWarnings: [{
+        scriptExcerpt: 'MARCUS: The actual claim that needs attribution.',
+        location: 'Segment 2, line 8',
+        issue: 'Attribute this as analysis rather than settled fact.',
+      }],
+      balanceWarnings: [],
+      biasSensationalismWarnings: [],
+      suggestedFixes: [],
+    });
+
+    assert.deepEqual(result.attributionWarnings, [{
+      scriptExcerpt: 'MARCUS: The actual claim that needs attribution.',
+      issue: 'Attribute this as analysis rather than settled fact.',
+      severity: 'warning',
+    }]);
+  });
+
   it('describes nested integrity review arrays so JSON-mode models avoid alias fields', () => {
     const properties = PROMPT_OUTPUT_SCHEMAS.integrity_review_result.schemaHint.properties as Record<string, unknown>;
     const missingCitations = properties.missingCitations as {

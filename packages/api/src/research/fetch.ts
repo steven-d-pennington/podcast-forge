@@ -108,14 +108,15 @@ function selectReadableHtml(body: string): string {
   }
 
   let bestHtml = strippedBody;
-  let bestScore = scoreReadableText(cleanVisibleText(strippedBody));
+  const minimumCandidateScore = scoreReadableText(cleanVisibleText(strippedBody)) * 0.45;
+  let bestCandidateScore = Number.NEGATIVE_INFINITY;
 
   for (const candidate of candidates) {
     const text = cleanVisibleText(candidate);
     const score = scoreReadableText(text);
-    if (text.length >= 120 && score >= bestScore * 0.45) {
+    if (text.length >= 120 && score >= minimumCandidateScore && score > bestCandidateScore) {
       bestHtml = candidate;
-      bestScore = score;
+      bestCandidateScore = score;
     }
   }
 

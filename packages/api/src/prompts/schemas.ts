@@ -390,9 +390,14 @@ const integrityWarningSchema = z.preprocess((value) => {
     return value;
   }
 
+  const scriptExcerpt = typeof object.scriptExcerpt === 'string'
+    ? object.scriptExcerpt
+    : typeof object.location === 'string'
+      ? object.location
+      : undefined;
+
   return {
-    ...(typeof object.scriptExcerpt === 'string' ? { scriptExcerpt: object.scriptExcerpt } : {}),
-    ...(typeof object.location === 'string' ? { scriptExcerpt: object.location } : {}),
+    ...(scriptExcerpt ? { scriptExcerpt } : {}),
     issue: typeof object.issue === 'string'
       ? object.issue
       : typeof object.detail === 'string'
