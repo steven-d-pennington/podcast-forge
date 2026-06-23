@@ -54,6 +54,8 @@ function outputInstructions(template: PromptTemplate) {
   if (template.outputSchemaName) {
     const schema = PROMPT_OUTPUT_SCHEMAS[template.outputSchemaName];
     lines.push(`- Return only valid JSON for schema "${schema.name}".`);
+    lines.push('- Return compact JSON only: no Markdown fences, no prose before or after, and no unescaped line breaks inside string values.');
+    lines.push('- If the full answer would be long, prefer fewer concise items over truncating JSON. The response must parse completely.');
     lines.push(`- Schema hint: ${JSON.stringify(schema.schemaHint)}`);
   }
 

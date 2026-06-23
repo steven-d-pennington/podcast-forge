@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { readFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';
 import { createDb } from './client.js';
@@ -13,10 +13,12 @@ type ExampleConfig = {
     description?: string;
     format?: string;
     defaultRuntimeMinutes?: number;
-    cast?: Array<{ name: string; role?: string; voice: string }>;
+    cast?: Array<{ name: string; role?: string; voice: string; persona?: string }>;
   };
   sources: Array<{
     id: string;
+    name?: string;
+    category?: string;
     type: 'brave' | 'zai-web' | 'openrouter-perplexity' | 'rss' | 'manual' | 'local-json';
     enabled: boolean;
     weight?: number;
@@ -46,8 +48,10 @@ type ExampleConfig = {
 };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(__dirname, '../../..');
 const defaultConfigPath = resolve(__dirname, '../../../config/examples/the-synthetic-lens.json');
 const configPath = process.argv[2] ? resolve(process.argv[2]) : defaultConfigPath;
+const seededFrom = relative(repoRoot, configPath).startsWith('..') ? configPath : relative(repoRoot, configPath);
 
 const config = JSON.parse(await readFile(configPath, 'utf8')) as ExampleConfig;
 const { db, pool } = createDb();
@@ -121,6 +125,7 @@ const defaultPromptTemplates = [
     body: [
       'Write a podcast script using only the supplied research packet and show context.',
       'Keep factual claims traceable, distinguish facts from analysis, and avoid unsupported certainty.',
+      'Use each cast member persona from show context for speaker voice, framing, handoffs, pacing, and TTS-friendly direction, but never invent facts or weaken evidence boundaries.',
       'Show context: {{show_context}}',
       'Research packet: {{research_packet}}',
       'Format notes: {{format_notes}}',
@@ -298,7 +303,7 @@ try {
     const [profile] = await db.insert(sourceProfiles).values({
       showId: show.id,
       slug: source.id,
-      name: source.id,
+      name: source.name ?? source.id,
       type: source.type,
       enabled: source.enabled,
       weight: source.weight?.toString() ?? '1',
@@ -306,6 +311,8 @@ try {
       includeDomains: source.includeDomains ?? [],
       excludeDomains: source.excludeDomains ?? [],
       config: {
+        category: source.category,
+        seededFrom,
         feeds: source.feeds ?? []
       }
     }).onConflictDoUpdate({
@@ -317,7 +324,12 @@ try {
         freshness: source.freshness,
         includeDomains: source.includeDomains ?? [],
         excludeDomains: source.excludeDomains ?? [],
-        config: { feeds: source.feeds ?? [] },
+        name: source.name ?? source.id,
+        config: {
+          category: source.category,
+          seededFrom,
+          feeds: source.feeds ?? []
+        },
         updatedAt: new Date()
       }
     }).returning();
@@ -325,7 +337,13 @@ try {
     for (const query of source.queries ?? []) {
       await db.insert(sourceQueries).values({
         sourceProfileId: profile.id,
-        query
+        query,
+        config: {
+          category: source.category,
+          seededFrom,
+          freshness: source.freshness,
+          includeDomains: source.includeDomains ?? []
+        }
       }).onConflictDoNothing({
         target: [sourceQueries.sourceProfileId, sourceQueries.query]
       });

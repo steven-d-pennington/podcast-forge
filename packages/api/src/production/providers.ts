@@ -10,6 +10,7 @@ import sharp from 'sharp';
 import type { ResearchPacketRecord } from '../research/store.js';
 import type { ShowRecord } from '../sources/store.js';
 import type { ScriptRecord, ScriptRevisionRecord } from '../scripts/store.js';
+import { isStructuralScriptCue } from '../scripts/cues.js';
 
 export interface ProductionConfig {
   ttsProvider?: string;
@@ -485,6 +486,7 @@ interface ScriptTurn {
 function scriptTurns(body: string): ScriptTurn[] {
   const turns: ScriptTurn[] = [];
   let current: ScriptTurn | null = null;
+  const leadingCues: string[] = [];
 
   for (const rawLine of body.split(/\r?\n/)) {
     const line = rawLine.trim();
@@ -496,20 +498,40 @@ function scriptTurns(body: string): ScriptTurn[] {
     const match = line.match(/^([A-Za-z][A-Za-z0-9 _-]{0,63}):\s*(.*)$/);
 
     if (match) {
-      current = { speaker: match[1].trim(), text: match[2].trim() };
-      turns.push(current);
-      continue;
+      const label = match[1].trim();
+      if (!isStructuralScriptCue(label)) {
+        const text = [leadingCues.join(' '), match[2].trim()].filter(Boolean).join(' ');
+        current = { speaker: label, text };
+        turns.push(current);
+        leadingCues.length = 0;
+        continue;
+      }
+
+      if (!current) {
+        const cueText = match[2].trim() || label;
+        if (cueText) {
+          leadingCues.push(cueText);
+        }
+        continue;
+      }
     }
 
     if (current) {
       current.text = `${current.text} ${line}`.trim();
+    } else if (leadingCues.length > 0) {
+      leadingCues.push(line);
     } else {
       current = { speaker: null, text: line };
       turns.push(current);
     }
   }
 
-  return turns.length > 0 ? turns : [{ speaker: null, text: body.trim() }];
+  if (turns.length > 0) {
+    return turns;
+  }
+
+  const leadingText = leadingCues.join(' ').trim();
+  return [{ speaker: null, text: leadingText || body.trim() }];
 }
 
 function splitTextForVertex(text: string, maxChars: number) {
@@ -702,6 +724,45 @@ function sampleRateFromMimeType(mimeType: string, fallback: number) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+type ProductionProviderError = Error & { productionMetadata?: Record<string, unknown> };
+
+function withProductionMetadata(error: Error, metadata: Record<string, unknown>): ProductionProviderError {
+  const productionError = error as ProductionProviderError;
+  productionError.productionMetadata = {
+    ...(isRecord(productionError.productionMetadata) ? productionError.productionMetadata : {}),
+    ...metadata,
+  };
+  return productionError;
+}
+
+function vertexChunkMetadata(input: {
+  chunkIndex: number;
+  chunkCount: number;
+  speakers: string[];
+  characterCount: number;
+  timeoutMs: number;
+  endpoint: string;
+  model: string;
+  location: string;
+  startedAt: number;
+}) {
+  return {
+    provider: 'vertex-gemini-tts',
+    stage: 'vertex-tts-request',
+    chunkIndex: input.chunkIndex,
+    chunkNumber: input.chunkIndex + 1,
+    chunkCount: input.chunkCount,
+    speakers: input.speakers,
+    speakerCount: input.speakers.length,
+    characterCount: input.characterCount,
+    timeoutMs: input.timeoutMs,
+    elapsedMs: Math.max(0, Date.now() - input.startedAt),
+    endpoint: new URL(input.endpoint).origin,
+    model: input.model,
+    location: input.location,
+  };
+}
+
 function wavFromPcm(pcm: Buffer, sampleRate: number) {
   const channels = 1;
   const bitsPerSample = 16;
@@ -728,6 +789,149 @@ function wavFromPcm(pcm: Buffer, sampleRate: number) {
 
 function durationSecondsForPcm(pcmByteLength: number, sampleRate: number) {
   return Math.max(1, Math.round(pcmByteLength / (sampleRate * 2)));
+}
+
+interface CachedVertexPcmChunk {
+  pcm: Buffer;
+  mimeType: string;
+  sampleRate: number;
+  objectKey: string;
+  metadataObjectKey: string;
+  checksum: string;
+  byteSize: number;
+}
+
+function vertexChunkObjectKey(context: ProductionProviderContext, index: number) {
+  const chunkNumber = String(index + 1).padStart(4, '0');
+  return `shows/${context.show.slug}/episodes/${context.episodeSlug}/audio-final-chunks/${context.revision.id}/chunk-${chunkNumber}.pcm`;
+}
+
+function vertexChunkMetadataObjectKey(context: ProductionProviderContext, index: number) {
+  const chunkNumber = String(index + 1).padStart(4, '0');
+  return `shows/${context.show.slug}/episodes/${context.episodeSlug}/audio-final-chunks/${context.revision.id}/chunk-${chunkNumber}.json`;
+}
+
+function safeStringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function vertexTtsRenderingConfig(context: ProductionProviderContext, input: { model: string; location: string; endpoint: string }) {
+  return {
+    provider: 'vertex-gemini-tts',
+    model: input.model,
+    location: input.location,
+    endpoint: input.endpoint,
+    castVoiceMapping: context.show.cast.map((member) => ({
+      speaker: member.name,
+      voice: member.voice,
+    })),
+  };
+}
+
+function sameVertexRenderingConfig(left: unknown, right: ReturnType<typeof vertexTtsRenderingConfig>) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+async function readCachedVertexChunk(context: ProductionProviderContext, input: {
+  chunkIndex: number;
+  chunkCount: number;
+  speakers: string[];
+  characterCount: number;
+  renderingConfig: ReturnType<typeof vertexTtsRenderingConfig>;
+}) {
+  const objectKey = vertexChunkObjectKey(context, input.chunkIndex);
+  const metadataObjectKey = vertexChunkMetadataObjectKey(context, input.chunkIndex);
+  const pcmPath = join(localAssetRoot(context.production), objectKey);
+  const metadataPath = join(localAssetRoot(context.production), metadataObjectKey);
+
+  try {
+    const [pcm, metadataText] = await Promise.all([
+      readFile(pcmPath),
+      readFile(metadataPath, 'utf8'),
+    ]);
+    const parsed = JSON.parse(metadataText) as unknown;
+    if (!isRecord(parsed)) {
+      return null;
+    }
+    const speakers = safeStringArray(parsed.speakers);
+    const pcmChecksum = checksum(pcm);
+    if (
+      parsed.provider !== 'vertex-gemini-tts'
+      || parsed.revisionId !== context.revision.id
+      || parsed.scriptId !== context.script.id
+      || parsed.chunkIndex !== input.chunkIndex
+      || parsed.chunkCount !== input.chunkCount
+      || parsed.characterCount !== input.characterCount
+      || parsed.checksum !== pcmChecksum
+      || speakers.join('\u0000') !== input.speakers.join('\u0000')
+      || !sameVertexRenderingConfig(parsed.renderingConfig, input.renderingConfig)
+      || typeof parsed.mimeType !== 'string'
+      || typeof parsed.sampleRate !== 'number'
+    ) {
+      return null;
+    }
+    return {
+      pcm,
+      mimeType: parsed.mimeType,
+      sampleRate: parsed.sampleRate,
+      objectKey,
+      metadataObjectKey,
+      checksum: pcmChecksum,
+      byteSize: pcm.byteLength,
+    } satisfies CachedVertexPcmChunk;
+  } catch {
+    return null;
+  }
+}
+
+async function writeCachedVertexChunk(context: ProductionProviderContext, input: {
+  chunkIndex: number;
+  chunkCount: number;
+  speakers: string[];
+  characterCount: number;
+  mimeType: string;
+  sampleRate: number;
+  pcm: Buffer;
+  model: string;
+  location: string;
+  renderingConfig: ReturnType<typeof vertexTtsRenderingConfig>;
+}) {
+  const objectKey = vertexChunkObjectKey(context, input.chunkIndex);
+  const metadataObjectKey = vertexChunkMetadataObjectKey(context, input.chunkIndex);
+  const pcmPath = join(localAssetRoot(context.production), objectKey);
+  const metadataPath = join(localAssetRoot(context.production), metadataObjectKey);
+  const pcmChecksum = checksum(input.pcm);
+  await mkdir(dirname(pcmPath), { recursive: true });
+  await writeFile(pcmPath, input.pcm);
+  await writeFile(metadataPath, JSON.stringify({
+    provider: 'vertex-gemini-tts',
+    scriptId: context.script.id,
+    revisionId: context.revision.id,
+    episodeId: context.episodeId,
+    chunkIndex: input.chunkIndex,
+    chunkNumber: input.chunkIndex + 1,
+    chunkCount: input.chunkCount,
+    speakers: input.speakers,
+    speakerCount: input.speakers.length,
+    characterCount: input.characterCount,
+    mimeType: input.mimeType,
+    sampleRate: input.sampleRate,
+    byteSize: input.pcm.byteLength,
+    checksum: pcmChecksum,
+    model: input.model,
+    location: input.location,
+    renderingConfig: input.renderingConfig,
+    cachedAt: new Date().toISOString(),
+  }, null, 2));
+  return {
+    pcm: input.pcm,
+    mimeType: input.mimeType,
+    sampleRate: input.sampleRate,
+    objectKey,
+    metadataObjectKey,
+    checksum: pcmChecksum,
+    byteSize: input.pcm.byteLength,
+  } satisfies CachedVertexPcmChunk;
 }
 
 function finalAudioWarnings(context: ProductionProviderContext, chunkCount: number) {
@@ -783,37 +987,121 @@ export function createVertexGeminiTtsFinalAudioProvider(options: VertexGeminiTts
       const fallbackSampleRate = context.production.vertexTtsSampleRateHz ?? 24_000;
       const pcmBuffers: Buffer[] = [];
       const requests: Array<Record<string, unknown>> = [];
+      let renderedChunkCount = 0;
+      let resumedChunkCount = 0;
       let sampleRate = fallbackSampleRate;
       let sourceAudioMimeType: string | null = null;
+      const model = vertexTtsModel(context.production);
+      const location = vertexLocation(context.production);
+      const renderingConfig = vertexTtsRenderingConfig(context, { model, location, endpoint: url });
 
       for (let index = 0; index < chunks.length; index += 1) {
         const chunk = chunks[index] ?? [];
         const speakers = [...new Set(chunk.map((turn) => turn.speaker).filter((speaker): speaker is string => Boolean(speaker)))];
         const text = chunkText(chunk);
         const payload = vertexTtsPayload(context, text, speakers);
-        const response = await fetchImpl(url, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${authHeaderValue}`,
-            'content-type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(timeout),
+        const startedAt = Date.now();
+        const requestMetadata = vertexChunkMetadata({
+          chunkIndex: index,
+          chunkCount: chunks.length,
+          speakers,
+          characterCount: text.length,
+          timeoutMs: timeout,
+          endpoint: url,
+          model,
+          location,
+          startedAt,
+        });
+        const cachedChunk = await readCachedVertexChunk(context, {
+          chunkIndex: index,
+          chunkCount: chunks.length,
+          speakers,
+          characterCount: text.length,
+          renderingConfig,
         });
 
+        if (cachedChunk) {
+          resumedChunkCount += 1;
+          sampleRate = cachedChunk.sampleRate;
+          sourceAudioMimeType ??= cachedChunk.mimeType;
+          pcmBuffers.push(cachedChunk.pcm);
+          requests.push({
+            index,
+            speakerCount: speakers.length,
+            speakers,
+            characterCount: text.length,
+            mimeType: cachedChunk.mimeType,
+            sampleRate: cachedChunk.sampleRate,
+            byteSize: cachedChunk.byteSize,
+            checksum: cachedChunk.checksum,
+            objectKey: cachedChunk.objectKey,
+            metadataObjectKey: cachedChunk.metadataObjectKey,
+            cacheStatus: 'reused',
+          });
+          continue;
+        }
+        let response: Response;
+
+        try {
+          response = await fetchImpl(url, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${authHeaderValue}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(timeout),
+          });
+        } catch (error) {
+          const causeMessage = error instanceof Error ? error.message : 'unknown provider error';
+          const timeoutLike = error instanceof Error && /timeout|aborted/i.test(`${error.name} ${error.message}`);
+          const message = timeoutLike
+            ? `Vertex Gemini TTS timed out after ${timeout}ms while rendering chunk ${index + 1}/${chunks.length}.`
+            : `Vertex Gemini TTS request failed while rendering chunk ${index + 1}/${chunks.length}: ${causeMessage}`;
+          throw withProductionMetadata(new Error(message, { cause: error }), {
+            ...requestMetadata,
+            elapsedMs: Math.max(0, Date.now() - startedAt),
+            retryable: true,
+            cause: error instanceof Error ? error.name : 'UNKNOWN_ERROR',
+          });
+        }
+
         if (!response.ok) {
-          throw new Error(`Vertex Gemini TTS request failed with HTTP ${response.status}.`);
+          throw withProductionMetadata(new Error(`Vertex Gemini TTS request failed with HTTP ${response.status} while rendering chunk ${index + 1}/${chunks.length}.`), {
+            ...requestMetadata,
+            elapsedMs: Math.max(0, Date.now() - startedAt),
+            httpStatus: response.status,
+            retryable: response.status >= 500 || response.status === 408 || response.status === 429,
+          });
         }
 
         const inlineAudio = inlineAudioFromVertexResponse(await response.json() as unknown);
 
         if (!inlineAudio) {
-          throw new Error('Vertex Gemini TTS response did not include inline audio data.');
+          throw withProductionMetadata(new Error(`Vertex Gemini TTS response for chunk ${index + 1}/${chunks.length} did not include inline audio data.`), {
+            ...requestMetadata,
+            elapsedMs: Math.max(0, Date.now() - startedAt),
+            retryable: true,
+          });
         }
 
         sampleRate = sampleRateFromMimeType(inlineAudio.mimeType, fallbackSampleRate);
         sourceAudioMimeType ??= inlineAudio.mimeType;
-        pcmBuffers.push(Buffer.from(inlineAudio.data, 'base64'));
+        const chunkPcm = Buffer.from(inlineAudio.data, 'base64');
+        const cachedRenderedChunk = await writeCachedVertexChunk(context, {
+          chunkIndex: index,
+          chunkCount: chunks.length,
+          speakers,
+          characterCount: text.length,
+          mimeType: inlineAudio.mimeType,
+          sampleRate,
+          pcm: chunkPcm,
+          model,
+          location,
+          renderingConfig,
+        });
+        renderedChunkCount += 1;
+        pcmBuffers.push(cachedRenderedChunk.pcm);
         requests.push({
           index,
           speakerCount: speakers.length,
@@ -821,6 +1109,11 @@ export function createVertexGeminiTtsFinalAudioProvider(options: VertexGeminiTts
           characterCount: text.length,
           mimeType: inlineAudio.mimeType,
           sampleRate,
+          byteSize: cachedRenderedChunk.byteSize,
+          checksum: cachedRenderedChunk.checksum,
+          objectKey: cachedRenderedChunk.objectKey,
+          metadataObjectKey: cachedRenderedChunk.metadataObjectKey,
+          cacheStatus: 'rendered',
         });
       }
 
@@ -879,6 +1172,12 @@ export function createVertexGeminiTtsFinalAudioProvider(options: VertexGeminiTts
           sampleRateHz: sampleRate,
           sourceAudioMimeType,
           chunkCount: chunks.length,
+          renderedChunkCount,
+          resumedChunkCount,
+          chunkCache: {
+            status: resumedChunkCount > 0 ? 'resumed' : 'fresh',
+            rootObjectKey: `shows/${context.show.slug}/episodes/${context.episodeSlug}/audio-final-chunks/${context.revision.id}`,
+          },
           requests,
           finalization: {
             inputFormat: 'pcm_s16le_wav',

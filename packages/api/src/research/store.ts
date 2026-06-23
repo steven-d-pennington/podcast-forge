@@ -101,6 +101,20 @@ export interface OverrideResearchWarningInput {
   reason: string;
 }
 
+export interface ExcludeResearchClaimInput {
+  warningId: string;
+  claimId?: string;
+  actor: string;
+  reason: string;
+}
+
+export interface MarkResearchSourcePrimaryInput {
+  warningId: string;
+  sourceDocumentId: string;
+  actor: string;
+  reason: string;
+}
+
 export interface ApproveResearchPacketInput {
   actor: string;
   reason?: string | null;
@@ -120,5 +134,7 @@ export interface ResearchStore {
   getResearchPacket(id: string): Promise<ResearchPacketRecord | undefined>;
   listResearchPackets(filter?: ResearchPacketListFilter): Promise<ResearchPacketRecord[]>;
   overrideResearchWarning(id: string, input: OverrideResearchWarningInput): Promise<ResearchPacketRecord | undefined>;
+  excludeResearchClaim(id: string, input: ExcludeResearchClaimInput): Promise<ResearchPacketRecord | undefined>;
+  markResearchSourcePrimary(id: string, input: MarkResearchSourcePrimaryInput): Promise<ResearchPacketRecord | undefined>;
   approveResearchPacket(id: string, input: ApproveResearchPacketInput): Promise<ResearchPacketRecord | undefined>;
 }

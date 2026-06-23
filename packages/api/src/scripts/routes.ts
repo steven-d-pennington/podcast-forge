@@ -60,8 +60,12 @@ const createRevisionSchema = z.object({
 });
 
 const coachRevisionSchema = z.object({
-  action: z.enum(SCRIPT_COACHING_ACTION_IDS),
+  action: z.enum([...SCRIPT_COACHING_ACTION_IDS, 'custom_feedback'] as const),
+  customInstruction: z.string().trim().min(1).max(4000).optional(),
   actor: z.string().trim().min(1).default('local-user'),
+}).refine((body) => body.action !== 'custom_feedback' || Boolean(body.customInstruction), {
+  path: ['customInstruction'],
+  message: 'Custom AI feedback requires an instruction.',
 });
 
 const approveSchema = z.object({
@@ -236,6 +240,10 @@ function assertValidSpeakers(body: string, show: ShowRecord) {
 }
 
 function assertPacketCanGenerate(packet: { id: string; status: string; content: Record<string, unknown> }) {
+  if (packet.status === 'approved') {
+    return;
+  }
+
   const readiness = packet.content.readiness;
   const readinessStatus = readiness && typeof readiness === 'object' && !Array.isArray(readiness)
     ? (readiness as Record<string, unknown>).status
@@ -584,6 +592,7 @@ export function registerScriptRoutes(app: FastifyInstance, options: ScriptRoutes
       const coached = await buildLlmScriptCoachingRevision(show, packet, script, revision, body.action, modelProfile, {
         runtime: options.llmRuntime,
         promptRegistry: createPromptRegistry({ store: rawStore }),
+        customInstruction: body.customInstruction,
       });
       assertValidSpeakers(coached.body, show);
       const coachedSpeakers = extractSpeakerLabels(coached.body);

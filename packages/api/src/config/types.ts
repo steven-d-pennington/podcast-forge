@@ -11,17 +11,20 @@ export interface ShowConfig {
   description?: string;
   format?: string;
   defaultRuntimeMinutes?: number;
-  cast?: CastMemberConfig[];
+  cast?: ShowCastMemberConfig[];
 }
 
-export interface CastMemberConfig {
+export interface ShowCastMemberConfig {
   name: string;
   role?: string;
   voice: string;
+  persona?: string;
 }
 
 export interface SourceConfig {
   id: string;
+  name?: string;
+  category?: string;
   type: 'brave' | 'zai-web' | 'openrouter-perplexity' | 'rss' | 'manual' | 'local-json';
   enabled: boolean;
   weight?: number;

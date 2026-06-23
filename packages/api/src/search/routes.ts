@@ -9,13 +9,14 @@ import { createLlmCandidateScorer, type CandidateScorer } from './scoring.js';
 import type { SearchJobStore } from './store.js';
 import type { ZaiWebFetch } from './zai-web.js';
 import type { OpenRouterPerplexityFetch } from './openrouter-perplexity.js';
+import { normalizeDomainList } from './controls.js';
 import { createLlmRuntime } from '../llm/runtime.js';
 import type { LlmRuntime } from '../llm/types.js';
 import { hasModelProfileStore, resolveModelProfile } from '../models/resolver.js';
 import type { ModelProfileStore } from '../models/store.js';
 import { createPromptRegistry } from '../prompts/registry.js';
 import type { PromptTemplateStore } from '../prompts/types.js';
-import type { SourceStore } from '../sources/store.js';
+import type { SourceQueryRecord, SourceStore } from '../sources/store.js';
 import { normalizeJobRecord } from '../jobs/summary.js';
 
 class ApiError extends Error {
@@ -48,6 +49,12 @@ const candidateStatusUpdateSchema = z.object({
   status: candidateStatusSchema,
   reason: z.string().trim().max(500).optional(),
 });
+
+const sourceSearchBodySchema = z.object({
+  query: z.string().trim().min(3).max(500).optional(),
+  excludeDomains: z.array(z.string().trim().min(1).max(255)).optional(),
+  purpose: z.string().trim().max(80).optional(),
+}).optional();
 
 const clearCandidatesSchema = z.object({
   showId: z.string().uuid().optional(),
@@ -210,6 +217,47 @@ function searchCredentialForSource(profileType: string, options: SearchRoutesOpt
   throw new ApiError(400, 'UNSUPPORTED_SOURCE_TYPE', `source.search supports brave, zai-web, and openrouter-perplexity profiles, not ${profileType}.`);
 }
 
+function adHocQueryId(purpose?: string) {
+  const suffix = purpose?.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'source-search';
+  return `ad-hoc-${suffix}`;
+}
+
+function sourceSearchQueries(baseQueries: SourceQueryRecord[], body: z.infer<typeof sourceSearchBodySchema>): SourceQueryRecord[] {
+  const adHocQuery = body?.query?.trim();
+
+  if (!adHocQuery) {
+    return baseQueries;
+  }
+
+  const template = baseQueries[0];
+  const now = new Date();
+  const excludeDomains = normalizeDomainList([
+    ...(template?.excludeDomains ?? []),
+    ...(body?.excludeDomains ?? []),
+  ]);
+
+  return [{
+    id: template?.id ?? adHocQueryId(body?.purpose),
+    sourceProfileId: template?.sourceProfileId ?? '',
+    query: adHocQuery,
+    enabled: true,
+    weight: template?.weight ?? 1,
+    region: template?.region ?? null,
+    language: template?.language ?? null,
+    freshness: template?.freshness ?? null,
+    includeDomains: template?.includeDomains ?? [],
+    excludeDomains,
+    config: {
+      ...(template?.config ?? {}),
+      adHoc: true,
+      adHocQueryId: adHocQueryId(body?.purpose),
+      purpose: body?.purpose ?? 'source-search',
+    },
+    createdAt: template?.createdAt ?? now,
+    updatedAt: now,
+  }];
+}
+
 async function resolveShowId(store: SourceStore, showId?: string, showSlug?: string): Promise<string> {
   if (showId) {
     const show = (await store.listShows()).find((candidate) => candidate.id === showId);
@@ -235,7 +283,7 @@ async function resolveShowId(store: SourceStore, showId?: string, showSlug?: str
 }
 
 export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutesOptions) {
-  app.post<{ Params: { id: string } }>('/source-profiles/:id/search', async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: unknown }>('/source-profiles/:id/search', async (request, reply) => {
     try {
       const rawStore = options.getStore();
       const store = requireSearchStore(rawStore);
@@ -255,11 +303,14 @@ export function registerSearchRoutes(app: FastifyInstance, options: SearchRoutes
 
       const credential = searchCredentialForSource(profile.type, options);
 
-      const queries = await store.listSourceQueries(profile.id, { enabledOnly: true });
+      const baseQueries = await store.listSourceQueries(profile.id, { enabledOnly: true });
 
-      if (queries.length === 0) {
+      if (baseQueries.length === 0) {
         throw new ApiError(400, 'NO_ENABLED_SOURCE_QUERIES', `Source profile has no enabled queries: ${profile.slug}`);
       }
+
+      const body = sourceSearchBodySchema.parse(request.body);
+      const queries = sourceSearchQueries(baseQueries, body);
 
       const modelProfile = hasModelProfileStore(rawStore)
         ? await resolveModelProfile(rawStore, { showId: profile.showId, role: 'candidate_scorer' })

@@ -493,8 +493,12 @@ export function sanitizedDebug(value) {
 }
 
 export function castToLines(cast) {
+  const linePart = (value) => String(value || '').replace(/\s*\n+\s*/g, ' ').trim();
   return asArray(cast)
-    .map((member) => [member.name, member.role || '', member.voice].filter((part) => part !== '').join(' | '))
+    .map((member) => [member.name, member.role || '', member.voice, member.persona || '']
+      .map(linePart)
+      .filter((part) => part !== '')
+      .join(' | '))
     .join('\n');
 }
 
@@ -504,11 +508,13 @@ export function linesToCast(value) {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [name, roleOrVoice, voice] = line.split('|').map((part) => part.trim());
+      const [name, roleOrVoice, voice, ...personaParts] = line.split('|').map((part) => part.trim());
+      const persona = personaParts.join(' | ').trim();
       return {
         name,
         ...(voice ? { role: roleOrVoice } : {}),
         voice: voice || roleOrVoice || name,
+        ...(persona ? { persona } : {}),
       };
     });
 }

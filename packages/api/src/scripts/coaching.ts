@@ -15,9 +15,10 @@ export const SCRIPT_COACHING_ACTION_IDS = [
 ] as const;
 
 export type ScriptCoachingAction = typeof SCRIPT_COACHING_ACTION_IDS[number];
+export type ScriptCoachingRequestAction = ScriptCoachingAction | 'custom_feedback';
 
 export interface ScriptCoachingActionDefinition {
-  action: ScriptCoachingAction;
+  action: ScriptCoachingRequestAction;
   label: string;
   description: string;
   instruction: string;
@@ -118,7 +119,12 @@ function showContext(show: ShowRecord) {
     format: show.format,
     defaultRuntimeMinutes: show.defaultRuntimeMinutes,
     settings: sanitizePromptValue(show.settings),
-    cast: show.cast.map((member) => ({ name: member.name, role: member.role })),
+    cast: show.cast.map((member) => ({
+      name: member.name,
+      role: member.role,
+      ...(member.voice ? { voice: member.voice } : {}),
+      ...(member.persona ? { persona: member.persona } : {}),
+    })),
   };
 }
 
@@ -197,11 +203,18 @@ export async function buildLlmScriptCoachingRevision(
   packet: ResearchPacketRecord,
   script: ScriptRecord,
   revision: ScriptRevisionRecord,
-  actionId: ScriptCoachingAction,
+  actionId: ScriptCoachingRequestAction,
   modelProfile: ResolvedModelProfile,
-  options: ScriptCoachingRuntimeOptions,
+  options: ScriptCoachingRuntimeOptions & { customInstruction?: string },
 ): Promise<BuiltScriptCoachingRevision> {
-  const action = SCRIPT_COACHING_ACTIONS[actionId];
+  const action: ScriptCoachingActionDefinition = actionId === 'custom_feedback'
+    ? {
+      action: 'custom_feedback',
+      label: 'Custom AI feedback',
+      description: 'Apply the editor\'s custom feedback to create a new draft revision.',
+      instruction: options.customInstruction?.trim() || 'Apply the editor custom feedback while preserving evidence, attribution, and speaker labels.',
+    }
+    : SCRIPT_COACHING_ACTIONS[actionId];
   const rendered = await renderPromptTemplate(options.promptRegistry, {
     key: modelProfile.promptTemplateKey ?? undefined,
     role: modelProfile.promptTemplateKey ? undefined : 'script_editor',
@@ -248,6 +261,7 @@ export async function buildLlmScriptCoachingRevision(
       modelRuntime: result.metadata,
       resolvedWarnings: result.value.resolvedWarnings,
       remainingWarnings: result.value.remainingWarnings,
+      ...(action.action === 'custom_feedback' ? { customInstruction: action.instruction } : {}),
     },
   };
 }

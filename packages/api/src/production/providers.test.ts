@@ -186,6 +186,121 @@ test('Vertex Gemini TTS final audio provider builds Vertex requests and loudness
   }
 });
 
+test('Vertex Gemini TTS final audio provider treats structural headings as narration, not speakers', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'podcast-forge-vertex-headings-'));
+  const payloadTexts: string[] = [];
+  const provider = createVertexGeminiTtsFinalAudioProvider({
+    getAuthValue: async () => 'test-auth-value',
+    fetchImpl: async (_url, init) => {
+      const payload = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      const contents = payload.contents as Array<Record<string, unknown>>;
+      const parts = contents[0]?.parts as Array<Record<string, unknown>>;
+      payloadTexts.push(String(parts[0]?.text ?? ''));
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16', data: Buffer.from([1, 0]).toString('base64') } }] } }],
+      }), { status: 200 });
+    },
+    execFileImpl: async (_file, args) => {
+      await writeFile(args.at(-1) ?? '', Buffer.from('heading-final-mp3'));
+    },
+  });
+
+  try {
+    const context = productionContext(dir);
+    await provider.generateFinalAudio({
+      ...context,
+      revision: {
+        ...context.revision,
+        body: [
+          'NOVA: Welcome to Weird Machines Weekly.',
+          'Segment one: why squishy robots are useful.',
+          'Next: watch the actuator, not the costume.',
+          'Then: compare it to the warehouse baseline.',
+          'Editor note: verify the demo video timestamp before publication.',
+          'NOVA: The actual host keeps speaking after the heading.',
+        ].join('\n'),
+        speakers: ['NOVA'],
+      },
+      show: {
+        ...context.show,
+        cast: [{ name: 'NOVA', role: 'host', voice: 'Nova' }],
+      },
+      production: {
+        localAssetDir: dir,
+        ttsProvider: 'vertex-gemini-tts',
+        vertexProjectId: 'test-project',
+      },
+    });
+
+    assert.equal(payloadTexts.length, 1);
+    assert.match(payloadTexts[0] ?? '', /NOVA: Welcome/);
+    assert.match(payloadTexts[0] ?? '', /Segment one: why squishy robots are useful/);
+    assert.match(payloadTexts[0] ?? '', /Next: watch the actuator/);
+    assert.match(payloadTexts[0] ?? '', /Then: compare it to the warehouse baseline/);
+    assert.match(payloadTexts[0] ?? '', /Editor note: verify the demo video timestamp/);
+    assert.doesNotMatch(payloadTexts[0] ?? '', /Segment one:\s*$/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('Vertex Gemini TTS final audio provider folds leading structural cues into the first speaker turn', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'podcast-forge-vertex-leading-cues-'));
+  const payloadTexts: string[] = [];
+  const provider = createVertexGeminiTtsFinalAudioProvider({
+    getAuthValue: async () => 'test-auth-value',
+    fetchImpl: async (_url, init) => {
+      const payload = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      const contents = payload.contents as Array<Record<string, unknown>>;
+      const parts = contents[0]?.parts as Array<Record<string, unknown>>;
+      payloadTexts.push(String(parts[0]?.text ?? ''));
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16', data: Buffer.from([1, 0]).toString('base64') } }] } }],
+      }), { status: 200 });
+    },
+    execFileImpl: async (_file, args) => {
+      await writeFile(args.at(-1) ?? '', Buffer.from('leading-cues-final-mp3'));
+    },
+  });
+
+  try {
+    const context = productionContext(dir);
+    await provider.generateFinalAudio({
+      ...context,
+      revision: {
+        ...context.revision,
+        body: [
+          'INTRO: Open on the filing and the unanswered question.',
+          'SEGMENT 1: What changed overnight.',
+          'DAVID: The host begins after the structural setup.',
+          'MARCUS: The analyst answers with context.',
+        ].join('\n'),
+        speakers: ['DAVID', 'MARCUS'],
+      },
+      show: {
+        ...context.show,
+        cast: [
+          { name: 'DAVID', role: 'host', voice: 'Orus' },
+          { name: 'MARCUS', role: 'analyst', voice: 'Charon' },
+        ],
+      },
+      production: {
+        localAssetDir: dir,
+        ttsProvider: 'vertex-gemini-tts',
+        vertexProjectId: 'test-project',
+      },
+    });
+
+    assert.equal(payloadTexts.length, 1);
+    assert.match(payloadTexts[0] ?? '', /^DAVID: Open on the filing and the unanswered question\. What changed overnight\. The host begins/);
+    assert.match(payloadTexts[0] ?? '', /\nMARCUS: The analyst answers with context\./);
+    assert.doesNotMatch(payloadTexts[0] ?? '', /^INTRO:/);
+    assert.doesNotMatch(payloadTexts[0] ?? '', /\nSEGMENT 1:/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('Vertex Gemini TTS final audio provider chunks scripts to the two-speaker request limit', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'podcast-forge-vertex-chunked-'));
   const payloads: Record<string, unknown>[] = [];
@@ -481,6 +596,234 @@ test('Vertex Gemini TTS final audio provider does not expose credential paths in
     } else {
       process.env[envNames.path] = previousPath;
     }
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('Vertex Gemini TTS final audio provider adds chunk metadata to timeout failures', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'podcast-forge-vertex-timeout-metadata-'));
+  const provider = createVertexGeminiTtsFinalAudioProvider({
+    getAuthValue: async () => 'test-auth-value',
+    fetchImpl: async () => {
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    },
+    execFileImpl: async () => {
+      throw new Error('ffmpeg should not run after provider timeout');
+    },
+  });
+
+  try {
+    const context = productionContext(dir);
+    await assert.rejects(
+      () => provider.generateFinalAudio({
+        ...context,
+        show: {
+          ...context.show,
+          cast: [
+            { name: 'DAVID', role: 'host', voice: 'Orus' },
+            { name: 'MARCUS', role: 'analyst', voice: 'Charon' },
+            { name: 'INGRID', role: 'correspondent', voice: 'Leda' },
+          ],
+        },
+        revision: {
+          ...context.revision,
+          body: ['DAVID: First chunk.', 'MARCUS: First chunk too.', 'INGRID: Second chunk times out.'].join('\n'),
+          speakers: ['DAVID', 'MARCUS', 'INGRID'],
+        },
+        production: {
+          localAssetDir: dir,
+          ttsProvider: 'vertex-gemini-tts',
+          vertexProjectId: 'test-project',
+          vertexTtsTimeoutMs: 123,
+        },
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /timed out after 123ms while rendering chunk 1\/2/);
+        const metadata = (error as Error & { productionMetadata?: Record<string, unknown> }).productionMetadata;
+        assert.equal(metadata?.provider, 'vertex-gemini-tts');
+        assert.equal(metadata?.stage, 'vertex-tts-request');
+        assert.equal(metadata?.chunkIndex, 0);
+        assert.equal(metadata?.chunkNumber, 1);
+        assert.equal(metadata?.chunkCount, 2);
+        assert.equal(metadata?.timeoutMs, 123);
+        assert.equal(metadata?.retryable, true);
+        assert.deepEqual(metadata?.speakers, ['DAVID', 'MARCUS']);
+        assert.equal(metadata?.endpoint, 'https://us-central1-aiplatform.googleapis.com');
+        assert.ok(typeof metadata?.elapsedMs === 'number');
+        return true;
+      },
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('Vertex Gemini TTS final audio provider resumes final audio from completed chunk artifacts', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'podcast-forge-vertex-resume-chunks-'));
+  const context = productionContext(dir);
+  const body = [
+    'DAVID: First chunk starts here.',
+    'MARCUS: First chunk continues here.',
+    'INGRID: Second chunk should be retried after a timeout.',
+  ].join('\n');
+  const resumableContext = {
+    ...context,
+    show: {
+      ...context.show,
+      cast: [
+        { name: 'DAVID', role: 'host', voice: 'Orus' },
+        { name: 'MARCUS', role: 'analyst', voice: 'Charon' },
+        { name: 'INGRID', role: 'correspondent', voice: 'Leda' },
+      ],
+    },
+    revision: {
+      ...context.revision,
+      body,
+      speakers: ['DAVID', 'MARCUS', 'INGRID'],
+    },
+    production: {
+      localAssetDir: dir,
+      ttsProvider: 'vertex-gemini-tts',
+      vertexProjectId: 'test-project',
+      vertexTtsTimeoutMs: 500,
+    },
+  };
+  const chunkOnePcm = Buffer.from([1, 0, 2, 0]);
+  const chunkTwoPcm = Buffer.from([3, 0, 4, 0]);
+  let firstAttemptCalls = 0;
+  const firstAttemptProvider = createVertexGeminiTtsFinalAudioProvider({
+    getAuthValue: async () => 'test-auth-value',
+    fetchImpl: async () => {
+      firstAttemptCalls += 1;
+      if (firstAttemptCalls === 2) {
+        throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+      }
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;rate=24000', data: chunkOnePcm.toString('base64') } }] } }],
+      }), { status: 200 });
+    },
+    execFileImpl: async () => {
+      throw new Error('ffmpeg should not run until all chunks are available');
+    },
+  });
+
+  try {
+    await assert.rejects(
+      () => firstAttemptProvider.generateFinalAudio(resumableContext),
+      /chunk 2\/2/,
+    );
+    assert.equal(firstAttemptCalls, 2);
+
+    let retryCalls = 0;
+    const retryProvider = createVertexGeminiTtsFinalAudioProvider({
+      getAuthValue: async () => 'test-auth-value',
+      fetchImpl: async () => {
+        retryCalls += 1;
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;rate=24000', data: chunkTwoPcm.toString('base64') } }] } }],
+        }), { status: 200 });
+      },
+      execFileImpl: async (_file, args) => {
+        await writeFile(args.at(-1) ?? '', Buffer.from('resumed-final-mp3'));
+      },
+    });
+
+    const generated = await retryProvider.generateFinalAudio(resumableContext);
+    const requests = generated.metadata?.requests as Array<Record<string, unknown>>;
+    assert.equal(retryCalls, 1, 'retry should reuse the completed first chunk instead of calling Vertex again');
+    assert.equal(generated.metadata?.chunkCount, 2);
+    assert.equal(generated.metadata?.resumedChunkCount, 1);
+    assert.equal(generated.metadata?.renderedChunkCount, 1);
+    assert.equal(requests[0]?.cacheStatus, 'reused');
+    assert.equal(requests[1]?.cacheStatus, 'rendered');
+    assert.match(String(requests[0]?.objectKey), /audio-final-chunks\/revision-1\/chunk-0001\.pcm$/);
+    assert.equal(generated.byteSize, 'resumed-final-mp3'.length);
+
+    let endpointChangedCalls = 0;
+    const endpointChangedProvider = createVertexGeminiTtsFinalAudioProvider({
+      getAuthValue: async () => 'test-auth-value',
+      fetchImpl: async () => {
+        endpointChangedCalls += 1;
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;rate=24000', data: chunkTwoPcm.toString('base64') } }] } }],
+        }), { status: 200 });
+      },
+      execFileImpl: async (_file, args) => {
+        await writeFile(args.at(-1) ?? '', Buffer.from('endpoint-changed-final-mp3'));
+      },
+    });
+    const endpointChanged = await endpointChangedProvider.generateFinalAudio({
+      ...resumableContext,
+      production: {
+        ...resumableContext.production,
+        vertexTtsEndpoint: 'https://custom-tts.example.test/v1/models/test-tts:generateContent',
+      },
+    });
+    const endpointChangedRequests = endpointChanged.metadata?.requests as Array<Record<string, unknown>>;
+    assert.equal(endpointChangedCalls, 2, 'endpoint changes should not reuse stale cached PCM chunks');
+    assert.deepEqual(endpointChangedRequests.map((request) => request.cacheStatus), ['rendered', 'rendered']);
+
+    let configChangedCalls = 0;
+    const configChangedProvider = createVertexGeminiTtsFinalAudioProvider({
+      getAuthValue: async () => 'test-auth-value',
+      fetchImpl: async () => {
+        configChangedCalls += 1;
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;rate=24000', data: chunkTwoPcm.toString('base64') } }] } }],
+        }), { status: 200 });
+      },
+      execFileImpl: async (_file, args) => {
+        await writeFile(args.at(-1) ?? '', Buffer.from('config-changed-final-mp3'));
+      },
+    });
+    const configChanged = await configChangedProvider.generateFinalAudio({
+      ...resumableContext,
+      show: {
+        ...resumableContext.show,
+        cast: resumableContext.show.cast.map((member) => member.name === 'DAVID' ? { ...member, voice: 'Aoede' } : member),
+      },
+    });
+    const configChangedRequests = configChanged.metadata?.requests as Array<Record<string, unknown>>;
+    assert.equal(configChangedCalls, 2, 'voice/config changes should not reuse stale cached PCM chunks');
+    assert.deepEqual(configChangedRequests.map((request) => request.cacheStatus), ['rendered', 'rendered']);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('Vertex Gemini TTS final audio provider adds chunk metadata to HTTP failures', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'podcast-forge-vertex-http-metadata-'));
+  const provider = createVertexGeminiTtsFinalAudioProvider({
+    getAuthValue: async () => 'test-auth-value',
+    fetchImpl: async () => new Response(JSON.stringify({ error: { message: 'quota' } }), { status: 429 }),
+    execFileImpl: async () => {
+      throw new Error('ffmpeg should not run after provider HTTP failure');
+    },
+  });
+
+  try {
+    await assert.rejects(
+      () => provider.generateFinalAudio({
+        ...productionContext(dir),
+        production: {
+          localAssetDir: dir,
+          ttsProvider: 'vertex-gemini-tts',
+          vertexProjectId: 'test-project',
+        },
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /HTTP 429 while rendering chunk 1\/1/);
+        const metadata = (error as Error & { productionMetadata?: Record<string, unknown> }).productionMetadata;
+        assert.equal(metadata?.httpStatus, 429);
+        assert.equal(metadata?.retryable, true);
+        assert.equal(metadata?.chunkNumber, 1);
+        assert.equal(metadata?.chunkCount, 1);
+        return true;
+      },
+    );
+  } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });

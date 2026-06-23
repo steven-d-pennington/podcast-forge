@@ -12,10 +12,34 @@ import {
 } from './loader.js';
 
 describe('config loader', () => {
-  it('validates the bundled example config', async () => {
+  it('validates the bundled example config with topic-based source profiles', async () => {
     const result = await loadConfigFromFile(EXAMPLE_CONFIG_PATH);
 
     assert.equal(result.config.show.slug, 'the-synthetic-lens');
+    assert.equal(result.config.sources.length, 6);
+
+    const byCategory = new Map(result.config.sources.map((source) => [source.category, source]));
+    for (const category of ['ai-news', 'politics-policy', 'world-affairs', 'markets-finance', 'data-research', 'breaking-news']) {
+      assert.ok(byCategory.has(category), `expected bundled source category ${category}`);
+    }
+
+    const aiNews = byCategory.get('ai-news');
+    assert.equal(aiNews?.name, 'AI News');
+    assert.equal(aiNews?.type, 'zai-web');
+    assert.ok(aiNews?.queries?.some((query) => query.includes('OpenAI Anthropic Google DeepMind')));
+    assert.ok(aiNews?.includeDomains?.includes('reuters.com'));
+    assert.ok(aiNews?.includeDomains?.includes('apnews.com'));
+    assert.ok(aiNews?.includeDomains?.includes('techcrunch.com'));
+
+    const politics = byCategory.get('politics-policy');
+    assert.ok(politics?.includeDomains?.includes('whitehouse.gov'));
+    assert.ok(politics?.includeDomains?.includes('federalregister.gov'));
+    assert.ok(politics?.includeDomains?.includes('justice.gov'));
+
+    const worldAffairs = byCategory.get('world-affairs');
+    assert.ok(worldAffairs?.includeDomains?.includes('bbc.com'));
+    assert.ok(worldAffairs?.includeDomains?.includes('aljazeera.com'));
+    assert.ok(worldAffairs?.includeDomains?.includes('dw.com'));
   });
 
   it('returns validation errors for schema-invalid configs', async () => {

@@ -14,6 +14,7 @@ import {
   extractedClaimsSchema,
   integrityReviewResultSchema,
   PROMPT_OUTPUT_SCHEMAS,
+  researchSynthesisSchema,
   scriptGenerationResultSchema,
   scriptRevisionResultSchema,
 } from './schemas.js';
@@ -185,6 +186,10 @@ describe('prompt output schemas', () => {
           'DeepSeek released V4 large language model.',
           'The release highlights U.S.-China AI competition.',
         ],
+      }, {
+        line: 'DAVID: This sourced line has no direct claim mapping.',
+        claimId: null,
+        sourceDocumentIds: ['source-1'],
       }],
       warnings: [],
     });
@@ -193,6 +198,9 @@ describe('prompt output schemas', () => {
     assert.deepEqual(result.citationMap, [{
       line: 'DeepSeek released V4 large language model. The release highlights U.S.-China AI competition.',
       sourceDocumentIds: [],
+    }, {
+      line: 'DAVID: This sourced line has no direct claim mapping.',
+      sourceDocumentIds: ['source-1'],
     }]);
   });
 
@@ -311,6 +319,140 @@ describe('prompt output schemas', () => {
     }), ZodError);
   });
 
+  it('normalizes model-emitted extracted claim aliases before strict validation', () => {
+    const result = extractedClaimsSchema.parse({
+      claims: [{
+        claim: 'Families of Canadian school shooting victims sued OpenAI.',
+        claimType: 'factual',
+        confidence: 'medium_confidence',
+        sourceDocumentId: 'doc-1',
+        url: 'https://example.com/lawsuit',
+        uncertainty_label: 'medium',
+        source_urls: ['https://example.com/lawsuit'],
+        source_document_ids: ['doc-1'],
+      }],
+      warnings: [],
+    });
+
+    assert.deepEqual(result.claims, [{
+      id: 'claim-1',
+      text: 'Families of Canadian school shooting victims sued OpenAI.',
+      claimType: 'fact',
+      confidence: 'medium',
+      sourceDocumentIds: ['doc-1'],
+      citations: [{ sourceDocumentId: 'doc-1', url: 'https://example.com/lawsuit' }],
+    }]);
+  });
+
+  it('describes nested extracted claim arrays so JSON-mode models avoid alias-only claims', () => {
+    const properties = PROMPT_OUTPUT_SCHEMAS.extracted_claims.schemaHint.properties as Record<string, unknown>;
+    const claims = properties.claims as { items?: { properties?: Record<string, unknown>; required?: string[] } };
+    const claimProperties = claims.items?.properties ?? {};
+    const citations = claimProperties.citations as { items?: { properties?: Record<string, unknown> } };
+
+    assert.deepEqual(claims.items?.required, ['id', 'text', 'claimType', 'confidence', 'sourceDocumentIds', 'citations']);
+    for (const expected of ['id', 'text', 'claimType', 'confidence', 'sourceDocumentIds', 'citations']) {
+      assert.ok(expected in claimProperties, `extracted claim schema hint should describe ${expected}`);
+    }
+    assert.ok(citations.items?.properties?.sourceDocumentId, 'citation item should describe sourceDocumentId');
+    assert.ok(citations.items?.properties?.url, 'citation item should describe url');
+  });
+
+  it('normalizes model-emitted research synthesis claims without citation arrays', () => {
+    const result = researchSynthesisSchema.parse({
+      title: 'AI Liability and the Duty to Warn',
+      summary: 'Families filed lawsuits after a school shooting, raising questions about AI safety duties.',
+      editorialAngle: 'Legal accountability for AI systems in real-world violence.',
+      knownFacts: ['Families filed lawsuits against OpenAI.'],
+      openQuestions: ['What duty-to-warn standard applies?'],
+      sourceDocumentIds: ['doc-1', 'doc-2'],
+      claims: [{
+        text: 'Families of Canadian school shooting victims sued OpenAI.',
+        claimType: 'factual',
+        supportLevel: 'high',
+        sourceDocumentIds: ['doc-1'],
+      }],
+      warnings: [],
+    });
+
+    assert.deepEqual(result.claims, [{
+      id: 'claim-1',
+      text: 'Families of Canadian school shooting victims sued OpenAI.',
+      claimType: 'fact',
+      confidence: 'high',
+      sourceDocumentIds: ['doc-1'],
+      citations: [{ sourceDocumentId: 'doc-1' }],
+    }]);
+  });
+
+  it('does not treat evidence support levels as confidence values', () => {
+    const result = researchSynthesisSchema.parse({
+      title: 'AI Liability and the Duty to Warn',
+      summary: 'Families filed lawsuits after a school shooting, raising questions about AI safety duties.',
+      knownFacts: ['Families filed lawsuits against OpenAI.'],
+      openQuestions: ['What duty-to-warn standard applies?'],
+      sourceDocumentIds: ['doc-1'],
+      claims: [{
+        text: 'The claim is corroborated by multiple source documents.',
+        claimType: 'fact',
+        supportLevel: 'corroborated',
+        sourceDocumentIds: ['doc-1'],
+      }],
+      warnings: [],
+    });
+
+    assert.equal(result.claims[0].confidence, 'medium');
+  });
+
+  it('normalizes model-emitted warnings with null sourceDocumentId', () => {
+    const result = researchSynthesisSchema.parse({
+      title: 'AI Liability and the Duty to Warn',
+      summary: 'Families filed lawsuits after a school shooting, raising questions about AI safety duties.',
+      known_facts: ['Families filed lawsuits against OpenAI.'],
+      open_questions: ['What duty-to-warn standard applies?'],
+      source_document_ids: ['doc-1'],
+      claims: [{
+        text: 'Families of Canadian school shooting victims sued OpenAI.',
+        claimType: 'factual',
+        supportLevel: 'high',
+        source_document_ids: ['doc-1'],
+        citations: [{ source_document_id: 'doc-1', extraModelNote: 'drop this alias-only noise' }],
+      }],
+      warnings: [{
+        code: 'limited_sources',
+        severity: 'warning',
+        message: 'Only one source is available.',
+        source_document_id: null,
+        extraModelNote: 'This alias should not trip strict schema validation.',
+      }],
+      extraModelNote: 'This root alias should not trip strict schema validation.',
+    });
+
+    assert.deepEqual(result.knownFacts, ['Families filed lawsuits against OpenAI.']);
+    assert.deepEqual(result.openQuestions, ['What duty-to-warn standard applies?']);
+    assert.deepEqual(result.sourceDocumentIds, ['doc-1']);
+    assert.deepEqual(result.claims[0].citations, [{ sourceDocumentId: 'doc-1' }]);
+    assert.deepEqual(result.warnings, [{
+      code: 'limited_sources',
+      severity: 'warning',
+      message: 'Only one source is available.',
+      sourceDocumentId: undefined,
+    }]);
+  });
+
+  it('describes nested research synthesis arrays so JSON-mode models emit canonical claims', () => {
+    const properties = PROMPT_OUTPUT_SCHEMAS.research_synthesis.schemaHint.properties as Record<string, unknown>;
+    const knownFacts = properties.knownFacts as { items?: Record<string, unknown> };
+    const claims = properties.claims as { items?: { properties?: Record<string, unknown>; required?: string[] } };
+    const claimProperties = claims.items?.properties ?? {};
+    const citations = claimProperties.citations as { items?: { properties?: Record<string, unknown> } };
+
+    assert.deepEqual(knownFacts.items, { type: 'string' });
+    assert.deepEqual(claims.items?.required, ['id', 'text', 'claimType', 'confidence', 'sourceDocumentIds', 'citations']);
+    assert.ok(citations.items?.properties?.sourceDocumentId, 'synthesis citation item should describe sourceDocumentId');
+    assert.ok(citations.items?.properties?.url, 'synthesis citation item should describe url');
+  });
+
   it('validates structured integrity review output', () => {
     const result = integrityReviewResultSchema.parse({
       verdict: 'FAIL',
@@ -347,12 +489,16 @@ describe('prompt output schemas', () => {
       claimIssues: [],
       missingCitations: [{
         claim: 'Several high-stakes claims lack primary source documentation.',
+        issue: 'The cited line still needs primary source documentation.',
         detail: 'Add primary source links before production.',
+        extraModelNote: 'This alias should not trip strict schema validation.',
       }],
       unsupportedCertainty: [],
       attributionWarnings: [{
         location: 'MARCUS: The release changes the global AI race.',
+        issue: 'Attribute this as analysis rather than settled fact.',
         detail: 'Attribute this as analysis rather than settled fact.',
+        claim: 'The release changes the global AI race.',
       }],
       balanceWarnings: [{
         location: 'INGRID: Regulators are moving quickly.',
@@ -364,7 +510,7 @@ describe('prompt output schemas', () => {
 
     assert.deepEqual(result.missingCitations, [{
       scriptExcerpt: 'Several high-stakes claims lack primary source documentation.',
-      issue: 'Add primary source links before production.',
+      issue: 'The cited line still needs primary source documentation.',
       severity: 'warning',
     }]);
     assert.deepEqual(result.attributionWarnings, [{
@@ -378,6 +524,30 @@ describe('prompt output schemas', () => {
       severity: 'warning',
     }]);
     assert.deepEqual(result.suggestedFixes, ['Add an inline citation map and primary source caveat.']);
+  });
+
+  it('preserves explicit integrity warning script excerpts when location aliases are also present', () => {
+    const result = integrityReviewResultSchema.parse({
+      verdict: 'PASS_WITH_NOTES',
+      summary: 'Accurate but needs editorial review for high-stakes claims.',
+      claimIssues: [],
+      missingCitations: [],
+      unsupportedCertainty: [],
+      attributionWarnings: [{
+        scriptExcerpt: 'MARCUS: The actual claim that needs attribution.',
+        location: 'Segment 2, line 8',
+        issue: 'Attribute this as analysis rather than settled fact.',
+      }],
+      balanceWarnings: [],
+      biasSensationalismWarnings: [],
+      suggestedFixes: [],
+    });
+
+    assert.deepEqual(result.attributionWarnings, [{
+      scriptExcerpt: 'MARCUS: The actual claim that needs attribution.',
+      issue: 'Attribute this as analysis rather than settled fact.',
+      severity: 'warning',
+    }]);
   });
 
   it('describes nested integrity review arrays so JSON-mode models avoid alias fields', () => {

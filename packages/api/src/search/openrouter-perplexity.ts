@@ -79,34 +79,72 @@ function resolveTopN(query: SourceQueryRecord, profile: SourceProfileRecord): nu
 function recencyFor(query: SourceQueryRecord, profile: SourceProfileRecord): string | undefined {
   const value = asString(option(query, profile, 'search_recency_filter')) ?? query.freshness ?? profile.freshness ?? undefined;
   switch (value) {
-    case 'pd': return 'day';
-    case 'pw': return 'week';
-    case 'pm': return 'month';
-    case 'py': return 'year';
+    case 'pd':
+    case 'day':
+    case 'oneDay':
+      return 'day';
+    case 'pw':
+    case 'week':
+    case 'oneWeek':
+      return 'week';
+    case 'pm':
+    case 'month':
+    case 'oneMonth':
+      return 'month';
+    case 'py':
+    case 'year':
+    case 'oneYear':
+      return 'year';
     default: return value;
   }
 }
 
-function normalizeDeniedDomain(domain: string): string | undefined {
+function normalizeDomain(domain: string): string | undefined {
   const trimmed = domain.trim();
   if (!trimmed) return undefined;
-  const denied = trimmed.startsWith('-') ? trimmed.slice(1) : trimmed;
-  const normalized = denied.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]?.toLowerCase();
+  const normalized = trimmed.replace(/^-/, '').replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]?.toLowerCase();
+  return normalized || undefined;
+}
+
+function normalizeDeniedDomain(domain: string): string | undefined {
+  const normalized = normalizeDomain(domain);
   return normalized ? `-${normalized}` : undefined;
 }
 
-function searchDomainFilterFor(query: SourceQueryRecord, profile: SourceProfileRecord): string[] {
+function normalizeAllowedDomain(domain: string): string | undefined {
+  return normalizeDomain(domain);
+}
+
+function configuredSearchDomainFilterFor(query: SourceQueryRecord, profile: SourceProfileRecord): string[] {
   const configured = option(query, profile, 'search_domain_filter');
   const configuredArray = asStringArray(configured);
-  if (configuredArray.length > 0) return configuredArray;
-  const configuredString = asString(configured);
-  return configuredString ? [configuredString] : [];
+  const configuredValues = configuredArray.length > 0 ? configuredArray : (asString(configured) ? [asString(configured) as string] : []);
+  return configuredValues
+    .map(normalizeDeniedDomain)
+    .filter((domain): domain is string => Boolean(domain));
+}
+
+function includeDomainsFor(query: SourceQueryRecord, profile: SourceProfileRecord): string[] {
+  return [...new Set([...profile.includeDomains, ...query.includeDomains]
+    .map(normalizeAllowedDomain)
+    .filter((domain): domain is string => Boolean(domain)))]
+    .slice(0, 10);
 }
 
 function denyDomainsFor(query: SourceQueryRecord, profile: SourceProfileRecord): string[] {
-  const configured = searchDomainFilterFor(query, profile);
-  const domains = configured.length > 0 ? configured : [...DEFAULT_DENY_DOMAINS, ...profile.excludeDomains, ...query.excludeDomains];
-  return [...new Set(domains.map(normalizeDeniedDomain).filter((domain): domain is string => Boolean(domain)))];
+  return [...new Set([...DEFAULT_DENY_DOMAINS, ...profile.excludeDomains, ...query.excludeDomains]
+    .map(normalizeDeniedDomain)
+    .filter((domain): domain is string => Boolean(domain)))];
+}
+
+function searchDomainFilterFor(query: SourceQueryRecord, profile: SourceProfileRecord): string[] {
+  const configured = configuredSearchDomainFilterFor(query, profile);
+  if (configured.length > 0) return configured;
+
+  const included = includeDomainsFor(query, profile);
+  if (included.length > 0) return included;
+
+  return denyDomainsFor(query, profile);
 }
 
 function parsePublishedAt(value: unknown): Date | null {
@@ -132,7 +170,14 @@ function isHomepage(value: string): boolean {
 function isDeniedUrl(value: string, denied: string[]): boolean {
   const host = hostname(value);
   if (!host) return false;
+  const allowDomains = denied
+    .filter((domain) => !domain.startsWith('-'))
+    .map((domain) => domain.replace(/^www\./, '').toLowerCase());
+  if (allowDomains.length > 0) {
+    return !allowDomains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  }
   return denied
+    .filter((domain) => domain.startsWith('-'))
     .map((domain) => domain.replace(/^-/, '').replace(/^www\./, '').toLowerCase())
     .some((domain) => host === domain || host.endsWith(`.${domain}`));
 }
@@ -264,7 +309,7 @@ export async function searchOpenRouterPerplexity(options: OpenRouterPerplexitySe
   for (const query of options.queries) {
     const topN = resolveTopN(query, options.profile);
     const recency = recencyFor(query, options.profile);
-    const domainFilter = denyDomainsFor(query, options.profile);
+    const domainFilter = searchDomainFilterFor(query, options.profile);
     const body: Record<string, unknown> = {
       model,
       messages: [{ role: 'user', content: buildPrompt(query, options.profile, topN) }],

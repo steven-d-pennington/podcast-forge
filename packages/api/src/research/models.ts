@@ -4,6 +4,7 @@ import { PROMPT_OUTPUT_SCHEMAS, type ExtractedClaimsResult, type ResearchSynthes
 import { renderPromptTemplate } from '../prompts/renderer.js';
 import type { PromptRegistry } from '../prompts/types.js';
 import type { StoryCandidateRecord } from '../search/store.js';
+import { safeModelFailureDetails, sanitizedModelFailureMessage } from './model-failure.js';
 import type { ResearchClaim, ResearchWarning, SourceDocumentRecord } from './store.js';
 
 export interface ResearchModelServices {
@@ -85,7 +86,7 @@ function warningFromModel(input: {
     id: input.id,
     code: input.code,
     severity: 'warning',
-    message: input.message,
+    message: sanitizedModelFailureMessage(input.code, input.message),
     sourceDocumentId: input.sourceDocumentId,
     metadata: input.metadata,
   };
@@ -200,6 +201,7 @@ export function createLlmResearchModelServices(options: CreateLlmResearchModelSe
             code: 'MODEL_CLAIM_EXTRACTION_FAILED',
             message: error instanceof Error ? error.message : 'Claim extraction model failed.',
             sourceDocumentId: document.id,
+            metadata: safeModelFailureDetails(error, 'claim_extractor', document.id),
           }));
         }
       }
@@ -266,6 +268,7 @@ export function createLlmResearchModelServices(options: CreateLlmResearchModelSe
             id: 'MODEL_RESEARCH_SYNTHESIS_FAILED',
             code: 'MODEL_RESEARCH_SYNTHESIS_FAILED',
             message: error instanceof Error ? error.message : 'Research synthesis model failed.',
+            metadata: safeModelFailureDetails(error, 'research_synthesizer'),
           })],
           invocations: [],
         };

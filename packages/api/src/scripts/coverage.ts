@@ -207,6 +207,15 @@ function claimWarningFinding(warning: ResearchWarning, claim: ResearchClaim): Cl
   });
 }
 
+function packetReadinessStatus(packet: ResearchPacketRecord): string {
+  const readiness = asObject(packet.content.readiness);
+  return asString(readiness.status) ?? packet.status;
+}
+
+function isSingleSourceDevelopingPacket(packet: ResearchPacketRecord): boolean {
+  return packet.status === 'single_source_breaking' || packetReadinessStatus(packet) === 'single_source_breaking';
+}
+
 function claimFindings(
   packet: ResearchPacketRecord,
   claim: ResearchClaim,
@@ -233,7 +242,7 @@ function claimFindings(
     }));
   }
 
-  if (sourceCount === null || sourceCount < 2) {
+  if ((sourceCount === null || sourceCount < 2) && !isSingleSourceDevelopingPacket(packet)) {
     findings.push(finding({
       category: 'claim',
       status: 'needs_attention',
@@ -434,8 +443,7 @@ function provenanceFindings(revision: ScriptRevisionRecord): ClaimCoverageFindin
 
 function researchPacketFindings(packet: ResearchPacketRecord): ClaimCoverageFinding[] {
   const findings: ClaimCoverageFinding[] = [];
-  const readiness = asObject(packet.content.readiness);
-  const readinessStatus = asString(readiness.status) ?? packet.status;
+  const readinessStatus = packetReadinessStatus(packet);
 
   if (packet.status === 'blocked' || readinessStatus === 'blocked') {
     findings.push(finding({
@@ -448,7 +456,21 @@ function researchPacketFindings(packet: ResearchPacketRecord): ClaimCoverageFind
     }));
   }
 
+  if (isSingleSourceDevelopingPacket(packet)) {
+    findings.push(finding({
+      category: 'research',
+      status: 'needs_attention',
+      severity: 'warning',
+      code: 'SINGLE_SOURCE_ATTRIBUTION_REQUIRED',
+      message: 'This is a single-source developing story; individual cited claims can be covered, but the draft must keep explicit attribution visible.',
+      nextAction: 'Use source-attributed language throughout and fetch independent corroboration before upgrading the story to fully corroborated.',
+    }));
+  }
+
   for (const warning of packet.warnings.filter((item) => !item.override)) {
+    if (isSingleSourceDevelopingPacket(packet) && warning.code === 'SINGLE_SOURCE_BREAKING_NEWS') {
+      continue;
+    }
     const metadata = asObject(warning.metadata);
     if (asString(metadata.claimId) || warning.sourceDocumentId || warning.url) {
       continue;
@@ -580,7 +602,11 @@ function unknownFindings(packet: ResearchPacketRecord, citationMap: CitationMapE
   return findings;
 }
 
-function headlineFor(status: ClaimCoverageStatus, counts: ClaimCoverageSummary['counts']): string {
+function headlineFor(status: ClaimCoverageStatus, counts: ClaimCoverageSummary['counts'], findings: ClaimCoverageFinding[] = []): string {
+  if (status === 'needs_attention' && findings.some((item) => item.code === 'SINGLE_SOURCE_ATTRIBUTION_REQUIRED')) {
+    return 'This single-source developing story has cited claim coverage, but needs explicit attribution and corroboration review before relying on the draft.';
+  }
+
   if (status === 'blocking') {
     return `${counts.blockingFindings} blocking coverage finding${counts.blockingFindings === 1 ? '' : 's'} must be resolved or explicitly overridden before production.`;
   }
@@ -638,7 +664,7 @@ export function buildClaimCoverageSummary(
 
   return {
     status,
-    headline: headlineFor(status, counts),
+    headline: headlineFor(status, counts, allFindings),
     counts,
     blockers,
     needsAttention,
